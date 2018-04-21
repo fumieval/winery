@@ -1,0 +1,32 @@
+name:                winery
+version:             "0"
+github:              "fumieval/winery"
+license:             BSD3
+author:              "Fumiaki Kinoshita"
+maintainer:          "fumiexcel@gmail.com"
+copyright:           "Copyright (c) 2017 Fumiaki Kinoshita"
+
+extra-source-files:
+- README.md
+- ChangeLog.md
+
+# Metadata used when publishing your package
+# synopsis:            Short description of your package
+# category:            Data
+
+# To avoid duplicated efforts in documentation and dealing with the
+# complications of embedding Haddock markup inside cabal files, it is
+# common to point users to the README.md file.
+description:         Please see the README on Github at <https://github.com/fumieval/winery#readme>
+
+dependencies:
+- base >= 4.7 && < 5
+- bytestring
+- containers
+- unordered-containers
+- transformers
+- text
+
+library:
+  source-dirs: src
+  ghc-options: -Wall
