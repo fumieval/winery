@@ -3,13 +3,16 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE DefaultSignatures #-}
 module Data.Winery
   ( Schema(..)
   , Serialise(..)
   , serialise
   , deserialise
+  , extractField
   )where
 
 import Control.Monad
@@ -22,12 +25,15 @@ import qualified Data.ByteString.Unsafe as B
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Builder as BB
 import Data.Bits
+import Data.Extensible
+import Data.Functor.Identity
 import Data.Proxy
 import Data.Int
 import Data.Monoid
 import Data.Word
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import GHC.TypeLits
 import Unsafe.Coerce
 
 data Schema = SSchema !Word8
@@ -49,6 +55,7 @@ data Schema = SSchema !Word8
   | SList Schema
   | SProduct [Schema]
   | SSum [Schema]
+  | SRecord [(String, Schema)]
   deriving (Show, Read, Eq)
 
 type Extractor = State B.ByteString
@@ -252,6 +259,24 @@ instance Serialise a => Serialise [a] where
         replicateM n getItem
     s -> Left $ "Expected Schema, but got " ++ show s
 
+instance Serialise a => Serialise (Identity a) where
+  schema _ = schema (Proxy :: Proxy a)
+  toEncoding = toEncoding . runIdentity
+  getExtractor = fmap Identity <$> getExtractor
+
+extractField :: Serialise a => String -> Decoder (Extractor a)
+extractField name = ReaderT $ \case
+  SRecord schs -> do
+    let schs' = [(k, (i, s)) | (i, (k, s)) <- zip [0..] schs]
+    case lookup name schs' of
+      Just (i, sch) -> do
+        m <- runReaderT getExtractor sch
+        return $ do
+          offsets <- (0:) <$> mapM (const decodeVarInt) schs
+          state $ \bs -> (evalState m $ B.drop (offsets !! i) bs, B.drop (last offsets) bs)
+      Nothing -> Left $ "Schema not found for " ++ name
+  s -> Left $ "Expected Record, but got " ++ show s
+
 instance (Serialise a, Serialise b) => Serialise (a, b) where
   schema _ = SProduct [schema (Proxy :: Proxy a), schema (Proxy :: Proxy b)]
   toEncoding (a, b) = encodePair (toEncoding a) (toEncoding b)
@@ -291,3 +316,29 @@ instance (Serialise a, Serialise b) => Serialise (Either a b) where
           0 -> getA
           _ -> getB
     s -> Left $ "Expected Sum [a, b], but got " ++ show s
+
+proxyApp :: proxy f -> proxy' x -> Proxy (f x)
+proxyApp _ _ = Proxy
+
+instance Forall (KeyValue KnownSymbol (Instance1 Serialise h)) xs => Serialise (RecordOf h xs) where
+  schema _ = SRecord $ henumerateFor
+    (Proxy :: Proxy (KeyValue KnownSymbol (Instance1 Serialise h))) (Proxy :: Proxy xs)
+    (\k -> (:) (symbolVal $ proxyAssocKey k, schema $ proxyApp (Proxy :: Proxy h) $ proxyAssocValue k)) []
+  toEncoding r = foldMap encodeVarInt offsets <> foldMap id ls where
+    offsets = drop 1 $ scanl (+) 0 $ map (getSum . fst) ls
+    ls = hfoldrWithIndexFor (Proxy :: Proxy (KeyValue KnownSymbol (Instance1 Serialise h)))
+      (\_ (Field v) -> (:) $ toEncoding v) [] r
+  getExtractor = ReaderT $ \case
+    SRecord schs -> do
+      let schs' = [(k, (i, s)) | (i, (k, s)) <- zip [0..] schs]
+      exs <- hgenerateFor (Proxy :: Proxy (KeyValue KnownSymbol (Instance1 Serialise h)))
+        (\k -> let name = symbolVal $ proxyAssocKey k in case lookup name schs' of
+          Just (i, sch) -> Field . Prod (Const' i) . Comp <$> runReaderT getExtractor sch
+          Nothing -> Left $ "Schema not found for " ++ name)
+        :: Either String (RecordOf (Prod (Const' Int) (Comp Extractor h)) xs)
+      return $ do
+        offsets <- (0:) <$> mapM (const decodeVarInt) schs
+        state $ \bs ->
+          (hmap (\(Field (Prod (Const' i) (Comp m))) -> Field $ evalState m (B.drop (offsets !! i) bs)) exs
+          , B.drop (last offsets) bs)
+    s -> Left $ "Expected Record, but got " ++ show s

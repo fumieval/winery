@@ -1,17 +1,16 @@
-{-# LANGUAGE DeriveGeneric, OverloadedStrings #-}
+{-# LANGUAGE DeriveGeneric, OverloadedStrings, OverloadedLabels, DataKinds, TypeOperators #-}
 import Data.ByteString (ByteString)
+import Data.Extensible
 import Data.Winery
 import Data.Proxy
 import GHC.Generics
 
-data Test = Test
-    { foo :: Int
-    , bar :: ByteString
-    , baz :: Double
-    } deriving (Show, Generic)
-instance Serialise Test
+type Test = Record ["foo" >: Int, "bar" >: ByteString, "baz" >: Double]
 
-def = Test 42 "bar" pi
+type Test' = Record ["bar" >: ByteString, "baz" >: Double, "foo" >: Int]
+
+def :: Test
+def = #foo @= 42 <: #bar @= "bar" <: #baz @= pi <: emptyRecord
 
 main :: IO ()
 main = do
@@ -19,4 +18,4 @@ main = do
   print sch
   let bs = serialise def
   print bs
-  print (deserialise sch bs :: Either String Test)
+  print (deserialise sch bs :: Either String Test')
