@@ -23,6 +23,7 @@ dependencies:
 - base >= 4.7 && < 5
 - bytestring
 - containers
+- extensible
 - unordered-containers
 - transformers
 - text
@@ -30,3 +31,10 @@ dependencies:
 library:
   source-dirs: src
   ghc-options: -Wall
+
+tests:
+  spec:
+    source-dirs: test
+    main: Spec.hs
+    dependencies:
+      - winery

@@ -1,4 +1,10 @@
-{-# LANGUAGE LambdaCase, ScopedTypeVariables #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE DefaultSignatures #-}
 module Data.Winery
   ( Schema(..)
   , Serialise(..)
@@ -7,7 +13,7 @@ module Data.Winery
   )where
 
 import Control.Monad
-import Control.Monad.Trans.State
+import Control.Monad.Trans.State.Strict
 import Control.Monad.Trans.Reader
 import Data.ByteString.Builder
 import qualified Data.ByteString as B
@@ -92,6 +98,11 @@ instance Serialise Schema where
     SSchema 0 -> Right $ read <$> BC.unpack <$> getBytes
     SSchema n -> Left $ "Unsupported schema: " ++ show n
     s -> Left $ "Expected Schema, but got " ++ show s
+
+instance Serialise () where
+  schema _ = SUnit
+  toEncoding = mempty
+  getExtractor = pure (pure ())
 
 instance Serialise Bool where
   schema _ = SBool
@@ -243,22 +254,28 @@ instance Serialise a => Serialise [a] where
 
 instance (Serialise a, Serialise b) => Serialise (a, b) where
   schema _ = SProduct [schema (Proxy :: Proxy a), schema (Proxy :: Proxy b)]
-  toEncoding (a, b) = encodeVarInt oa
-    <> encodeVarInt (oa + ob)
-    <> ea <> eb
-    where
-      ea@(Sum oa, _) = toEncoding a
-      eb@(Sum ob, _) = toEncoding b
-  getExtractor = ReaderT $ \case
-    SProduct [sa, sb] -> do
-      getA <- runReaderT getExtractor sa
-      getB <- runReaderT getExtractor sb
-      return $ do
-        offA <- decodeVarInt
-        offAB <- decodeVarInt
-        StateT $ \bs -> return
-          ((evalState getA bs, evalState getB (B.drop offA bs)), B.drop offAB bs)
-    s -> Left $ "Expected Product [a, b], but got " ++ show s
+  toEncoding (a, b) = encodePair (toEncoding a) (toEncoding b)
+  getExtractor = decodePair (,) getExtractor getExtractor
+
+encodePair :: Encoding -> Encoding -> Encoding
+encodePair ea@(Sum oa, _) eb@(Sum ob, _) = encodeVarInt oa
+  <> encodeVarInt (oa + ob)
+  <> ea <> eb
+
+decodePair :: (a -> b -> c)
+  -> Decoder (Extractor a)
+  -> Decoder (Extractor b)
+  -> Decoder (Extractor c)
+decodePair f extA extB = ReaderT $ \case
+  SProduct [sa, sb] -> do
+    getA <- runReaderT extA sa
+    getB <- runReaderT extB sb
+    return $ do
+      offA <- decodeVarInt
+      offAB <- decodeVarInt
+      StateT $ \bs -> return
+        (evalState getA bs `f` evalState getB (B.drop offA bs), B.drop offAB bs)
+  s -> Left $ "Expected Product [a, b], but got " ++ show s
 
 instance (Serialise a, Serialise b) => Serialise (Either a b) where
   schema _ = SSum [schema (Proxy :: Proxy a), schema (Proxy :: Proxy b)]
