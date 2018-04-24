@@ -59,7 +59,7 @@ data Schema = SSchema !Word8
   | SRecord [(String, Schema)]
   deriving (Show, Read, Eq)
 
-type Extractor = State B.ByteString
+type Decoder = State B.ByteString
 
 type Encoding = (Sum Int, Builder)
 
@@ -69,40 +69,40 @@ encodeVarInt n
   | otherwise = let (s, b) = encodeVarInt (shiftR n 7)
     in (1 + s, BB.word8 (setBit (fromIntegral n) 7) `mappend` b)
 
-getWord8 :: Extractor Word8
+getWord8 :: Decoder Word8
 getWord8 = StateT $ \bs -> case B.uncons bs of
   Nothing -> return (0, bs)
   Just (x, bs') -> return (x, bs')
 
-getBytes :: Extractor B.ByteString
+getBytes :: Decoder B.ByteString
 getBytes = do
   n <- decodeVarInt
   state $ B.splitAt n
 
-decodeVarInt :: (Num a, Bits a) => Extractor a
+decodeVarInt :: (Num a, Bits a) => Decoder a
 decodeVarInt = getWord8 >>= \case
   n | testBit n 7 -> do
       m <- decodeVarInt
       return $! shiftL m 7 .|. clearBit (fromIntegral n) 7
     | otherwise -> return $ fromIntegral n
 
-type Decoder = ReaderT Schema (Either String)
+type Plan = ReaderT Schema (Either String)
 
 class Serialise a where
   schema :: proxy a -> Schema
   toEncoding :: a -> Encoding
-  getExtractor :: Decoder (Extractor a)
+  getDecoder :: Plan (Decoder a)
 
 serialise :: Serialise a => a -> B.ByteString
 serialise = BL.toStrict . BB.toLazyByteString . snd . toEncoding
 
 deserialise :: Serialise a => Schema -> B.ByteString -> Either String a
-deserialise sch bs = flip evalState bs <$> runReaderT getExtractor sch
+deserialise sch bs = flip evalState bs <$> runReaderT getDecoder sch
 
 instance Serialise Schema where
   schema _ = SSchema 0
   toEncoding = toEncoding . BC.pack . show
-  getExtractor = ReaderT $ \case
+  getDecoder = ReaderT $ \case
     SSchema 0 -> Right $ read <$> BC.unpack <$> getBytes
     SSchema n -> Left $ "Unsupported schema: " ++ show n
     s -> Left $ "Expected Schema, but got " ++ show s
@@ -110,27 +110,27 @@ instance Serialise Schema where
 instance Serialise () where
   schema _ = SUnit
   toEncoding = mempty
-  getExtractor = pure (pure ())
+  getDecoder = pure (pure ())
 
 instance Serialise Bool where
   schema _ = SBool
   toEncoding False = (1, BB.word8 0)
   toEncoding True = (1, BB.word8 1)
-  getExtractor = ReaderT $ \case
+  getDecoder = ReaderT $ \case
     SBool -> Right $ (/=0) <$> getWord8
     s -> Left $ "Expected Bool, but got " ++ show s
 
 instance Serialise Word8 where
   schema _ = SWord8
   toEncoding x = (1, BB.word8 x)
-  getExtractor = ReaderT $ \case
+  getDecoder = ReaderT $ \case
     SWord8 -> Right getWord8
     s -> Left $ "Expected Word8, but got " ++ show s
 
 instance Serialise Word16 where
   schema _ = SWord16
   toEncoding x = (2, BB.word16BE x)
-  getExtractor = ReaderT $ \case
+  getDecoder = ReaderT $ \case
     SWord16 -> Right $ do
       a <- getWord8
       b <- getWord8
@@ -140,81 +140,81 @@ instance Serialise Word16 where
 instance Serialise Word32 where
   schema _ = SWord32
   toEncoding x = (4, BB.word32BE x)
-  getExtractor = ReaderT $ \case
+  getDecoder = ReaderT $ \case
     SWord32 -> Right $ getN 4 word32be
     s -> Left $ "Expected Word32, but got " ++ show s
 
 instance Serialise Word64 where
   schema _ = SWord64
   toEncoding x = (8, BB.word64BE x)
-  getExtractor = ReaderT $ \case
+  getDecoder = ReaderT $ \case
     SWord64 -> Right $ getN 8 word64be
     s -> Left $ "Expected Word64, but got " ++ show s
 
 instance Serialise Word where
   schema _ = SWord64
   toEncoding x = (8, BB.word64BE $ fromIntegral x)
-  getExtractor = ReaderT $ \case
+  getDecoder = ReaderT $ \case
     SWord64 -> Right $ fromIntegral <$> getN 8 word64be
     s -> Left $ "Expected Word64, but got " ++ show s
 
 instance Serialise Int8 where
   schema _ = SInt8
   toEncoding x = (1, BB.int8 x)
-  getExtractor = ReaderT $ \case
+  getDecoder = ReaderT $ \case
     SInt8 -> Right $ fromIntegral <$> getWord8
     s -> Left $ "Expected Int8, but got " ++ show s
 
 instance Serialise Int16 where
   schema _ = SInt16
   toEncoding x = (2, BB.int16BE x)
-  getExtractor = ReaderT $ \case
+  getDecoder = ReaderT $ \case
     SInt16 -> Right $ fromIntegral <$> getN 2 word16be
     s -> Left $ "Expected Int16, but got " ++ show s
 
 instance Serialise Int32 where
   schema _ = SInt32
   toEncoding x = (4, BB.int32BE x)
-  getExtractor = ReaderT $ \case
+  getDecoder = ReaderT $ \case
     SInt32 -> Right $ fromIntegral <$> getN 4 word32be
     s -> Left $ "Expected Int32, but got " ++ show s
 
 instance Serialise Int64 where
   schema _ = SInt64
   toEncoding x = (8, BB.int64BE x)
-  getExtractor = ReaderT $ \case
+  getDecoder = ReaderT $ \case
     SInt64 -> Right $ fromIntegral <$> getN 8 word64be
     s -> Left $ "Expected Int64, but got " ++ show s
 
 instance Serialise Int where
   schema _ = SInt64
   toEncoding x = (8, BB.int64BE $ fromIntegral x)
-  getExtractor = ReaderT $ \case
+  getDecoder = ReaderT $ \case
     SInt64 -> Right $ fromIntegral <$> getN 8 word64be
     s -> Left $ "Expected Int64, but got " ++ show s
 
 instance Serialise Float where
   schema _ = SFloat
   toEncoding x = (4, BB.word32BE $ unsafeCoerce x)
-  getExtractor = ReaderT $ \case
+  getDecoder = ReaderT $ \case
     SFloat -> Right $ unsafeCoerce <$> getN 4 word32be
     s -> Left $ "Expected Float, but got " ++ show s
 
 instance Serialise Double where
   schema _ = SDouble
   toEncoding x = (8, BB.word64BE $ unsafeCoerce x)
-  getExtractor = ReaderT $ \case
+  getDecoder = ReaderT $ \case
     SDouble -> Right $ unsafeCoerce <$> getN 8 word64be
     s -> Left $ "Expected Double, but got " ++ show s
 
 instance Serialise T.Text where
   schema _ = SText
   toEncoding = toEncoding . T.encodeUtf8
-  getExtractor = ReaderT $ \case
+  getDecoder = ReaderT $ \case
     SText -> Right $ T.decodeUtf8 <$> getBytes
     s -> Left $ "Expected Text, but got " ++ show s
 
-getN :: Int -> (B.ByteString -> a) -> Extractor a
+getN :: Int -> (B.ByteString -> a) -> Decoder a
 getN n k = state $ \bs -> let (b, r) = B.splitAt n bs in (k b, r)
 
 word16be :: B.ByteString -> Word16
@@ -244,7 +244,7 @@ instance Serialise B.ByteString where
   schema _ = SBytes
   toEncoding bs = encodeVarInt (B.length bs)
     <> (Sum $ B.length bs, BB.byteString bs)
-  getExtractor = ReaderT $ \case
+  getDecoder = ReaderT $ \case
     SBytes -> Right getBytes
     s -> Left $ "Expected SBytes, but got " ++ show s
 
@@ -252,9 +252,9 @@ instance Serialise a => Serialise [a] where
   schema _ = SList (schema (Proxy :: Proxy a))
   toEncoding xs = encodeVarInt (length xs)
     <> encodeMulti (map toEncoding xs)
-  getExtractor = ReaderT $ \case
+  getDecoder = ReaderT $ \case
     SList s -> do
-      getItem <- runReaderT getExtractor s
+      getItem <- runReaderT getDecoder s
       return $ do
         n <- decodeVarInt
         offsets <- replicateM n decodeVarInt
@@ -264,9 +264,9 @@ instance Serialise a => Serialise [a] where
 instance Serialise a => Serialise (Identity a) where
   schema _ = schema (Proxy :: Proxy a)
   toEncoding = toEncoding . runIdentity
-  getExtractor = fmap Identity <$> getExtractor
+  getDecoder = fmap Identity <$> getDecoder
 
-extractFieldWith :: Decoder (Extractor a) -> String -> Decoder (Extractor a)
+extractFieldWith :: Plan (Decoder a) -> String -> Plan (Decoder a)
 extractFieldWith g name = ReaderT $ \case
   SRecord schs -> do
     let schs' = [(k, (i, s)) | (i, (k, s)) <- zip [0..] schs]
@@ -282,7 +282,7 @@ extractFieldWith g name = ReaderT $ \case
 instance (Serialise a, Serialise b) => Serialise (a, b) where
   schema _ = SProduct [schema (Proxy :: Proxy a), schema (Proxy :: Proxy b)]
   toEncoding (a, b) = encodePair (toEncoding a) (toEncoding b)
-  getExtractor = decodePair (,) getExtractor getExtractor
+  getDecoder = decodePair (,) getDecoder getDecoder
 
 encodePair :: Encoding -> Encoding -> Encoding
 encodePair ea@(Sum oa, _) eb@(Sum ob, _) = encodeVarInt oa
@@ -290,9 +290,9 @@ encodePair ea@(Sum oa, _) eb@(Sum ob, _) = encodeVarInt oa
   <> ea <> eb
 
 decodePair :: (a -> b -> c)
-  -> Decoder (Extractor a)
-  -> Decoder (Extractor b)
-  -> Decoder (Extractor c)
+  -> Plan (Decoder a)
+  -> Plan (Decoder b)
+  -> Plan (Decoder c)
 decodePair f extA extB = ReaderT $ \case
   SProduct [sa, sb] -> do
     getA <- runReaderT extA sa
@@ -308,12 +308,12 @@ instance (Serialise a, Serialise b) => Serialise (Either a b) where
   schema _ = SSum [schema (Proxy :: Proxy a), schema (Proxy :: Proxy b)]
   toEncoding (Left a) = (1, BB.word8 0) <> toEncoding a
   toEncoding (Right b) = (1, BB.word8 1) <> toEncoding b
-  getExtractor = ReaderT $ \case
+  getDecoder = ReaderT $ \case
     SSum [sa, sb] -> do
-      getA <- runReaderT getExtractor sa
-      getB <- runReaderT getExtractor sb
+      getA <- runReaderT getDecoder sa
+      getB <- runReaderT getDecoder sb
       return $ do
-        t <- decodeVarInt :: Extractor Word8
+        t <- decodeVarInt :: Decoder Word8
         case t of
           0 -> getA
           _ -> getB
@@ -333,14 +333,14 @@ instance Forall (KeyValue KnownSymbol (Instance1 Serialise h)) xs => Serialise (
   toEncoding r = encodeMulti
       $ hfoldrWithIndexFor (Proxy :: Proxy (KeyValue KnownSymbol (Instance1 Serialise h)))
       (\_ (Field v) -> (:) $ toEncoding v) [] r
-  getExtractor = ReaderT $ \case
+  getDecoder = ReaderT $ \case
     SRecord schs -> do
       let schs' = [(k, (i, s)) | (i, (k, s)) <- zip [0..] schs]
       exs <- hgenerateFor (Proxy :: Proxy (KeyValue KnownSymbol (Instance1 Serialise h)))
         (\k -> let name = symbolVal $ proxyAssocKey k in case lookup name schs' of
-          Just (i, sch) -> Field . Prod (Const' i) . Comp <$> runReaderT getExtractor sch
+          Just (i, sch) -> Field . Prod (Const' i) . Comp <$> runReaderT getDecoder sch
           Nothing -> Left $ "Schema not found for " ++ name)
-        :: Either String (RecordOf (Prod (Const' Int) (Comp Extractor h)) xs)
+        :: Either String (RecordOf (Prod (Const' Int) (Comp Decoder h)) xs)
       return $ do
         offsets <- (0:) <$> mapM (const decodeVarInt) schs
         state $ \bs ->
