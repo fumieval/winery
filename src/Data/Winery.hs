@@ -25,8 +25,13 @@ module Data.Winery
   , gschemaRecord
   , gtoEncodingRecord
   , ggetDecoderRecord
+  , GSerialiseVariant
+  , gschemaVariant
+  , gtoEncodingVariant
+  , ggetDecoderVariant
   )where
 
+import Control.Applicative
 import Control.Monad
 import Control.Monad.Trans.Cont
 import Control.Monad.Reader
@@ -69,6 +74,7 @@ data Schema = SSchema !Word8
   | SProduct [Schema]
   | SSum [Schema]
   | SRecord [(String, Schema)]
+  | SVariant [(String, [Schema])]
   deriving (Show, Read, Eq)
 
 type Encoding = (Sum Int, Builder)
@@ -374,12 +380,17 @@ instance Forall (KeyValue KnownSymbol (Instance1 Serialise h)) xs => Serialise (
     s -> Left $ "Expected Record, but got " ++ show s
 
 
-data RecordDecoder x = Done x | forall a. More !String !(Plan (Decoder a)) (RecordDecoder (Decoder a -> x))
+data RecordDecoder i x = Done x | forall a. More !i !(Plan (Decoder a)) (RecordDecoder i (Decoder a -> x))
 
-deriving instance Functor RecordDecoder
+deriving instance Functor (RecordDecoder i)
+
+instance Applicative (RecordDecoder i) where
+  pure = Done
+  Done f <*> a = fmap f a
+  More i p k <*> c = More i p (flip <$> k <*> c)
 
 gschemaRecord :: forall proxy a. (GSerialiseRecord (Rep a), Generic a) => proxy a -> Schema
-gschemaRecord _ = SRecord $ schemaRecord (Proxy :: Proxy (Rep a))
+gschemaRecord _ = SRecord $ recordSchema (Proxy :: Proxy (Rep a))
 
 gtoEncodingRecord :: (GSerialiseRecord (Rep a), Generic a) => a -> Encoding
 gtoEncodingRecord = encodeMulti . recordEncoder . from
@@ -388,7 +399,7 @@ ggetDecoderRecord :: (GSerialiseRecord (Rep a), Generic a) => Plan (Decoder a)
 ggetDecoderRecord = ReaderT $ \case
   SRecord schs -> do
     let schs' = [(k, (i, s)) | (i, (k, s)) <- zip [0..] schs]
-    let go :: RecordDecoder x -> Either String ([Int] -> x)
+    let go :: RecordDecoder String x -> Either String ([Int] -> x)
         go (Done a) = Right $ const a
         go (More name p k) = case lookup name schs' of
           Nothing -> Left $ "Schema not found for " ++ name
@@ -403,28 +414,114 @@ ggetDecoderRecord = ReaderT $ \case
   s -> Left $ "Expected Record, but got " ++ show s
 
 class GSerialiseRecord f where
-  schemaRecord :: proxy f -> [(String, Schema)]
+  recordSchema :: proxy f -> [(String, Schema)]
   recordEncoder :: f x -> [Encoding]
-  recordDecoder :: RecordDecoder (Decoder (f x))
+  recordDecoder :: RecordDecoder String (Decoder (f x))
 
 instance (Serialise a, Selector c, GSerialiseRecord r) => GSerialiseRecord (S1 c (K1 i a) :*: r) where
-  schemaRecord _ = (selName (M1 undefined :: M1 i c (K1 i a) x), schema (Proxy :: Proxy a)) : schemaRecord (Proxy :: Proxy r)
+  recordSchema _ = (selName (M1 undefined :: M1 i c (K1 i a) x), schema (Proxy :: Proxy a)) : recordSchema (Proxy :: Proxy r)
   recordEncoder (M1 (K1 a) :*: r) = toEncoding a : recordEncoder r
   recordDecoder = More (selName (M1 undefined :: M1 i c (K1 i a) x)) getDecoder
     $ fmap (\r a -> (:*:) <$> fmap (M1 . K1) a <*> r) recordDecoder
 
 instance (Serialise a, Selector c) => GSerialiseRecord (S1 c (K1 i a)) where
-  schemaRecord _ = [(selName (M1 undefined :: M1 i c (K1 i a) x), schema (Proxy :: Proxy a))]
+  recordSchema _ = [(selName (M1 undefined :: M1 i c (K1 i a) x), schema (Proxy :: Proxy a))]
   recordEncoder (M1 (K1 a)) = [toEncoding a]
   recordDecoder = More (selName (M1 undefined :: M1 i c (K1 i a) x)) getDecoder
     $ Done $ fmap $ M1 . K1
 
 instance (GSerialiseRecord f) => GSerialiseRecord (C1 c f) where
-  schemaRecord _ = schemaRecord (Proxy :: Proxy f)
+  recordSchema _ = recordSchema (Proxy :: Proxy f)
   recordEncoder (M1 a) = recordEncoder a
   recordDecoder = fmap M1 <$> recordDecoder
 
 instance (GSerialiseRecord f) => GSerialiseRecord (D1 c f) where
-  schemaRecord _ = schemaRecord (Proxy :: Proxy f)
+  recordSchema _ = recordSchema (Proxy :: Proxy f)
   recordEncoder (M1 a) = recordEncoder a
   recordDecoder = fmap M1 <$> recordDecoder
+
+class GSerialiseProduct f where
+  productSchema :: proxy f -> [Schema]
+  productEncoder :: f x -> [Encoding]
+  productDecoder :: RecordDecoder () (Decoder (f x))
+
+instance GSerialiseProduct U1 where
+  productSchema _ = []
+  productEncoder _ = []
+  productDecoder = Done (pure U1)
+
+instance (Serialise a) => GSerialiseProduct (K1 i a) where
+  productSchema _ = [schema (Proxy :: Proxy a)]
+  productEncoder (K1 a) = [toEncoding a]
+  productDecoder = More () getDecoder $ Done $ fmap K1
+
+instance GSerialiseProduct f => GSerialiseProduct (M1 i c f) where
+  productSchema _ = productSchema (Proxy :: Proxy f)
+  productEncoder (M1 a) = productEncoder a
+  productDecoder = fmap M1 <$> productDecoder
+
+instance (GSerialiseProduct f, GSerialiseProduct g) => GSerialiseProduct (f :*: g) where
+  productSchema _ = productSchema (Proxy :: Proxy f) ++ productSchema (Proxy :: Proxy g)
+  productEncoder (f :*: g) = productEncoder f ++ productEncoder g
+  productDecoder = liftA2 (:*:) <$> productDecoder <*> productDecoder
+
+getDecoderProduct' :: GSerialiseProduct f => [Schema] -> Either String (Decoder (f x))
+getDecoderProduct' schs0 = do
+  let go :: Int -> [Schema] -> RecordDecoder () x -> Either String ([Int] -> x)
+      go _ _ (Done a) = Right $ const a
+      go _ [] _ = Left "Mismatching number of fields"
+      go i (sch : schs) (More () p k) = do
+        getItem <- runReaderT p sch
+        r <- go (i + 1) schs k
+        return $ \offsets -> r offsets (decodeAt (offsets !! i) getItem)
+  m <- go 0 schs0 productDecoder
+  return $ evalContT $ do
+    offsets <- (0:) <$> mapM (const decodeVarInt) schs0
+    asks $ \bs -> m offsets bs
+
+gschemaVariant :: forall proxy a. (GSerialiseVariant (Rep a), Generic a) => proxy a -> Schema
+gschemaVariant _ = SVariant $ variantSchema (Proxy :: Proxy (Rep a))
+
+gtoEncodingVariant :: (GSerialiseVariant (Rep a), Generic a) => a -> Encoding
+gtoEncodingVariant = variantEncoder 0 . from
+
+ggetDecoderVariant :: (GSerialiseVariant (Rep a), Generic a) => Plan (Decoder a)
+ggetDecoderVariant = ReaderT $ \case
+  SVariant schs0 -> do
+    let ds = variantDecoder
+    ds' <- sequence
+      [ case lookup name ds of
+          Nothing -> Left $ "Schema not found for " ++ name
+          Just f -> f sch
+      | (name, sch) <- schs0]
+    return $ evalContT $ do
+      i <- decodeVarInt
+      lift $ fmap to $ ds' !! i
+  s -> Left $ "Expected Variant, but got " ++ show s
+
+class GSerialiseVariant f where
+  variantSchema :: proxy f -> [(String, [Schema])]
+  variantEncoder :: Int -> f x -> Encoding
+  variantDecoder :: [(String, [Schema] -> Either String (Decoder (f x)))]
+
+instance (GSerialiseProduct f, Constructor c, GSerialiseVariant r) => GSerialiseVariant (C1 c f :+: r) where
+  variantSchema _ = (conName (M1 undefined :: M1 i c f x), productSchema (Proxy :: Proxy f)) : variantSchema (Proxy :: Proxy r)
+  variantEncoder i (L1 (M1 a)) = encodeVarInt i <> encodeMulti (productEncoder a)
+  variantEncoder i (R1 r) = variantEncoder (i + 1) r
+  variantDecoder = (conName (M1 undefined :: M1 i c f x), fmap (fmap (fmap (L1 . M1))) getDecoderProduct')
+    : fmap (fmap (fmap (fmap (fmap R1)))) variantDecoder
+
+instance (GSerialiseProduct f, Constructor c) => GSerialiseVariant (C1 c f) where
+  variantSchema _ = [(conName (M1 undefined :: M1 i c f x), productSchema (Proxy :: Proxy f))]
+  variantEncoder i (M1 a) = encodeVarInt i <> encodeMulti (productEncoder a)
+  variantDecoder = [(conName (M1 undefined :: M1 i c f x), fmap (fmap (fmap M1)) getDecoderProduct') ]
+
+instance (GSerialiseVariant f) => GSerialiseVariant (S1 c f) where
+  variantSchema _ = variantSchema (Proxy :: Proxy f)
+  variantEncoder i (M1 a) = variantEncoder i a
+  variantDecoder = fmap (fmap (fmap (fmap M1))) <$> variantDecoder
+
+instance (GSerialiseVariant f) => GSerialiseVariant (D1 c f) where
+  variantSchema _ = variantSchema (Proxy :: Proxy f)
+  variantEncoder i (M1 a) = variantEncoder i a
+  variantDecoder = fmap (fmap (fmap (fmap M1))) <$> variantDecoder
