@@ -12,7 +12,8 @@ module Data.Winery
   , Serialise(..)
   , serialise
   , deserialise
-  , extractField
+  , encodeMulti
+  , extractFieldWith
   )where
 
 import Control.Monad
@@ -250,13 +251,14 @@ instance Serialise B.ByteString where
 instance Serialise a => Serialise [a] where
   schema _ = SList (schema (Proxy :: Proxy a))
   toEncoding xs = encodeVarInt (length xs)
-    <> foldMap toEncoding xs
+    <> encodeMulti (map toEncoding xs)
   getExtractor = ReaderT $ \case
     SList s -> do
       getItem <- runReaderT getExtractor s
       return $ do
         n <- decodeVarInt
-        replicateM n getItem
+        offsets <- replicateM n decodeVarInt
+        state $ \bs -> ([evalState getItem $ B.drop ofs bs | ofs <- 0 : init offsets], B.drop (last offsets) bs)
     s -> Left $ "Expected Schema, but got " ++ show s
 
 instance Serialise a => Serialise (Identity a) where
@@ -264,13 +266,13 @@ instance Serialise a => Serialise (Identity a) where
   toEncoding = toEncoding . runIdentity
   getExtractor = fmap Identity <$> getExtractor
 
-extractField :: Serialise a => String -> Decoder (Extractor a)
-extractField name = ReaderT $ \case
+extractFieldWith :: Decoder (Extractor a) -> String -> Decoder (Extractor a)
+extractFieldWith g name = ReaderT $ \case
   SRecord schs -> do
     let schs' = [(k, (i, s)) | (i, (k, s)) <- zip [0..] schs]
     case lookup name schs' of
       Just (i, sch) -> do
-        m <- runReaderT getExtractor sch
+        m <- runReaderT g sch
         return $ do
           offsets <- (0:) <$> mapM (const decodeVarInt) schs
           state $ \bs -> (evalState m $ B.drop (offsets !! i) bs, B.drop (last offsets) bs)
@@ -320,13 +322,16 @@ instance (Serialise a, Serialise b) => Serialise (Either a b) where
 proxyApp :: proxy f -> proxy' x -> Proxy (f x)
 proxyApp _ _ = Proxy
 
+encodeMulti :: [Encoding] -> Encoding
+encodeMulti ls = foldMap encodeVarInt offsets <> foldMap id ls where
+  offsets = drop 1 $ scanl (+) 0 $ map (getSum . fst) ls
+
 instance Forall (KeyValue KnownSymbol (Instance1 Serialise h)) xs => Serialise (RecordOf h xs) where
   schema _ = SRecord $ henumerateFor
     (Proxy :: Proxy (KeyValue KnownSymbol (Instance1 Serialise h))) (Proxy :: Proxy xs)
     (\k -> (:) (symbolVal $ proxyAssocKey k, schema $ proxyApp (Proxy :: Proxy h) $ proxyAssocValue k)) []
-  toEncoding r = foldMap encodeVarInt offsets <> foldMap id ls where
-    offsets = drop 1 $ scanl (+) 0 $ map (getSum . fst) ls
-    ls = hfoldrWithIndexFor (Proxy :: Proxy (KeyValue KnownSymbol (Instance1 Serialise h)))
+  toEncoding r = encodeMulti
+      $ hfoldrWithIndexFor (Proxy :: Proxy (KeyValue KnownSymbol (Instance1 Serialise h)))
       (\_ (Field v) -> (:) $ toEncoding v) [] r
   getExtractor = ReaderT $ \case
     SRecord schs -> do

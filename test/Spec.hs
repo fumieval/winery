@@ -5,12 +5,12 @@ import Data.Winery
 import Data.Proxy
 import GHC.Generics
 
-type Test = Record ["foo" >: Int, "bar" >: ByteString, "baz" >: Double]
+type Test = Record ["foo" >: Int, "bar" >: [ByteString], "baz" >: Double]
 
-type Test' = Record ["bar" >: ByteString, "baz" >: Double, "foo" >: Int]
+type Test' = Record ["bar" >: [ByteString], "baz" >: Double, "foo" >: Int]
 
 def :: Test
-def = #foo @= 42 <: #bar @= "bar" <: #baz @= pi <: emptyRecord
+def = #foo @= 42 <: #bar @= ["hell", "world"] <: #baz @= pi <: emptyRecord
 
 main :: IO ()
 main = do
