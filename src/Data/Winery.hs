@@ -12,7 +12,10 @@ module Data.Winery
   , Serialise(..)
   , serialise
   , deserialise
+  , Encoding
   , encodeMulti
+  , Decoder
+  , Plan
   , extractFieldWith
   )where
 
@@ -59,12 +62,25 @@ data Schema = SSchema !Word8
   | SRecord [(String, Schema)]
   deriving (Show, Read, Eq)
 
+type Encoding = (Sum Int, Builder)
+
 type Decoder = (->) B.ByteString
+
+type Plan = ReaderT Schema (Either String)
+
+class Serialise a where
+  schema :: proxy a -> Schema
+  toEncoding :: a -> Encoding
+  getDecoder :: Plan (Decoder a)
+
+serialise :: Serialise a => a -> B.ByteString
+serialise = BL.toStrict . BB.toLazyByteString . snd . toEncoding
+
+deserialise :: Serialise a => Schema -> B.ByteString -> Either String a
+deserialise sch bs = ($ bs) <$> runReaderT getDecoder sch
 
 decodeAt :: Int -> Decoder a -> Decoder a
 decodeAt i m bs = m $ B.drop i bs
-
-type Encoding = (Sum Int, Builder)
 
 encodeVarInt :: (Integral a, Bits a) => a -> Encoding
 encodeVarInt n
@@ -86,19 +102,6 @@ decodeVarInt = getWord8 >>= \case
       m <- decodeVarInt
       return $! shiftL m 7 .|. clearBit (fromIntegral n) 7
     | otherwise -> return $ fromIntegral n
-
-type Plan = ReaderT Schema (Either String)
-
-class Serialise a where
-  schema :: proxy a -> Schema
-  toEncoding :: a -> Encoding
-  getDecoder :: Plan (Decoder a)
-
-serialise :: Serialise a => a -> B.ByteString
-serialise = BL.toStrict . BB.toLazyByteString . snd . toEncoding
-
-deserialise :: Serialise a => Schema -> B.ByteString -> Either String a
-deserialise sch bs = ($ bs) <$> runReaderT getDecoder sch
 
 instance Serialise Schema where
   schema _ = SSchema 0
