@@ -7,7 +7,11 @@ import GHC.Generics
 
 type Test = Record ["foo" >: Maybe Int, "bar" >: [ByteString], "baz" >: Double]
 
-type Test' = Record ["bar" >: [ByteString], "baz" >: Double, "foo" >: Maybe Int]
+data Test' = Test'
+    { bar :: [ByteString]
+    , baz :: Double
+    , foo :: Maybe Int
+    } deriving (Show, Generic)
 
 def :: Test
 def = #foo @= Just 42 <: #bar @= ["hell", "world"] <: #baz @= pi <: emptyRecord
@@ -18,4 +22,4 @@ main = do
   print sch
   let bs = serialise def
   print bs
-  print (deserialise sch bs :: Either String Test')
+  print (deserialiseWith ggetDecoderForRecord sch bs :: Either String Test')

@@ -1,22 +1,30 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE DefaultSignatures #-}
+{-# LANGUAGE ExistentialQuantification #-}
 module Data.Winery
   ( Schema(..)
   , Serialise(..)
   , serialise
   , deserialise
+  , deserialiseWith
   , Encoding
   , encodeMulti
   , Decoder
   , Plan
   , extractFieldWith
+  , GSerialiseRecord
+  , gschemaRecord
+  , gtoEncodingRecord
+  , ggetDecoderRecord
   )where
 
 import Control.Monad
@@ -37,6 +45,7 @@ import Data.Monoid
 import Data.Word
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import GHC.Generics
 import GHC.TypeLits
 import Unsafe.Coerce
 
@@ -76,8 +85,11 @@ class Serialise a where
 serialise :: Serialise a => a -> B.ByteString
 serialise = BL.toStrict . BB.toLazyByteString . snd . toEncoding
 
+deserialiseWith :: Plan (Decoder a) -> Schema -> B.ByteString -> Either String a
+deserialiseWith m sch bs = ($ bs) <$> runReaderT m sch
+
 deserialise :: Serialise a => Schema -> B.ByteString -> Either String a
-deserialise sch bs = ($ bs) <$> runReaderT getDecoder sch
+deserialise = deserialiseWith getDecoder
 
 decodeAt :: Int -> Decoder a -> Decoder a
 decodeAt i m bs = m $ B.drop i bs
@@ -360,3 +372,59 @@ instance Forall (KeyValue KnownSymbol (Instance1 Serialise h)) xs => Serialise (
         asks $ \bs -> hmap
           (\(Field (Prod (Const' i) (Comp m))) -> Field $ decodeAt (offsets !! i) m bs) exs
     s -> Left $ "Expected Record, but got " ++ show s
+
+
+data RecordDecoder x = Done x | forall a. More !String !(Plan (Decoder a)) (RecordDecoder (Decoder a -> x))
+
+deriving instance Functor RecordDecoder
+
+gschemaRecord :: forall proxy a. (GSerialiseRecord (Rep a), Generic a) => proxy a -> Schema
+gschemaRecord _ = SRecord $ schemaRecord (Proxy :: Proxy (Rep a))
+
+gtoEncodingRecord :: (GSerialiseRecord (Rep a), Generic a) => a -> Encoding
+gtoEncodingRecord = encodeMulti . recordEncoder . from
+
+ggetDecoderRecord :: (GSerialiseRecord (Rep a), Generic a) => Plan (Decoder a)
+ggetDecoderRecord = ReaderT $ \case
+  SRecord schs -> do
+    let schs' = [(k, (i, s)) | (i, (k, s)) <- zip [0..] schs]
+    let go :: RecordDecoder x -> Either String ([Int] -> x)
+        go (Done a) = Right $ const a
+        go (More name p k) = case lookup name schs' of
+          Nothing -> Left $ "Schema not found for " ++ name
+          Just (i, sch) -> do
+            getItem <- runReaderT p sch
+            r <- go k
+            return $ \offsets -> r offsets (decodeAt (offsets !! i) getItem)
+    m <- go recordDecoder
+    return $ evalContT $ do
+      offsets <- (0:) <$> mapM (const decodeVarInt) schs
+      asks $ \bs -> to $ m offsets bs
+  s -> Left $ "Expected Record, but got " ++ show s
+
+class GSerialiseRecord f where
+  schemaRecord :: proxy f -> [(String, Schema)]
+  recordEncoder :: f x -> [Encoding]
+  recordDecoder :: RecordDecoder (Decoder (f x))
+
+instance (Serialise a, Selector c, GSerialiseRecord r) => GSerialiseRecord (S1 c (K1 i a) :*: r) where
+  schemaRecord _ = (selName (M1 undefined :: M1 i c (K1 i a) x), schema (Proxy :: Proxy a)) : schemaRecord (Proxy :: Proxy r)
+  recordEncoder (M1 (K1 a) :*: r) = toEncoding a : recordEncoder r
+  recordDecoder = More (selName (M1 undefined :: M1 i c (K1 i a) x)) getDecoder
+    $ fmap (\r a -> (:*:) <$> fmap (M1 . K1) a <*> r) recordDecoder
+
+instance (Serialise a, Selector c) => GSerialiseRecord (S1 c (K1 i a)) where
+  schemaRecord _ = [(selName (M1 undefined :: M1 i c (K1 i a) x), schema (Proxy :: Proxy a))]
+  recordEncoder (M1 (K1 a)) = [toEncoding a]
+  recordDecoder = More (selName (M1 undefined :: M1 i c (K1 i a) x)) getDecoder
+    $ Done $ fmap $ M1 . K1
+
+instance (GSerialiseRecord f) => GSerialiseRecord (C1 c f) where
+  schemaRecord _ = schemaRecord (Proxy :: Proxy f)
+  recordEncoder (M1 a) = recordEncoder a
+  recordDecoder = fmap M1 <$> recordDecoder
+
+instance (GSerialiseRecord f) => GSerialiseRecord (D1 c f) where
+  schemaRecord _ = schemaRecord (Proxy :: Proxy f)
+  recordEncoder (M1 a) = recordEncoder a
+  recordDecoder = fmap M1 <$> recordDecoder
