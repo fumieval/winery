@@ -163,21 +163,21 @@ instance Serialise Word32 where
   schema _ = SWord32
   toEncoding x = (4, BB.word32BE x)
   getDecoder = ReaderT $ \case
-    SWord32 -> Right $ getN 4 word32be
+    SWord32 -> Right word32be
     s -> Left $ "Expected Word32, but got " ++ show s
 
 instance Serialise Word64 where
   schema _ = SWord64
   toEncoding x = (8, BB.word64BE x)
   getDecoder = ReaderT $ \case
-    SWord64 -> Right $ getN 8 word64be
+    SWord64 -> Right word64be
     s -> Left $ "Expected Word64, but got " ++ show s
 
 instance Serialise Word where
   schema _ = SWord64
   toEncoding x = (8, BB.word64BE $ fromIntegral x)
   getDecoder = ReaderT $ \case
-    SWord64 -> Right $ fromIntegral <$> getN 8 word64be
+    SWord64 -> Right $ fromIntegral <$> word64be
     s -> Left $ "Expected Word64, but got " ++ show s
 
 instance Serialise Int8 where
@@ -191,42 +191,42 @@ instance Serialise Int16 where
   schema _ = SInt16
   toEncoding x = (2, BB.int16BE x)
   getDecoder = ReaderT $ \case
-    SInt16 -> Right $ fromIntegral <$> getN 2 word16be
+    SInt16 -> Right $ fromIntegral <$> word16be
     s -> Left $ "Expected Int16, but got " ++ show s
 
 instance Serialise Int32 where
   schema _ = SInt32
   toEncoding x = (4, BB.int32BE x)
   getDecoder = ReaderT $ \case
-    SInt32 -> Right $ fromIntegral <$> getN 4 word32be
+    SInt32 -> Right $ fromIntegral <$> word32be
     s -> Left $ "Expected Int32, but got " ++ show s
 
 instance Serialise Int64 where
   schema _ = SInt64
   toEncoding x = (8, BB.int64BE x)
   getDecoder = ReaderT $ \case
-    SInt64 -> Right $ fromIntegral <$> getN 8 word64be
+    SInt64 -> Right $ fromIntegral <$> word64be
     s -> Left $ "Expected Int64, but got " ++ show s
 
 instance Serialise Int where
   schema _ = SInt64
   toEncoding x = (8, BB.int64BE $ fromIntegral x)
   getDecoder = ReaderT $ \case
-    SInt64 -> Right $ fromIntegral <$> getN 8 word64be
+    SInt64 -> Right $ fromIntegral <$> word64be
     s -> Left $ "Expected Int64, but got " ++ show s
 
 instance Serialise Float where
   schema _ = SFloat
   toEncoding x = (4, BB.word32BE $ unsafeCoerce x)
   getDecoder = ReaderT $ \case
-    SFloat -> Right $ unsafeCoerce <$> getN 4 word32be
+    SFloat -> Right $ unsafeCoerce <$> word32be
     s -> Left $ "Expected Float, but got " ++ show s
 
 instance Serialise Double where
   schema _ = SDouble
   toEncoding x = (8, BB.word64BE $ unsafeCoerce x)
   getDecoder = ReaderT $ \case
-    SDouble -> Right $ unsafeCoerce <$> getN 8 word64be
+    SDouble -> Right $ unsafeCoerce <$> word64be
     s -> Left $ "Expected Double, but got " ++ show s
 
 instance Serialise T.Text where
@@ -247,9 +247,6 @@ instance Serialise a => Serialise (Maybe a) where
   schema _ = schema (Proxy :: Proxy (Either () a))
   toEncoding = toEncoding . maybe (Left ()) Right
   getDecoder = fmap (either (\() -> Nothing) Just) <$> getDecoder
-
-getN :: Int -> (B.ByteString -> a) -> Decoder a
-getN n k bs = k $ B.take n bs
 
 word16be :: B.ByteString -> Word16
 word16be = \s ->
