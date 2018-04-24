@@ -218,6 +218,18 @@ instance Serialise T.Text where
     SText -> Right $ T.decodeUtf8 <$> getBytes
     s -> Left $ "Expected Text, but got " ++ show s
 
+instance Serialise Integer where
+  schema _ = SInteger
+  toEncoding = encodeVarInt
+  getDecoder = ReaderT $ \case
+    SInteger -> Right $ evalContT decodeVarInt
+    s -> Left $ "Expected Integer, but got " ++ show s
+
+instance Serialise a => Serialise (Maybe a) where
+  schema _ = schema (Proxy :: Proxy (Either () a))
+  toEncoding = toEncoding . maybe (Left ()) Right
+  getDecoder = fmap (either (\() -> Nothing) Just) <$> getDecoder
+
 getN :: Int -> (B.ByteString -> a) -> Decoder a
 getN n k bs = k $ B.take n bs
 
@@ -317,8 +329,8 @@ instance (Serialise a, Serialise b) => Serialise (Either a b) where
       return $ evalContT $ do
         t <- decodeVarInt
         case t :: Word8 of
-          0 -> lift getA
-          _ -> lift getB
+          0 -> Left <$> lift getA
+          _ -> Right <$> lift getB
     s -> Left $ "Expected Sum [a, b], but got " ++ show s
 
 proxyApp :: proxy f -> proxy' x -> Proxy (f x)
