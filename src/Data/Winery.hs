@@ -17,8 +17,8 @@ module Data.Winery
   )where
 
 import Control.Monad
-import Control.Monad.Trans.State.Strict
-import Control.Monad.Trans.Reader
+import Control.Monad.Trans.Cont
+import Control.Monad.Reader
 import Data.ByteString.Builder
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
@@ -59,7 +59,10 @@ data Schema = SSchema !Word8
   | SRecord [(String, Schema)]
   deriving (Show, Read, Eq)
 
-type Decoder = State B.ByteString
+type Decoder = (->) B.ByteString
+
+decodeAt :: Int -> Decoder a -> Decoder a
+decodeAt i m bs = m $ B.drop i bs
 
 type Encoding = (Sum Int, Builder)
 
@@ -69,17 +72,15 @@ encodeVarInt n
   | otherwise = let (s, b) = encodeVarInt (shiftR n 7)
     in (1 + s, BB.word8 (setBit (fromIntegral n) 7) `mappend` b)
 
-getWord8 :: Decoder Word8
-getWord8 = StateT $ \bs -> case B.uncons bs of
-  Nothing -> return (0, bs)
-  Just (x, bs') -> return (x, bs')
+getWord8 :: ContT r Decoder Word8
+getWord8 = ContT $ \k bs -> case B.uncons bs of
+  Nothing -> k 0 bs
+  Just (x, bs') -> k x bs'
 
 getBytes :: Decoder B.ByteString
-getBytes = do
-  n <- decodeVarInt
-  state $ B.splitAt n
+getBytes = runContT decodeVarInt B.take
 
-decodeVarInt :: (Num a, Bits a) => Decoder a
+decodeVarInt :: (Num a, Bits a) => ContT r Decoder a
 decodeVarInt = getWord8 >>= \case
   n | testBit n 7 -> do
       m <- decodeVarInt
@@ -97,7 +98,7 @@ serialise :: Serialise a => a -> B.ByteString
 serialise = BL.toStrict . BB.toLazyByteString . snd . toEncoding
 
 deserialise :: Serialise a => Schema -> B.ByteString -> Either String a
-deserialise sch bs = flip evalState bs <$> runReaderT getDecoder sch
+deserialise sch bs = ($ bs) <$> runReaderT getDecoder sch
 
 instance Serialise Schema where
   schema _ = SSchema 0
@@ -117,21 +118,21 @@ instance Serialise Bool where
   toEncoding False = (1, BB.word8 0)
   toEncoding True = (1, BB.word8 1)
   getDecoder = ReaderT $ \case
-    SBool -> Right $ (/=0) <$> getWord8
+    SBool -> Right $ (/=0) <$> evalContT getWord8
     s -> Left $ "Expected Bool, but got " ++ show s
 
 instance Serialise Word8 where
   schema _ = SWord8
   toEncoding x = (1, BB.word8 x)
   getDecoder = ReaderT $ \case
-    SWord8 -> Right getWord8
+    SWord8 -> Right $ evalContT getWord8
     s -> Left $ "Expected Word8, but got " ++ show s
 
 instance Serialise Word16 where
   schema _ = SWord16
   toEncoding x = (2, BB.word16BE x)
   getDecoder = ReaderT $ \case
-    SWord16 -> Right $ do
+    SWord16 -> Right $ evalContT $ do
       a <- getWord8
       b <- getWord8
       return $! fromIntegral a `unsafeShiftL` 8 .|. fromIntegral b
@@ -162,7 +163,7 @@ instance Serialise Int8 where
   schema _ = SInt8
   toEncoding x = (1, BB.int8 x)
   getDecoder = ReaderT $ \case
-    SInt8 -> Right $ fromIntegral <$> getWord8
+    SInt8 -> Right $ fromIntegral <$> evalContT getWord8
     s -> Left $ "Expected Int8, but got " ++ show s
 
 instance Serialise Int16 where
@@ -215,7 +216,7 @@ instance Serialise T.Text where
     s -> Left $ "Expected Text, but got " ++ show s
 
 getN :: Int -> (B.ByteString -> a) -> Decoder a
-getN n k = state $ \bs -> let (b, r) = B.splitAt n bs in (k b, r)
+getN n k bs = k $ B.take n bs
 
 word16be :: B.ByteString -> Word16
 word16be = \s ->
@@ -255,10 +256,10 @@ instance Serialise a => Serialise [a] where
   getDecoder = ReaderT $ \case
     SList s -> do
       getItem <- runReaderT getDecoder s
-      return $ do
+      return $ evalContT $ do
         n <- decodeVarInt
         offsets <- replicateM n decodeVarInt
-        state $ \bs -> ([evalState getItem $ B.drop ofs bs | ofs <- 0 : init offsets], B.drop (last offsets) bs)
+        asks $ \bs -> [decodeAt ofs getItem bs | ofs <- 0 : init offsets]
     s -> Left $ "Expected Schema, but got " ++ show s
 
 instance Serialise a => Serialise (Identity a) where
@@ -273,9 +274,9 @@ extractFieldWith g name = ReaderT $ \case
     case lookup name schs' of
       Just (i, sch) -> do
         m <- runReaderT g sch
-        return $ do
+        return $ evalContT $ do
           offsets <- (0:) <$> mapM (const decodeVarInt) schs
-          state $ \bs -> (evalState m $ B.drop (offsets !! i) bs, B.drop (last offsets) bs)
+          lift $ \bs -> m $ B.drop (offsets !! i) bs
       Nothing -> Left $ "Schema not found for " ++ name
   s -> Left $ "Expected Record, but got " ++ show s
 
@@ -297,11 +298,9 @@ decodePair f extA extB = ReaderT $ \case
   SProduct [sa, sb] -> do
     getA <- runReaderT extA sa
     getB <- runReaderT extB sb
-    return $ do
+    return $ evalContT $ do
       offA <- decodeVarInt
-      offAB <- decodeVarInt
-      StateT $ \bs -> return
-        (evalState getA bs `f` evalState getB (B.drop offA bs), B.drop offAB bs)
+      asks $ \bs -> getA bs `f` decodeAt offA getB bs
   s -> Left $ "Expected Product [a, b], but got " ++ show s
 
 instance (Serialise a, Serialise b) => Serialise (Either a b) where
@@ -312,11 +311,11 @@ instance (Serialise a, Serialise b) => Serialise (Either a b) where
     SSum [sa, sb] -> do
       getA <- runReaderT getDecoder sa
       getB <- runReaderT getDecoder sb
-      return $ do
-        t <- decodeVarInt :: Decoder Word8
-        case t of
-          0 -> getA
-          _ -> getB
+      return $ evalContT $ do
+        t <- decodeVarInt
+        case t :: Word8 of
+          0 -> lift getA
+          _ -> lift getB
     s -> Left $ "Expected Sum [a, b], but got " ++ show s
 
 proxyApp :: proxy f -> proxy' x -> Proxy (f x)
@@ -341,9 +340,8 @@ instance Forall (KeyValue KnownSymbol (Instance1 Serialise h)) xs => Serialise (
           Just (i, sch) -> Field . Prod (Const' i) . Comp <$> runReaderT getDecoder sch
           Nothing -> Left $ "Schema not found for " ++ name)
         :: Either String (RecordOf (Prod (Const' Int) (Comp Decoder h)) xs)
-      return $ do
+      return $ evalContT $ do
         offsets <- (0:) <$> mapM (const decodeVarInt) schs
-        state $ \bs ->
-          (hmap (\(Field (Prod (Const' i) (Comp m))) -> Field $ evalState m (B.drop (offsets !! i) bs)) exs
-          , B.drop (last offsets) bs)
+        asks $ \bs -> hmap
+          (\(Field (Prod (Const' i) (Comp m))) -> Field $ decodeAt (offsets !! i) m bs) exs
     s -> Left $ "Expected Record, but got " ++ show s

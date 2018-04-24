@@ -26,6 +26,7 @@ dependencies:
 - extensible
 - unordered-containers
 - transformers
+- mtl
 - text
 
 library:
