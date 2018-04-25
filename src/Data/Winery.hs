@@ -42,7 +42,6 @@ import qualified Data.ByteString.Unsafe as B
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Builder as BB
 import Data.Bits
-import Data.Extensible
 import Data.Functor.Identity
 import Data.Proxy
 import Data.Int
@@ -51,7 +50,6 @@ import Data.Word
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import GHC.Generics
-import GHC.TypeLits
 import Unsafe.Coerce
 
 data Schema = SSchema !Word8
@@ -348,34 +346,9 @@ instance (Serialise a, Serialise b) => Serialise (Either a b) where
           _ -> Right <$> lift getB
     s -> Left $ "Expected Sum [a, b], but got " ++ show s
 
-proxyApp :: proxy f -> proxy' x -> Proxy (f x)
-proxyApp _ _ = Proxy
-
 encodeMulti :: [Encoding] -> Encoding
 encodeMulti ls = foldMap encodeVarInt offsets <> foldMap id ls where
   offsets = drop 1 $ scanl (+) 0 $ map (getSum . fst) ls
-
-instance Forall (KeyValue KnownSymbol (Instance1 Serialise h)) xs => Serialise (RecordOf h xs) where
-  schema _ = SRecord $ henumerateFor
-    (Proxy :: Proxy (KeyValue KnownSymbol (Instance1 Serialise h))) (Proxy :: Proxy xs)
-    (\k -> (:) (symbolVal $ proxyAssocKey k, schema $ proxyApp (Proxy :: Proxy h) $ proxyAssocValue k)) []
-  toEncoding r = encodeMulti
-      $ hfoldrWithIndexFor (Proxy :: Proxy (KeyValue KnownSymbol (Instance1 Serialise h)))
-      (\_ (Field v) -> (:) $ toEncoding v) [] r
-  getDecoder = ReaderT $ \case
-    SRecord schs -> do
-      let schs' = [(k, (i, s)) | (i, (k, s)) <- zip [0..] schs]
-      exs <- hgenerateFor (Proxy :: Proxy (KeyValue KnownSymbol (Instance1 Serialise h)))
-        (\k -> let name = symbolVal $ proxyAssocKey k in case lookup name schs' of
-          Just (i, sch) -> Field . Prod (Const' i) . Comp <$> runReaderT getDecoder sch
-          Nothing -> Left $ "Schema not found for " ++ name)
-        :: Either String (RecordOf (Prod (Const' Int) (Comp Decoder h)) xs)
-      return $ evalContT $ do
-        offsets <- (0:) <$> mapM (const decodeVarInt) schs
-        asks $ \bs -> hmap
-          (\(Field (Prod (Const' i) (Comp m))) -> Field $ decodeAt (offsets !! i) m bs) exs
-    s -> Left $ "Expected Record, but got " ++ show s
-
 
 data RecordDecoder i x = Done x | forall a. More !i !(Plan (Decoder a)) (RecordDecoder i (Decoder a -> x))
 
