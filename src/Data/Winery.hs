@@ -449,14 +449,14 @@ encodeMulti :: [Encoding] -> Encoding
 encodeMulti ls = foldMap encodeVarInt offsets <> foldMap id ls where
   offsets = take (length ls - 1) $ drop 1 $ scanl (+) 0 $ map (getSum . fst) ls
 
-data RecordDecoder i x = Done x | forall a. More !i !(Plan (Decoder a)) (RecordDecoder i (Decoder a -> x))
+data RecordDecoder i x = Done x | forall a. More !i !(Maybe a) !(Plan (Decoder a)) (RecordDecoder i (Decoder a -> x))
 
 deriving instance Functor (RecordDecoder i)
 
 instance Applicative (RecordDecoder i) where
   pure = Done
   Done f <*> a = fmap f a
-  More i p k <*> c = More i p (flip <$> k <*> c)
+  More i p d k <*> c = More i p d (flip <$> k <*> c)
 
 gschemaViaRecord :: forall proxy a. (GSerialiseRecord (Rep a), Generic a, Typeable a) => proxy a -> [TypeRep] -> Schema
 gschemaViaRecord p ts = SFix $ SRecord $ recordSchema (Proxy :: Proxy (Rep a)) (typeRep p : ts)
@@ -464,53 +464,55 @@ gschemaViaRecord p ts = SFix $ SRecord $ recordSchema (Proxy :: Proxy (Rep a)) (
 gtoEncodingRecord :: (GSerialiseRecord (Rep a), Generic a) => a -> Encoding
 gtoEncodingRecord = encodeMulti . recordEncoder . from
 
-gplanDecoderRecord :: (GSerialiseRecord (Rep a), Generic a, Typeable a) => Plan (Decoder a)
-gplanDecoderRecord = ReaderT $ \sch_ -> ReaderT $ \decs -> case sch_ of
+gplanDecoderRecord :: (GSerialiseRecord (Rep a), Generic a, Typeable a) => a -> Plan (Decoder a)
+gplanDecoderRecord def = ReaderT $ \sch_ -> ReaderT $ \decs -> case sch_ of
   SRecord schs -> do
     let schs' = [(k, (i, s)) | (i, (k, s)) <- zip [0..] schs]
     let go :: RecordDecoder T.Text x -> Either String ([Int] -> x)
         go (Done a) = Right $ const a
-        go (More name p k) = case lookup name schs' of
-          Nothing -> Left $ "Schema not found for " ++ T.unpack name
+        go (More name def' p k) = case lookup name schs' of
+          Nothing -> case def' of
+            Just d -> go k >>= \r -> return $ \offsets -> r offsets (pure d)
+            Nothing -> Left $ "Default value not found for " ++ T.unpack name
           Just (i, sch) -> do
             getItem <- p `runReaderT` sch `runReaderT` decs
             r <- go k
             return $ \offsets -> r offsets (decodeAt (offsets !! i) getItem)
-    m <- go recordDecoder
+    m <- go $ recordDecoder $ from def
     return $ evalContT $ do
       offsets <- (0:) <$> replicateM (length schs - 1) decodeVarInt
       asks $ \bs -> to $ m offsets bs
   SSelf i -> return $ fmap (`fromDyn` error "Invalid recursion") $ decs !! fromIntegral i
-  SFix s -> mfix $ \a -> runReaderT gplanDecoderRecord s `runReaderT` (fmap toDyn a : decs)
+  SFix s -> mfix $ \a -> runReaderT (gplanDecoderRecord def) s `runReaderT` (fmap toDyn a : decs)
   s -> Left $ "Expected Record, but got " ++ show s
 
 class GSerialiseRecord f where
   recordSchema :: proxy f -> [TypeRep] -> [(T.Text, Schema)]
   recordEncoder :: f x -> [Encoding]
-  recordDecoder :: RecordDecoder T.Text (Decoder (f x))
+  recordDecoder :: f x -> RecordDecoder T.Text (Decoder (f x))
 
 instance (Serialise a, Selector c, GSerialiseRecord r) => GSerialiseRecord (S1 c (K1 i a) :*: r) where
   recordSchema _ ts = (T.pack $ selName (M1 undefined :: M1 i c (K1 i a) x), substSchema (Proxy :: Proxy a) ts)
     : recordSchema (Proxy :: Proxy r) ts
   recordEncoder (M1 (K1 a) :*: r) = toEncoding a : recordEncoder r
-  recordDecoder = More (T.pack $ selName (M1 undefined :: M1 i c (K1 i a) x)) planDecoder
-    $ fmap (\r a -> (:*:) <$> fmap (M1 . K1) a <*> r) recordDecoder
+  recordDecoder (M1 (K1 def) :*: rest)= More (T.pack $ selName (M1 undefined :: M1 i c (K1 i a) x)) (Just def) planDecoder
+    $ fmap (\r a -> (:*:) <$> fmap (M1 . K1) a <*> r) (recordDecoder rest)
 
 instance (Serialise a, Selector c) => GSerialiseRecord (S1 c (K1 i a)) where
   recordSchema _ ts = [(T.pack $ selName (M1 undefined :: M1 i c (K1 i a) x), substSchema (Proxy :: Proxy a) ts)]
   recordEncoder (M1 (K1 a)) = [toEncoding a]
-  recordDecoder = More (T.pack $ selName (M1 undefined :: M1 i c (K1 i a) x)) planDecoder
+  recordDecoder (M1 (K1 def)) = More (T.pack $ selName (M1 undefined :: M1 i c (K1 i a) x)) (Just def) planDecoder
     $ Done $ fmap $ M1 . K1
 
 instance (GSerialiseRecord f) => GSerialiseRecord (C1 c f) where
   recordSchema _ = recordSchema (Proxy :: Proxy f)
   recordEncoder (M1 a) = recordEncoder a
-  recordDecoder = fmap M1 <$> recordDecoder
+  recordDecoder (M1 def) = fmap M1 <$> recordDecoder def
 
 instance (GSerialiseRecord f) => GSerialiseRecord (D1 c f) where
   recordSchema _ = recordSchema (Proxy :: Proxy f)
   recordEncoder (M1 a) = recordEncoder a
-  recordDecoder = fmap M1 <$> recordDecoder
+  recordDecoder (M1 def) = fmap M1 <$> recordDecoder def
 
 class GSerialiseProduct f where
   productSchema :: proxy f -> [TypeRep] -> [Schema]
@@ -525,7 +527,7 @@ instance GSerialiseProduct U1 where
 instance (Serialise a) => GSerialiseProduct (K1 i a) where
   productSchema _ ts = [substSchema (Proxy :: Proxy a) ts]
   productEncoder (K1 a) = [toEncoding a]
-  productDecoder = More () planDecoder $ Done $ fmap K1
+  productDecoder = More () Nothing planDecoder $ Done $ fmap K1
 
 instance GSerialiseProduct f => GSerialiseProduct (M1 i c f) where
   productSchema _ ts = productSchema (Proxy :: Proxy f) ts
@@ -542,7 +544,7 @@ planDecoderProduct' recs schs0 = do
   let go :: Int -> [Schema] -> RecordDecoder () x -> Either String ([Int] -> x)
       go _ _ (Done a) = Right $ const a
       go _ [] _ = Left "Mismatching number of fields"
-      go i (sch : schs) (More () p k) = do
+      go i (sch : schs) (More () _ p k) = do
         getItem <- runReaderT p sch `runReaderT` recs
         r <- go (i + 1) schs k
         return $ \offsets -> r offsets (decodeAt (offsets !! i) getItem)
