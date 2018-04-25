@@ -19,7 +19,9 @@ module Data.Winery
   , schema
   , serialise
   , deserialise
-  , deserialiseWith
+  , serialiseOnly
+  , deserialiseWithSchema
+  , deserialiseWithSchemaBy
   , Encoding
   , encodeMulti
   , Decoder
@@ -100,14 +102,27 @@ schema p = schemaVia p []
 getDecoder :: Serialise a => Plan (Decoder a)
 getDecoder = getDecoderVia []
 
+-- | Serialise a value along with a schema.
 serialise :: Serialise a => a -> B.ByteString
-serialise = BL.toStrict . BB.toLazyByteString . snd . toEncoding
+serialise a = serialiseOnly (schema [a], a)
 
-deserialiseWith :: Plan (Decoder a) -> Schema -> B.ByteString -> Either String a
-deserialiseWith m sch bs = ($ bs) <$> runReaderT m sch
+-- | Deserialise a 'serialise'd 'B.Bytestring'.
+deserialise :: Serialise a => B.ByteString -> Either String a
+deserialise bs = do
+  m <- getDecoder `runReaderT` SSchema 0
+  ($bs) $ evalContT $ do
+    offB <- decodeVarInt
+    sch <- lift m
+    asks $ deserialiseWithSchema sch . B.drop offB
 
-deserialise :: Serialise a => Schema -> B.ByteString -> Either String a
-deserialise = deserialiseWith getDecoder
+serialiseOnly :: Serialise a => a -> B.ByteString
+serialiseOnly = BL.toStrict . BB.toLazyByteString . snd . toEncoding
+
+deserialiseWithSchema :: Serialise a => Schema -> B.ByteString -> Either String a
+deserialiseWithSchema = deserialiseWithSchemaBy getDecoder
+
+deserialiseWithSchemaBy :: Plan (Decoder a) -> Schema -> B.ByteString -> Either String a
+deserialiseWithSchemaBy m sch bs = ($ bs) <$> runReaderT m sch
 
 substSchema :: Serialise a => proxy a -> [TypeRep] -> Schema
 substSchema p ts
@@ -330,7 +345,7 @@ instance Serialise a => Serialise [a] where
       getItem <- runReaderT (getDecoderVia ss) s
       return $ evalContT $ do
         n <- decodeVarInt
-        offsets <- replicateM n decodeVarInt
+        offsets <- replicateM (n - 1) decodeVarInt
         asks $ \bs -> [decodeAt ofs getItem bs | ofs <- take n $ 0 : offsets]
     s -> Left $ "Expected Schema, but got " ++ show s
 
@@ -347,7 +362,7 @@ extractFieldWith g name = ReaderT $ \case
       Just (i, sch) -> do
         m <- runReaderT g sch
         return $ evalContT $ do
-          offsets <- (0:) <$> mapM (const decodeVarInt) schs
+          offsets <- (0:) <$> replicateM (length schs - 1) decodeVarInt
           lift $ \bs -> m $ B.drop (offsets !! i) bs
       Nothing -> Left $ "Schema not found for " ++ T.unpack name
   s -> Left $ "Expected Record, but got " ++ show s
@@ -367,8 +382,7 @@ decodePair f extA extB = ReaderT $ \case
     getB <- runReaderT extB sb
     return $ evalContT $ do
       offA <- decodeVarInt
-      offB <- decodeVarInt
-      asks $ \bs -> getA bs `f` decodeAt (offA `asTypeOf ` offB) getB bs
+      asks $ \bs -> getA bs `f` decodeAt offA getB bs
   s -> Left $ "Expected Product [a, b], but got " ++ show s
 
 instance (Serialise a, Serialise b) => Serialise (Either a b) where
@@ -388,7 +402,7 @@ instance (Serialise a, Serialise b) => Serialise (Either a b) where
 
 encodeMulti :: [Encoding] -> Encoding
 encodeMulti ls = foldMap encodeVarInt offsets <> foldMap id ls where
-  offsets = drop 1 $ scanl (+) 0 $ map (getSum . fst) ls
+  offsets = take (length ls - 1) $ drop 1 $ scanl (+) 0 $ map (getSum . fst) ls
 
 data RecordDecoder i x = Done x | forall a. More !i !(Plan (Decoder a)) (RecordDecoder i (Decoder a -> x))
 
@@ -419,7 +433,7 @@ ggetDecoderViaRecord decs = ReaderT $ \case
             return $ \offsets -> r offsets (decodeAt (offsets !! i) getItem)
     m <- go (recordDecoder decs)
     return $ evalContT $ do
-      offsets <- (0:) <$> mapM (const decodeVarInt) schs
+      offsets <- (0:) <$> replicateM (length schs - 1) decodeVarInt
       asks $ \bs -> to $ m offsets bs
   SSelf i -> return $ fmap (`fromDyn` error "Invalid recursion") $ decs !! fromIntegral i
   SFix s -> mfix $ \a -> runReaderT (ggetDecoderViaRecord (fmap toDyn a : decs)) s
@@ -489,7 +503,7 @@ getDecoderViaProduct' recs schs0 = do
         return $ \offsets -> r offsets (decodeAt (offsets !! i) getItem)
   m <- go 0 schs0 (productDecoder recs)
   return $ evalContT $ do
-    offsets <- (0:) <$> mapM (const decodeVarInt) schs0
+    offsets <- (0:) <$> replicateM (length schs0 - 1) decodeVarInt
     asks $ \bs -> m offsets bs
 
 gschemaViaVariant :: forall proxy a. (GSerialiseVariant (Rep a), Typeable a, Generic a) => proxy a -> [TypeRep] -> Schema
