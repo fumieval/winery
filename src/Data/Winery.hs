@@ -96,6 +96,10 @@ class Typeable a => Serialise a where
   toEncoding :: a -> Encoding
   getDecoderVia :: [Decoder Dynamic] -> Plan (Decoder a)
 
+  -- | If this is @'Just' x@, the size of `toEncoding` must be @x@.
+  constantSize :: proxy a -> Maybe Int
+  constantSize _ = Nothing
+
 schema :: Serialise a => proxy a -> Schema
 schema p = schemaVia p []
 
@@ -190,6 +194,7 @@ instance Serialise () where
   schemaVia _ _ = SUnit
   toEncoding = mempty
   getDecoderVia _ = pure (pure ())
+  constantSize _ = Just 0
 
 instance Serialise Bool where
   schemaVia _ _ = SBool
@@ -198,6 +203,7 @@ instance Serialise Bool where
   getDecoderVia _ = ReaderT $ \case
     SBool -> Right $ (/=0) <$> evalContT getWord8
     s -> Left $ "Expected Bool, but got " ++ show s
+  constantSize _ = Just 1
 
 instance Serialise Word8 where
   schemaVia _ _ = SWord8
@@ -205,6 +211,7 @@ instance Serialise Word8 where
   getDecoderVia _ = ReaderT $ \case
     SWord8 -> Right $ evalContT getWord8
     s -> Left $ "Expected Word8, but got " ++ show s
+  constantSize _ = Just 1
 
 instance Serialise Word16 where
   schemaVia _ _ = SWord16
@@ -215,6 +222,7 @@ instance Serialise Word16 where
       b <- getWord8
       return $! fromIntegral a `unsafeShiftL` 8 .|. fromIntegral b
     s -> Left $ "Expected Word16, but got " ++ show s
+  constantSize _ = Just 2
 
 instance Serialise Word32 where
   schemaVia _ _ = SWord32
@@ -222,6 +230,7 @@ instance Serialise Word32 where
   getDecoderVia _ = ReaderT $ \case
     SWord32 -> Right word32be
     s -> Left $ "Expected Word32, but got " ++ show s
+  constantSize _ = Just 4
 
 instance Serialise Word64 where
   schemaVia _ _ = SWord64
@@ -229,6 +238,7 @@ instance Serialise Word64 where
   getDecoderVia _ = ReaderT $ \case
     SWord64 -> Right word64be
     s -> Left $ "Expected Word64, but got " ++ show s
+  constantSize _ = Just 8
 
 instance Serialise Word where
   schemaVia _ _ = SWord64
@@ -236,6 +246,7 @@ instance Serialise Word where
   getDecoderVia _ = ReaderT $ \case
     SWord64 -> Right $ fromIntegral <$> word64be
     s -> Left $ "Expected Word64, but got " ++ show s
+  constantSize _ = Just 8
 
 instance Serialise Int8 where
   schemaVia _ _ = SInt8
@@ -243,6 +254,7 @@ instance Serialise Int8 where
   getDecoderVia _ = ReaderT $ \case
     SInt8 -> Right $ fromIntegral <$> evalContT getWord8
     s -> Left $ "Expected Int8, but got " ++ show s
+  constantSize _ = Just 1
 
 instance Serialise Int16 where
   schemaVia _ _ = SInt16
@@ -250,6 +262,7 @@ instance Serialise Int16 where
   getDecoderVia _ = ReaderT $ \case
     SInt16 -> Right $ fromIntegral <$> word16be
     s -> Left $ "Expected Int16, but got " ++ show s
+  constantSize _ = Just 2
 
 instance Serialise Int32 where
   schemaVia _ _ = SInt32
@@ -257,6 +270,7 @@ instance Serialise Int32 where
   getDecoderVia _ = ReaderT $ \case
     SInt32 -> Right $ fromIntegral <$> word32be
     s -> Left $ "Expected Int32, but got " ++ show s
+  constantSize _ = Just 4
 
 instance Serialise Int64 where
   schemaVia _ _ = SInt64
@@ -264,6 +278,7 @@ instance Serialise Int64 where
   getDecoderVia _ = ReaderT $ \case
     SInt64 -> Right $ fromIntegral <$> word64be
     s -> Left $ "Expected Int64, but got " ++ show s
+  constantSize _ = Just 8
 
 instance Serialise Int where
   schemaVia _ _ = SInt64
@@ -271,6 +286,7 @@ instance Serialise Int where
   getDecoderVia _ = ReaderT $ \case
     SInt64 -> Right $ fromIntegral <$> word64be
     s -> Left $ "Expected Int64, but got " ++ show s
+  constantSize _ = Just 8
 
 instance Serialise Float where
   schemaVia _ _ = SFloat
@@ -278,6 +294,7 @@ instance Serialise Float where
   getDecoderVia _ = ReaderT $ \case
     SFloat -> Right $ unsafeCoerce <$> word32be
     s -> Left $ "Expected Float, but got " ++ show s
+  constantSize _ = Just 4
 
 instance Serialise Double where
   schemaVia _ _ = SDouble
@@ -285,6 +302,7 @@ instance Serialise Double where
   getDecoderVia _ = ReaderT $ \case
     SDouble -> Right $ unsafeCoerce <$> word64be
     s -> Left $ "Expected Double, but got " ++ show s
+  constantSize _ = Just 8
 
 instance Serialise T.Text where
   schemaVia _ _ = SText
@@ -304,6 +322,7 @@ instance Serialise a => Serialise (Maybe a) where
   schemaVia _ = substSchema (Proxy :: Proxy (Either () a))
   toEncoding = toEncoding . maybe (Left ()) Right
   getDecoderVia ss = fmap (either (\() -> Nothing) Just) <$> getDecoderVia ss
+  constantSize _ = (1+) <$> constantSize (Proxy :: Proxy a)
 
 word16be :: B.ByteString -> Word16
 word16be = \s ->
@@ -338,21 +357,27 @@ instance Serialise B.ByteString where
 
 instance Serialise a => Serialise [a] where
   schemaVia _ ts = SList (substSchema (Proxy :: Proxy a) ts)
-  toEncoding xs = encodeVarInt (length xs)
-    <> encodeMulti (map toEncoding xs)
+  toEncoding xs = case constantSize xs of
+    Nothing -> encodeVarInt (length xs)
+      <> encodeMulti (map toEncoding xs)
+    Just _ -> encodeVarInt (length xs) <> foldMap toEncoding xs
   getDecoderVia ss = ReaderT $ \case
     SList s -> do
       getItem <- runReaderT (getDecoderVia ss) s
       return $ evalContT $ do
         n <- decodeVarInt
-        offsets <- replicateM (n - 1) decodeVarInt
-        asks $ \bs -> [decodeAt ofs getItem bs | ofs <- take n $ 0 : offsets]
+        case constantSize getItem of
+          Nothing -> do
+            offsets <- replicateM (n - 1) decodeVarInt
+            asks $ \bs -> [decodeAt ofs getItem bs | ofs <- take n $ 0 : offsets]
+          Just size -> asks $ \bs -> [decodeAt (size * i) getItem bs | i <- [0..n - 1]]
     s -> Left $ "Expected Schema, but got " ++ show s
 
 instance Serialise a => Serialise (Identity a) where
   schemaVia _ ts = schemaVia (Proxy :: Proxy a) ts
   toEncoding = toEncoding . runIdentity
   getDecoderVia ss = fmap Identity <$> getDecoderVia ss
+  constantSize _ = constantSize (Proxy :: Proxy a)
 
 extractFieldWith :: Plan (Decoder a) -> T.Text -> Plan (Decoder a)
 extractFieldWith g name = ReaderT $ \case
@@ -369,8 +394,21 @@ extractFieldWith g name = ReaderT $ \case
 
 instance (Serialise a, Serialise b) => Serialise (a, b) where
   schemaVia _ ts = SProduct [substSchema (Proxy :: Proxy a) ts, substSchema (Proxy :: Proxy b) ts]
-  toEncoding (a, b) = encodeMulti [toEncoding a, toEncoding b]
-  getDecoderVia ss = decodePair (,) (getDecoderVia ss) (getDecoderVia ss)
+  toEncoding (a, b) = case constantSize (Proxy :: Proxy (a, b)) of
+    Nothing -> encodeMulti [toEncoding a, toEncoding b]
+    Just _ -> toEncoding a <> toEncoding b
+  getDecoderVia ss = case constantSize (Proxy :: Proxy (a, b)) of
+    Nothing -> decodePair (,) (getDecoderVia ss) (getDecoderVia ss)
+    Just _ -> ReaderT $ \case
+      SProduct [sa, sb] -> case constantSize (Proxy :: Proxy a) of
+        Just offA -> do
+          getA <- runReaderT (getDecoderVia ss) sa
+          getB <- runReaderT (getDecoderVia ss) sb
+          return $ \bs -> (getA bs, decodeAt offA getB bs)
+        Nothing -> error "Impossible"
+      s -> Left $ "Expected Product [a, b], but got " ++ show s
+
+  constantSize _ = (+) <$> constantSize (Proxy :: Proxy a) <*> constantSize (Proxy :: Proxy b)
 
 decodePair :: (a -> b -> c)
   -> Plan (Decoder a)
@@ -399,6 +437,9 @@ instance (Serialise a, Serialise b) => Serialise (Either a b) where
           0 -> Left <$> lift getA
           _ -> Right <$> lift getB
     s -> Left $ "Expected Sum [a, b], but got " ++ show s
+  constantSize _ = fmap (1+) $ max
+    <$> constantSize (Proxy :: Proxy a)
+    <*> constantSize (Proxy :: Proxy b)
 
 encodeMulti :: [Encoding] -> Encoding
 encodeMulti ls = foldMap encodeVarInt offsets <> foldMap id ls where
