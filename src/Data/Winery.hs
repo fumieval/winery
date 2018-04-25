@@ -26,6 +26,7 @@ module Data.Winery
   , encodeMulti
   , Decoder
   , Plan
+  , extractField
   , extractFieldWith
   , GSerialiseRecord
   , gschemaViaRecord
@@ -378,6 +379,9 @@ instance Serialise a => Serialise (Identity a) where
   toEncoding = toEncoding . runIdentity
   planDecoder = fmap Identity <$> planDecoder
   constantSize _ = constantSize (Proxy :: Proxy a)
+
+extractField :: Serialise a => T.Text -> Plan (Decoder a)
+extractField = extractFieldWith planDecoder
 
 extractFieldWith :: Plan (Decoder a) -> T.Text -> Plan (Decoder a)
 extractFieldWith g name = ReaderT $ \case
