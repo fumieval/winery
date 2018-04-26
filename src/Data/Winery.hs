@@ -82,7 +82,6 @@ data Schema = SSchema !Word8
   | SText
   | SList Schema
   | SProduct [Schema]
-  | SSum [Schema]
   | SRecord [(T.Text, Schema)]
   | SVariant [(T.Text, [Schema])]
   | SSelf !Word8
@@ -108,7 +107,6 @@ sizeFromSchema SBytes = Nothing
 sizeFromSchema SText = Nothing
 sizeFromSchema (SList _) = Nothing
 sizeFromSchema (SProduct _) = Nothing
-sizeFromSchema (SSum sch) = fmap maximum $ traverse sizeFromSchema sch
 sizeFromSchema (SRecord _) = Nothing
 sizeFromSchema (SVariant _) = Nothing
 sizeFromSchema (SFix s) = sizeFromSchema s
@@ -177,7 +175,6 @@ bootstrapSchema 0 = Right $ SFix $ SVariant [("SSchema",[SWord8])
   ,("SText",[])
   ,("SList",[SSelf 0])
   ,("SProduct",[SList (SSelf 0)])
-  ,("SSum",[SList (SSelf 0)])
   ,("SRecord",[SList (SProduct [SText,SSelf 0])])
   ,("SVariant",[SList (SProduct [SText,SList (SSelf 0)])])
   ,("SSelf",[SWord8])
@@ -320,9 +317,19 @@ instance Serialise Integer where
     s -> lift $ Left $ "Expected Integer, but got " ++ show s
 
 instance Serialise a => Serialise (Maybe a) where
-  schemaVia _ = substSchema (Proxy :: Proxy (Either () a))
-  toEncoding = toEncoding . maybe (Left ()) Right
-  planDecoder = fmap (either (\() -> Nothing) Just) <$> planDecoder
+  schemaVia _ ts = SVariant [("Nothing", [])
+    , ("Just", [substSchema (Proxy :: Proxy a) ts])]
+  toEncoding Nothing = (1, BB.word8 0)
+  toEncoding (Just a) = (1, BB.word8 1) <> toEncoding a
+  planDecoder = ReaderT $ \case
+    SVariant [_, (_, [sch])] -> do
+      dec <- runReaderT planDecoder sch
+      return $ evalContT $ do
+        t <- decodeVarInt
+        case t :: Word8 of
+          0 -> pure Nothing
+          _ -> Just <$> lift dec
+    s -> lift $ Left $ "Expected Variant [a, b], but got " ++ show s
   constantSize _ = (1+) <$> constantSize (Proxy :: Proxy a)
 
 instance Serialise B.ByteString where
@@ -405,11 +412,12 @@ decodePair f extA extB = ReaderT $ \case
   s -> lift $ Left $ "Expected Product [a, b], but got " ++ show s
 
 instance (Serialise a, Serialise b) => Serialise (Either a b) where
-  schemaVia _ ts = SSum [substSchema (Proxy :: Proxy a) ts, substSchema (Proxy :: Proxy b) ts]
+  schemaVia _ ts = SVariant [("Left", [substSchema (Proxy :: Proxy a) ts])
+    , ("Right", [substSchema (Proxy :: Proxy b) ts])]
   toEncoding (Left a) = (1, BB.word8 0) <> toEncoding a
   toEncoding (Right b) = (1, BB.word8 1) <> toEncoding b
   planDecoder = ReaderT $ \case
-    SSum [sa, sb] -> do
+    SVariant [(_, [sa]), (_, [sb])] -> do
       getA <- runReaderT planDecoder sa
       getB <- runReaderT planDecoder sb
       return $ evalContT $ do
@@ -417,7 +425,7 @@ instance (Serialise a, Serialise b) => Serialise (Either a b) where
         case t :: Word8 of
           0 -> Left <$> lift getA
           _ -> Right <$> lift getB
-    s -> lift $ Left $ "Expected Sum [a, b], but got " ++ show s
+    s -> lift $ Left $ "Expected Variant [a, b], but got " ++ show s
   constantSize _ = fmap (1+) $ max
     <$> constantSize (Proxy :: Proxy a)
     <*> constantSize (Proxy :: Proxy b)

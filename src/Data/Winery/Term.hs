@@ -30,7 +30,6 @@ data Term = TUnit
   | TText !T.Text
   | TList [Term]
   | TProduct [Term]
-  | TSum !Int !Term
   | TRecord [(T.Text, Term)]
   | TVariant !T.Text [Term]
   deriving Show
@@ -69,11 +68,6 @@ decodeTerm = go [] where
       return $ evalContT $ do
         offsets <- replicateM (length decoders - 1) decodeVarInt
         asks $ \bs -> TProduct [decodeAt ofs dec bs | (dec, ofs) <- zip decoders $ 0 : offsets]
-    SSum schs -> do
-      decoders <- traverse (runReaderT $ go points) schs
-      return $ evalContT $ do
-        tag <- decodeVarInt
-        lift $ TSum tag <$> decoders !! tag
     SRecord schs -> do
       decoders <- traverse (\(name, sch) -> (,) name <$> runReaderT (go points) sch) schs
       return $ evalContT $ do
@@ -121,7 +115,6 @@ termToDoc (TBool x) = DStr $ show' x
 termToDoc (TFloat x) = DStr $ show' x
 termToDoc (TDouble x) = DStr $ show' x
 termToDoc (TProduct xs) = DDocs $ map termToDoc xs
-termToDoc (TSum tag x) = DDocs [DStr (show' tag), termToDoc x]
 termToDoc (TRecord xs) = DDocs [DCon k (termToDoc v) | (k, v) <- xs]
 termToDoc (TVariant tag xs) = DCon tag $ DDocs $ map termToDoc xs
 
