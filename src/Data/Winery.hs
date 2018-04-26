@@ -15,8 +15,10 @@
 {-# LANGUAGE ExistentialQuantification #-}
 module Data.Winery
   ( Schema(..)
+  , sizeFromSchema
   , Serialise(..)
   , schema
+  , getDecoder
   , serialise
   , deserialise
   , serialiseOnly
@@ -36,16 +38,16 @@ module Data.Winery
   , gschemaViaVariant
   , gtoEncodingVariant
   , gplanDecoderVariant
+  -- * Preset schema
+  , bootstrapSchema
   )where
 
 import Control.Applicative
 import Control.Monad
 import Control.Monad.Trans.Cont
 import Control.Monad.Reader
-import Data.ByteString.Builder
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
-import qualified Data.ByteString.Unsafe as B
 import qualified Data.ByteString.Builder as BB
 import Data.Bits
 import Data.Dynamic
@@ -55,6 +57,7 @@ import Data.Int
 import Data.List (elemIndex)
 import Data.Monoid
 import Data.Word
+import Data.Winery.Internal
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Typeable
@@ -86,9 +89,30 @@ data Schema = SSchema !Word8
   | SFix Schema
   deriving (Show, Read, Eq, Generic)
 
-type Encoding = (Sum Int, Builder)
-
-type Decoder = (->) B.ByteString
+sizeFromSchema :: Schema -> Maybe Int
+sizeFromSchema (SSchema _) = Just 1
+sizeFromSchema SUnit = Just 0
+sizeFromSchema SBool = Just 1
+sizeFromSchema SWord8 = Just 1
+sizeFromSchema SWord16 = Just 2
+sizeFromSchema SWord32 = Just 4
+sizeFromSchema SWord64 = Just 8
+sizeFromSchema SInt8 = Just 1
+sizeFromSchema SInt16 = Just 2
+sizeFromSchema SInt32 = Just 4
+sizeFromSchema SInt64 = Just 8
+sizeFromSchema SInteger = Nothing
+sizeFromSchema SFloat = Just 4
+sizeFromSchema SDouble = Just 8
+sizeFromSchema SBytes = Nothing
+sizeFromSchema SText = Nothing
+sizeFromSchema (SList _) = Nothing
+sizeFromSchema (SProduct _) = Nothing
+sizeFromSchema (SSum sch) = fmap maximum $ traverse sizeFromSchema sch
+sizeFromSchema (SRecord _) = Nothing
+sizeFromSchema (SVariant _) = Nothing
+sizeFromSchema (SFix s) = sizeFromSchema s
+sizeFromSchema (SSelf _) = Nothing
 
 type Plan = ReaderT Schema (ReaderT [Decoder Dynamic] (Either String))
 
@@ -133,30 +157,6 @@ substSchema :: Serialise a => proxy a -> [TypeRep] -> Schema
 substSchema p ts
   | Just i <- elemIndex (typeRep p) ts = SSelf $ fromIntegral i
   | otherwise = schemaVia p ts
-
-decodeAt :: Int -> Decoder a -> Decoder a
-decodeAt i m bs = m $ B.drop i bs
-
-encodeVarInt :: (Integral a, Bits a) => a -> Encoding
-encodeVarInt n
-  | n < 0x80 = (1, BB.word8 $ fromIntegral n)
-  | otherwise = let (s, b) = encodeVarInt (shiftR n 7)
-    in (1 + s, BB.word8 (setBit (fromIntegral n) 7) `mappend` b)
-
-getWord8 :: ContT r Decoder Word8
-getWord8 = ContT $ \k bs -> case B.uncons bs of
-  Nothing -> k 0 bs
-  Just (x, bs') -> k x bs'
-
-getBytes :: Decoder B.ByteString
-getBytes = runContT decodeVarInt B.take
-
-decodeVarInt :: (Num a, Bits a) => ContT r Decoder a
-decodeVarInt = getWord8 >>= \case
-  n | testBit n 7 -> do
-      m <- decodeVarInt
-      return $! shiftL m 7 .|. clearBit (fromIntegral n) 7
-    | otherwise -> return $ fromIntegral n
 
 bootstrapSchema :: Word8 -> Either String Schema
 bootstrapSchema 0 = Right $ SFix $ SVariant [("SSchema",[SWord8])
@@ -325,29 +325,6 @@ instance Serialise a => Serialise (Maybe a) where
   planDecoder = fmap (either (\() -> Nothing) Just) <$> planDecoder
   constantSize _ = (1+) <$> constantSize (Proxy :: Proxy a)
 
-word16be :: B.ByteString -> Word16
-word16be = \s ->
-  (fromIntegral (s `B.unsafeIndex` 0) `unsafeShiftL` 8) .|.
-  (fromIntegral (s `B.unsafeIndex` 1))
-
-word32be :: B.ByteString -> Word32
-word32be = \s ->
-  (fromIntegral (s `B.unsafeIndex` 0) `unsafeShiftL` 24) .|.
-  (fromIntegral (s `B.unsafeIndex` 1) `unsafeShiftL` 16) .|.
-  (fromIntegral (s `B.unsafeIndex` 2) `unsafeShiftL`  8) .|.
-  (fromIntegral (s `B.unsafeIndex` 3) )
-
-word64be :: B.ByteString -> Word64
-word64be = \s ->
-  (fromIntegral (s `B.unsafeIndex` 0) `unsafeShiftL` 56) .|.
-  (fromIntegral (s `B.unsafeIndex` 1) `unsafeShiftL` 48) .|.
-  (fromIntegral (s `B.unsafeIndex` 2) `unsafeShiftL` 40) .|.
-  (fromIntegral (s `B.unsafeIndex` 3) `unsafeShiftL` 32) .|.
-  (fromIntegral (s `B.unsafeIndex` 4) `unsafeShiftL` 24) .|.
-  (fromIntegral (s `B.unsafeIndex` 5) `unsafeShiftL` 16) .|.
-  (fromIntegral (s `B.unsafeIndex` 6) `unsafeShiftL`  8) .|.
-  (fromIntegral (s `B.unsafeIndex` 7) )
-
 instance Serialise B.ByteString where
   schemaVia _ _ = SBytes
   toEncoding bs = encodeVarInt (B.length bs)
@@ -444,10 +421,6 @@ instance (Serialise a, Serialise b) => Serialise (Either a b) where
   constantSize _ = fmap (1+) $ max
     <$> constantSize (Proxy :: Proxy a)
     <*> constantSize (Proxy :: Proxy b)
-
-encodeMulti :: [Encoding] -> Encoding
-encodeMulti ls = foldMap encodeVarInt offsets <> foldMap id ls where
-  offsets = take (length ls - 1) $ drop 1 $ scanl (+) 0 $ map (getSum . fst) ls
 
 data RecordDecoder i x = Done x | forall a. More !i !(Maybe a) !(Plan (Decoder a)) (RecordDecoder i (Decoder a -> x))
 

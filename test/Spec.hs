@@ -1,32 +1,29 @@
 {-# LANGUAGE DeriveGeneric, OverloadedStrings, OverloadedLabels, DataKinds, TypeOperators #-}
-import Data.ByteString (ByteString, unpack)
-import Data.Extensible
+import Data.ByteString (ByteString)
 import Data.Winery
-import Data.Proxy
+import Data.Winery.Term
 import GHC.Generics
 
-type Test = Record ["foo" >: Maybe Int, "bar" >: [ByteString], "baz" >: Double]
-
-data Test' = Test'
+data TestRec = TestRec
     { bar :: [ByteString]
     , baz :: Double
     , foo :: Maybe Int
     } deriving (Show, Generic)
 
-def :: Test
-def = #foo @= Just 42 <: #bar @= ["hell", "world"] <: #baz @= pi <: emptyRecord
+instance Serialise TestRec where
+  schemaVia = gschemaViaRecord
+  toEncoding = gtoEncodingRecord
+  planDecoder = gplanDecoderRecord defTest
+
+defTest :: TestRec
+defTest = TestRec ["hello"] pi (Just 42)
 
 main :: IO ()
-main = do
-  let sch = schema (Proxy :: Proxy TestVar)
-  print sch
-  let bs = serialise (VBaz True False)
-  print $ unpack bs
-  print (deserialiseWith ggetDecoderVariant sch bs :: Either String TestVar)
+main = return ()
 
 data TestVar = VFoo | VBar !Int | VBaz !Bool !Bool deriving (Show, Generic)
 
 instance Serialise TestVar where
-  schema = gschemaVariant
+  schemaVia = gschemaViaVariant
   toEncoding = gtoEncodingVariant
-  getDecoder = ggetDecoderVariant
+  planDecoder = gplanDecoderVariant
