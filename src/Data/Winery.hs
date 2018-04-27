@@ -19,6 +19,7 @@ module Data.Winery
   , Serialise(..)
   , schema
   , getDecoder
+  , getDecoderBy
   , serialise
   , deserialise
   , serialiseOnly
@@ -28,6 +29,7 @@ module Data.Winery
   , encodeMulti
   , Decoder
   , Plan
+  , extractListWith
   , extractField
   , extractFieldWith
   , GSerialiseRecord
@@ -127,7 +129,10 @@ schema :: Serialise a => proxy a -> Schema
 schema p = schemaVia p []
 
 getDecoder :: Serialise a => Schema -> Either String (Decoder a)
-getDecoder sch = runReaderT (runReaderT planDecoder sch) []
+getDecoder = getDecoderBy planDecoder
+
+getDecoderBy :: Plan (Decoder a) -> Schema -> Either String (Decoder a)
+getDecoderBy plan sch = runReaderT (runReaderT plan sch) []
 
 -- | Serialise a value along with a schema.
 serialise :: Serialise a => a -> B.ByteString
@@ -149,7 +154,7 @@ deserialiseWithSchema :: Serialise a => Schema -> B.ByteString -> Either String 
 deserialiseWithSchema = deserialiseWithSchemaBy planDecoder
 
 deserialiseWithSchemaBy :: Plan (Decoder a) -> Schema -> B.ByteString -> Either String a
-deserialiseWithSchemaBy m sch bs = ($ bs) <$> runReaderT (runReaderT m sch) []
+deserialiseWithSchemaBy m sch bs = ($ bs) <$> getDecoderBy m sch
 
 substSchema :: Serialise a => proxy a -> [TypeRep] -> Schema
 substSchema p ts

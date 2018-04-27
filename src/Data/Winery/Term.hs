@@ -86,13 +86,16 @@ decodeTerm = go [] where
   p s f = fmap f <$> runReaderT planDecoder s
 
 -- | Deserialise a 'serialise'd 'B.Bytestring'.
-deserialiseTerm :: B.ByteString -> Either String Term
+deserialiseTerm :: B.ByteString -> Either String (Term, Term)
 deserialiseTerm bs = do
-  m <- getDecoder $ SSchema 0
+  getSchema <- getDecoder $ SSchema 0
+  getSchemaTerm <- getDecoderBy decodeTerm $ SSchema 0
   ($bs) $ evalContT $ do
     offB <- decodeVarInt
-    sch <- lift m
-    asks $ deserialiseWithSchemaBy decodeTerm sch . B.drop offB
+    sch <- lift getSchema
+    schT <- lift getSchemaTerm
+    body <- asks $ deserialiseWithSchemaBy decodeTerm sch . B.drop offB
+    return ((,) schT <$> body)
 
 data Doc = DStr T.Text | DDocs [Doc]
     | DCon T.Text Doc
