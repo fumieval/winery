@@ -83,6 +83,7 @@ data Schema = SSchema !Word8
   | SBytes
   | SText
   | SList Schema
+  | SArray Schema
   | SProduct [Schema]
   | SRecord [(T.Text, Schema)]
   | SVariant [(T.Text, [Schema])]
@@ -108,6 +109,7 @@ sizeFromSchema SDouble = Just 8
 sizeFromSchema SBytes = Nothing
 sizeFromSchema SText = Nothing
 sizeFromSchema (SList _) = Nothing
+sizeFromSchema (SArray _) = Nothing
 sizeFromSchema (SProduct _) = Nothing
 sizeFromSchema (SRecord _) = Nothing
 sizeFromSchema (SVariant _) = Nothing
@@ -179,11 +181,13 @@ bootstrapSchema 0 = Right $ SFix $ SVariant [("SSchema",[SWord8])
   ,("SBytes",[])
   ,("SText",[])
   ,("SList",[SSelf 0])
+  ,("SArray",[SSelf 0])
   ,("SProduct",[SList (SSelf 0)])
   ,("SRecord",[SList (SProduct [SText,SSelf 0])])
   ,("SVariant",[SList (SProduct [SText,SList (SSelf 0)])])
+  ,("SFix",[SSelf 0])
   ,("SSelf",[SWord8])
-  ,("SFix",[SSelf 0])]
+  ]
 bootstrapSchema n = Left $ "Unsupported version: " ++ show n
 
 instance Serialise Schema where
@@ -346,31 +350,31 @@ instance Serialise B.ByteString where
     s -> lift $ Left $ "Expected SBytes, but got " ++ show s
 
 instance Serialise a => Serialise [a] where
-  schemaVia _ ts = SList (substSchema (Proxy :: Proxy a) ts)
+  schemaVia _ ts = case constantSize (Proxy :: Proxy a) of
+    Nothing -> SList (substSchema (Proxy :: Proxy a) ts)
+    Just _ -> SArray (substSchema (Proxy :: Proxy a) ts)
   toEncoding xs = case constantSize xs of
     Nothing -> encodeVarInt (length xs)
       <> encodeMulti (map toEncoding xs)
     Just _ -> encodeVarInt (length xs) <> foldMap toEncoding xs
-  planDecoder = ReaderT $ \case
-    SList s -> do
-      getItem <- runReaderT planDecoder s
-      return $ evalContT $ do
-        n <- decodeVarInt
-        case constantSize getItem of
-          Nothing -> do
-            offsets <- replicateM (n - 1) decodeVarInt
-            asks $ \bs -> [decodeAt ofs getItem bs | ofs <- take n $ 0 : offsets]
-          Just size -> asks $ \bs -> [decodeAt (size * i) getItem bs | i <- [0..n - 1]]
-    s -> lift $ Left $ "Expected Schema, but got " ++ show s
+  planDecoder = extractListWith planDecoder
 
 extractListWith :: Plan (Decoder a) -> Plan (Decoder [a])
 extractListWith plan = ReaderT $ \case
+  SArray s -> do
+    getItem <- runReaderT plan s
+    case sizeFromSchema s of
+      Just size -> return $ evalContT $ do
+        n <- decodeVarInt
+        asks $ \bs -> [decodeAt (size * i) getItem bs | i <- [0..n - 1]]
+      Nothing -> lift $ Left "an array of variable-sized elements is impossible"
   SList s -> do
-    getItem <- plan `runReaderT` s
+    getItem <- runReaderT plan s
     return $ evalContT $ do
       n <- decodeVarInt
       offsets <- replicateM (n - 1) decodeVarInt
       asks $ \bs -> [decodeAt ofs getItem bs | ofs <- take n $ 0 : offsets]
+  s -> lift $ Left $ "Expected List or Array, but got " ++ show s
 
 instance Serialise a => Serialise (Identity a) where
   schemaVia _ ts = schemaVia (Proxy :: Proxy a) ts
