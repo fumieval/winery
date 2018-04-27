@@ -363,6 +363,15 @@ instance Serialise a => Serialise [a] where
           Just size -> asks $ \bs -> [decodeAt (size * i) getItem bs | i <- [0..n - 1]]
     s -> lift $ Left $ "Expected Schema, but got " ++ show s
 
+extractListWith :: Plan (Decoder a) -> Plan (Decoder [a])
+extractListWith plan = ReaderT $ \case
+  SList s -> do
+    getItem <- plan `runReaderT` s
+    return $ evalContT $ do
+      n <- decodeVarInt
+      offsets <- replicateM (n - 1) decodeVarInt
+      asks $ \bs -> [decodeAt ofs getItem bs | ofs <- take n $ 0 : offsets]
+
 instance Serialise a => Serialise (Identity a) where
   schemaVia _ ts = schemaVia (Proxy :: Proxy a) ts
   toEncoding = toEncoding . runIdentity
