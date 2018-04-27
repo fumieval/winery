@@ -54,12 +54,20 @@ import qualified Data.ByteString.Builder as BB
 import Data.Bits
 import Data.Dynamic
 import Data.Functor.Identity
+import Data.Foldable
 import Data.Proxy
+import Data.Hashable (Hashable)
+import qualified Data.HashMap.Strict as HM
 import Data.Int
+import qualified Data.IntMap as IM
+import qualified Data.IntSet as IS
 import Data.List (elemIndex)
+import qualified Data.Map as M
 import Data.Monoid
 import Data.Word
 import Data.Winery.Internal
+import qualified Data.Sequence as Seq
+import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Typeable
@@ -375,6 +383,36 @@ extractListWith plan = ReaderT $ \case
       offsets <- replicateM (n - 1) decodeVarInt
       asks $ \bs -> [decodeAt ofs getItem bs | ofs <- take n $ 0 : offsets]
   s -> lift $ Left $ "Expected List or Array, but got " ++ show s
+
+instance (Ord k, Serialise k, Serialise v) => Serialise (M.Map k v) where
+  schemaVia _ = schemaVia (Proxy :: Proxy [(k, v)])
+  toEncoding = toEncoding . M.toList
+  planDecoder = fmap M.fromList <$> planDecoder
+
+instance (Eq k, Hashable k, Serialise k, Serialise v) => Serialise (HM.HashMap k v) where
+  schemaVia _ = schemaVia (Proxy :: Proxy [(k, v)])
+  toEncoding = toEncoding . HM.toList
+  planDecoder = fmap HM.fromList <$> planDecoder
+
+instance (Serialise v) => Serialise (IM.IntMap v) where
+  schemaVia _ = schemaVia (Proxy :: Proxy [(Int, v)])
+  toEncoding = toEncoding . IM.toList
+  planDecoder = fmap IM.fromList <$> planDecoder
+
+instance (Ord a, Serialise a) => Serialise (S.Set a) where
+  schemaVia _ = schemaVia (Proxy :: Proxy [a])
+  toEncoding = toEncoding . S.toList
+  planDecoder = fmap S.fromList <$> planDecoder
+
+instance Serialise IS.IntSet where
+  schemaVia _ = schemaVia (Proxy :: Proxy [Int])
+  toEncoding = toEncoding . IS.toList
+  planDecoder = fmap IS.fromList <$> planDecoder
+
+instance Serialise a => Serialise (Seq.Seq a) where
+  schemaVia _ = schemaVia (Proxy :: Proxy [a])
+  toEncoding = toEncoding . toList
+  planDecoder = fmap Seq.fromList <$> planDecoder
 
 instance Serialise a => Serialise (Identity a) where
   schemaVia _ ts = schemaVia (Proxy :: Proxy a) ts

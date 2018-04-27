@@ -53,16 +53,8 @@ decodeTerm = go [] where
     SDouble -> p s TDouble
     SBytes -> p s TBytes
     SText -> p s TText
-    SList sch -> do
-      dec <- go points `runReaderT` sch
-      return $ evalContT $ case sizeFromSchema sch of
-        Nothing -> do
-          n <- decodeVarInt
-          offsets <- replicateM (n - 1) decodeVarInt
-          asks $ \bs -> TList [decodeAt ofs dec bs | ofs <- take n $ 0 : offsets]
-        Just size -> do
-          n <- decodeVarInt
-          asks $ \bs -> TList [decodeAt (size * i) dec bs | i <- [0..n - 1]]
+    SArray sch -> fmap TList <$> extractListWith (go points) `runReaderT` SArray sch
+    SList sch -> fmap TList <$> extractListWith (go points) `runReaderT` SList sch
     SProduct schs -> do
       decoders <- traverse (runReaderT $ go points) schs
       return $ evalContT $ do
