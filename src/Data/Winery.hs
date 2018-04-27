@@ -423,8 +423,8 @@ instance Serialise a => Serialise (Identity a) where
 extractField :: Serialise a => T.Text -> Plan (Decoder a)
 extractField = extractFieldWith planDecoder
 
-extractFieldWith :: Plan (Decoder a) -> T.Text -> Plan (Decoder a)
-extractFieldWith g name = ReaderT $ \case
+extractFieldWith :: Typeable a => Plan (Decoder a) -> T.Text -> Plan (Decoder a)
+extractFieldWith g name = handleRecursion $ \case
   SRecord schs -> do
     let schs' = [(k, (i, s)) | (i, (k, s)) <- zip [0..] schs]
     case lookup name schs' of
@@ -435,6 +435,12 @@ extractFieldWith g name = ReaderT $ \case
           lift $ \bs -> m $ B.drop (offsets !! i) bs
       Nothing -> lift $ Left $ "Schema not found for " ++ T.unpack name
   s -> lift $ Left $ "Expected Record, but got " ++ show s
+
+handleRecursion :: Typeable a => (Schema -> ReaderT [Decoder Dynamic] (Either String) (Decoder a)) -> Plan (Decoder a)
+handleRecursion k = ReaderT $ \sch -> ReaderT $ \decs -> case sch of
+  SSelf i -> return $ fmap (`fromDyn` error "Invalid recursion") $ decs !! fromIntegral i
+  SFix s -> mfix $ \a -> runReaderT (handleRecursion k) s `runReaderT` (fmap toDyn a : decs)
+  s -> k s `runReaderT` decs
 
 instance (Serialise a, Serialise b) => Serialise (a, b) where
   schemaVia _ ts = SProduct [substSchema (Proxy :: Proxy a) ts, substSchema (Proxy :: Proxy b) ts]
@@ -502,8 +508,8 @@ gtoEncodingRecord :: (GSerialiseRecord (Rep a), Generic a) => a -> Encoding
 gtoEncodingRecord = encodeMulti . recordEncoder . from
 
 gplanDecoderRecord :: (GSerialiseRecord (Rep a), Generic a, Typeable a) => a -> Plan (Decoder a)
-gplanDecoderRecord def = ReaderT $ \sch_ -> ReaderT $ \decs -> case sch_ of
-  SRecord schs -> do
+gplanDecoderRecord def = handleRecursion $ \case
+  SRecord schs -> ReaderT $ \decs -> do
     let schs' = [(k, (i, s)) | (i, (k, s)) <- zip [0..] schs]
     let go :: RecordDecoder T.Text x -> Either String ([Int] -> x)
         go (Done a) = Right $ const a
@@ -519,9 +525,7 @@ gplanDecoderRecord def = ReaderT $ \sch_ -> ReaderT $ \decs -> case sch_ of
     return $ evalContT $ do
       offsets <- (0:) <$> replicateM (length schs - 1) decodeVarInt
       asks $ \bs -> to $ m offsets bs
-  SSelf i -> return $ fmap (`fromDyn` error "Invalid recursion") $ decs !! fromIntegral i
-  SFix s -> mfix $ \a -> runReaderT (gplanDecoderRecord def) s `runReaderT` (fmap toDyn a : decs)
-  s -> Left $ "Expected Record, but got " ++ show s
+  s -> lift $ Left $ "Expected Record, but got " ++ show s
 
 class GSerialiseRecord f where
   recordSchema :: proxy f -> [TypeRep] -> [(T.Text, Schema)]
@@ -597,8 +601,8 @@ gtoEncodingVariant :: (GSerialiseVariant (Rep a), Generic a) => a -> Encoding
 gtoEncodingVariant = variantEncoder 0 . from
 
 gplanDecoderVariant :: (GSerialiseVariant (Rep a), Generic a, Typeable a) => Plan (Decoder a)
-gplanDecoderVariant = ReaderT $ \sch_ -> ReaderT $ \decs -> case sch_ of
-  SVariant schs0 -> do
+gplanDecoderVariant = handleRecursion $ \case
+  SVariant schs0 -> ReaderT $ \decs -> do
     let ds = variantDecoder decs
     ds' <- sequence
       [ case lookup name ds of
@@ -608,9 +612,7 @@ gplanDecoderVariant = ReaderT $ \sch_ -> ReaderT $ \decs -> case sch_ of
     return $ evalContT $ do
       i <- decodeVarInt
       lift $ fmap to $ ds' !! i
-  SSelf i -> return $ fmap (`fromDyn`error "Invalid recursion") $ decs !! fromIntegral i
-  SFix s -> mfix $ \a -> runReaderT gplanDecoderVariant s `runReaderT` (fmap toDyn a : decs)
-  s -> Left $ "Expected Variant, but got " ++ show s
+  s -> lift $ Left $ "Expected Variant, but got " ++ show s
 
 class GSerialiseVariant f where
   variantCount :: proxy f -> Int
