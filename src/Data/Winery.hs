@@ -5,6 +5,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -15,24 +16,27 @@
 {-# LANGUAGE ExistentialQuantification #-}
 module Data.Winery
   ( Schema(..)
-  , sizeFromSchema
   , Serialise(..)
   , Deserialiser
   , schema
-  , getDecoder
-  , getDecoderBy
   , serialise
-  , deserialise
   , serialiseOnly
+  , deserialise
   , deserialiseWithSchema
   , deserialiseWithSchemaBy
+  -- * Encoding
   , Encoding
   , encodeMulti
+  -- * Decoding combinators
   , Decoder
   , Plan
+  , getDecoder
+  , getDecoderBy
   , extractListWith
   , extractField
   , extractFieldWith
+  -- * Variable-length quantity
+  , VarInt(..)
   -- * Internal
   , unwrapDeserialiser
   -- * Generics
@@ -95,39 +99,14 @@ data Schema = SSchema !Word8
   | SDouble
   | SBytes
   | SText
-  | SList Schema
-  | SArray Schema
+  | SList !Schema
+  | SArray !(VarInt Int) !Schema
   | SProduct [Schema]
   | SRecord [(T.Text, Schema)]
   | SVariant [(T.Text, [Schema])]
   | SSelf !Word8
   | SFix Schema
   deriving (Show, Read, Eq, Generic)
-
-sizeFromSchema :: Schema -> Maybe Int
-sizeFromSchema (SSchema _) = Just 1
-sizeFromSchema SUnit = Just 0
-sizeFromSchema SBool = Just 1
-sizeFromSchema SWord8 = Just 1
-sizeFromSchema SWord16 = Just 2
-sizeFromSchema SWord32 = Just 4
-sizeFromSchema SWord64 = Just 8
-sizeFromSchema SInt8 = Just 1
-sizeFromSchema SInt16 = Just 2
-sizeFromSchema SInt32 = Just 4
-sizeFromSchema SInt64 = Just 8
-sizeFromSchema SInteger = Nothing
-sizeFromSchema SFloat = Just 4
-sizeFromSchema SDouble = Just 8
-sizeFromSchema SBytes = Nothing
-sizeFromSchema SText = Nothing
-sizeFromSchema (SList _) = Nothing
-sizeFromSchema (SArray _) = Nothing
-sizeFromSchema (SProduct _) = Nothing
-sizeFromSchema (SRecord _) = Nothing
-sizeFromSchema (SVariant _) = Nothing
-sizeFromSchema (SFix s) = sizeFromSchema s
-sizeFromSchema (SSelf _) = Nothing
 
 type Deserialiser = Compose Plan Decoder
 
@@ -203,7 +182,7 @@ bootstrapSchema 0 = Right $ SFix $ SVariant [("SSchema",[SWord8])
   ,("SBytes",[])
   ,("SText",[])
   ,("SList",[SSelf 0])
-  ,("SArray",[SSelf 0])
+  ,("SArray",[SInteger, SSelf 0])
   ,("SProduct",[SList (SSelf 0)])
   ,("SRecord",[SList (SProduct [SText,SSelf 0])])
   ,("SVariant",[SList (SProduct [SText,SList (SSelf 0)])])
@@ -341,12 +320,20 @@ instance Serialise T.Text where
     SText -> pure $ T.decodeUtf8 <$> getBytes
     s -> lift $ Left $ "Expected Text, but got " ++ show s
 
-instance Serialise Integer where
+newtype VarInt a = VarInt { getVarInt :: a } deriving (Show, Read, Eq, Ord, Enum
+  , Bounded, Num, Real, Integral, Bits, Typeable)
+
+instance (Typeable a, Integral a, Bits a) => Serialise (VarInt a) where
   schemaVia _ _ = SInteger
   toEncoding = encodeVarInt
   deserialiser = Compose $ ReaderT $ \case
     SInteger -> pure $ evalContT decodeVarInt
     s -> lift $ Left $ "Expected Integer, but got " ++ show s
+
+instance Serialise Integer where
+  schemaVia _ _ = SInteger
+  toEncoding = toEncoding . VarInt
+  deserialiser = getVarInt <$> deserialiser
 
 instance Serialise a => Serialise (Maybe a) where
   schemaVia _ ts = SVariant [("Nothing", [])
@@ -375,7 +362,7 @@ instance Serialise B.ByteString where
 instance Serialise a => Serialise [a] where
   schemaVia _ ts = case constantSize (Proxy :: Proxy a) of
     Nothing -> SList (substSchema (Proxy :: Proxy a) ts)
-    Just _ -> SArray (substSchema (Proxy :: Proxy a) ts)
+    Just s -> SArray (VarInt s) (substSchema (Proxy :: Proxy a) ts)
   toEncoding xs = case constantSize xs of
     Nothing -> encodeVarInt (length xs)
       <> encodeMulti (map toEncoding xs)
@@ -384,13 +371,11 @@ instance Serialise a => Serialise [a] where
 
 extractListWith :: Deserialiser a -> Deserialiser [a]
 extractListWith (Compose plan) = Compose $ ReaderT $ \case
-  SArray s -> do
+  SArray (VarInt size) s -> do
     getItem <- runReaderT plan s
-    case sizeFromSchema s of
-      Just size -> return $ evalContT $ do
-        n <- decodeVarInt
-        asks $ \bs -> [decodeAt (size * i) getItem bs | i <- [0..n - 1]]
-      Nothing -> lift $ Left "an array of variable-sized elements is impossible"
+    return $ evalContT $ do
+      n <- decodeVarInt
+      asks $ \bs -> [decodeAt (size * i) getItem bs | i <- [0..n - 1]]
   SList s -> do
     getItem <- runReaderT plan s
     return $ evalContT $ do

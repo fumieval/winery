@@ -54,7 +54,7 @@ decodeTerm = go [] where
     SDouble -> p s TDouble
     SBytes -> p s TBytes
     SText -> p s TText
-    SArray sch -> fmap TList <$> extractListWith (go points) `unwrapDeserialiser` SArray sch
+    SArray siz sch -> fmap TList <$> extractListWith (go points) `unwrapDeserialiser` SArray siz sch
     SList sch -> fmap TList <$> extractListWith (go points) `unwrapDeserialiser` SList sch
     SProduct schs -> do
       decoders <- traverse (unwrapDeserialiser $ go points) schs
