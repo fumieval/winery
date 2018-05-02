@@ -146,16 +146,19 @@ getDecoderBy plan sch = runReaderT (runReaderT plan sch) []
 
 -- | Serialise a value along with a schema.
 serialise :: Serialise a => a -> B.ByteString
-serialise a = serialiseOnly (schema [a], a)
+serialise a = BL.toStrict $ BB.toLazyByteString $ mappend (BB.word8 0)
+  $ snd $ toEncoding (schema [a], a)
 
 -- | Deserialise a 'serialise'd 'B.Bytestring'.
 deserialise :: Serialise a => B.ByteString -> Either String a
-deserialise bs = do
-  m <- getDecoder $ SSchema 0
-  ($bs) $ evalContT $ do
-    offB <- decodeVarInt
-    sch <- lift m
-    asks $ deserialiseWithSchema sch . B.drop offB
+deserialise bs_ = case B.uncons bs_ of
+  Just (ver, bs) -> do
+    m <- getDecoder $ SSchema ver
+    ($bs) $ evalContT $ do
+      offB <- decodeVarInt
+      sch <- lift m
+      asks $ deserialiseWithSchema sch . B.drop offB
+  Nothing -> Left "Unexpected empty string"
 
 serialiseOnly :: Serialise a => a -> B.ByteString
 serialiseOnly = BL.toStrict . BB.toLazyByteString . snd . toEncoding
