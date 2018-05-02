@@ -102,6 +102,7 @@ data Schema = SSchema !Word8
   | SList !Schema
   | SArray !(VarInt Int) !Schema
   | SProduct [Schema]
+  | SProductFixed [(VarInt Int, Schema)]
   | SRecord [(T.Text, Schema)]
   | SVariant [(T.Text, [Schema])]
   | SSelf !Word8
@@ -122,6 +123,7 @@ class Typeable a => Serialise a where
   deserialiser :: Deserialiser a
 
   -- | If this is @'Just' x@, the size of `toEncoding` must be @x@.
+  -- `deserialiser` must not depend on this value.
   constantSize :: proxy a -> Maybe Int
   constantSize _ = Nothing
 
@@ -184,6 +186,7 @@ bootstrapSchema 0 = Right $ SFix $ SVariant [("SSchema",[SWord8])
   ,("SList",[SSelf 0])
   ,("SArray",[SInteger, SSelf 0])
   ,("SProduct",[SList (SSelf 0)])
+  ,("SProductFixed",[SList $ SProduct [SInteger, SSelf 0]])
   ,("SRecord",[SList (SProduct [SText,SSelf 0])])
   ,("SVariant",[SList (SProduct [SText,SList (SSelf 0)])])
   ,("SFix",[SSelf 0])
@@ -443,35 +446,29 @@ handleRecursion k = ReaderT $ \sch -> ReaderT $ \decs -> case sch of
   s -> k s `runReaderT` decs
 
 instance (Serialise a, Serialise b) => Serialise (a, b) where
-  schemaVia _ ts = SProduct [substSchema (Proxy :: Proxy a) ts, substSchema (Proxy :: Proxy b) ts]
+  schemaVia _ ts = case (constantSize (Proxy :: Proxy a), constantSize (Proxy :: Proxy b)) of
+    (Just a, Just b) -> SProductFixed [(VarInt a, sa), (VarInt b, sb)]
+    _ -> SProduct [sa, sb]
+    where
+      sa = substSchema (Proxy :: Proxy a) ts
+      sb = substSchema (Proxy :: Proxy b) ts
   toEncoding (a, b) = case constantSize (Proxy :: Proxy (a, b)) of
     Nothing -> encodeMulti [toEncoding a, toEncoding b]
     Just _ -> toEncoding a <> toEncoding b
-  deserialiser = Compose $ case constantSize (Proxy :: Proxy (a, b)) of
-    Nothing -> decodePair (,) (getCompose deserialiser) (getCompose deserialiser)
-    Just _ -> ReaderT $ \case
-      SProduct [sa, sb] -> case constantSize (Proxy :: Proxy a) of
-        Just offA -> do
-          getA <- unwrapDeserialiser deserialiser sa
-          getB <- unwrapDeserialiser deserialiser sb
-          return $ \bs -> (getA bs, decodeAt offA getB bs)
-        Nothing -> error "Impossible"
-      s -> lift $ Left $ "Expected Product [a, b], but got " ++ show s
+  deserialiser = Compose $ ReaderT $ \case
+    SProduct [sa, sb] -> do
+      getA <- unwrapDeserialiser deserialiser sa
+      getB <- unwrapDeserialiser deserialiser sb
+      return $ evalContT $ do
+        offA <- decodeVarInt
+        asks $ \bs -> (getA bs, decodeAt offA getB bs)
+    SProductFixed [(VarInt la, sa), (_, sb)] -> do
+      getA <- unwrapDeserialiser deserialiser sa
+      getB <- unwrapDeserialiser deserialiser sb
+      return $ \bs -> (getA bs, decodeAt la getB bs)
+    s -> lift $ Left $ "Expected Product or Struct, but got " ++ show s
 
   constantSize _ = (+) <$> constantSize (Proxy :: Proxy a) <*> constantSize (Proxy :: Proxy b)
-
-decodePair :: (a -> b -> c)
-  -> Plan (Decoder a)
-  -> Plan (Decoder b)
-  -> Plan (Decoder c)
-decodePair f extA extB = ReaderT $ \case
-  SProduct [sa, sb] -> do
-    getA <- runReaderT extA sa
-    getB <- runReaderT extB sb
-    return $ evalContT $ do
-      offA <- decodeVarInt
-      asks $ \bs -> getA bs `f` decodeAt offA getB bs
-  s -> lift $ Left $ "Expected Product [a, b], but got " ++ show s
 
 instance (Serialise a, Serialise b) => Serialise (Either a b) where
   schemaVia _ ts = SVariant [("Left", [substSchema (Proxy :: Proxy a) ts])

@@ -61,6 +61,11 @@ decodeTerm = go [] where
       return $ evalContT $ do
         offsets <- replicateM (length decoders - 1) decodeVarInt
         asks $ \bs -> TProduct [decodeAt ofs dec bs | (dec, ofs) <- zip decoders $ 0 : offsets]
+    SProductFixed schs -> do
+      decoders <- traverse (\(VarInt n, sch) -> (,) n <$> unwrapDeserialiser (go points) sch) schs
+      let f bs ((n, dec) : decs) = dec bs : f (B.drop n bs) decs
+          f _ [] = []
+      return $ \bs -> TProduct $ f bs decoders
     SRecord schs -> do
       decoders <- traverse (\(name, sch) -> (,) name <$> unwrapDeserialiser (go points) sch) schs
       return $ evalContT $ do
