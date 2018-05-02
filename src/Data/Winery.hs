@@ -17,6 +17,7 @@ module Data.Winery
   ( Schema(..)
   , sizeFromSchema
   , Serialise(..)
+  , Deserialiser
   , schema
   , getDecoder
   , getDecoderBy
@@ -32,14 +33,17 @@ module Data.Winery
   , extractListWith
   , extractField
   , extractFieldWith
+  -- * Internal
+  , unwrapDeserialiser
+  -- * Generics
   , GSerialiseRecord
   , gschemaViaRecord
   , gtoEncodingRecord
-  , gplanDecoderRecord
+  , gdeserialiserRecord
   , GSerialiseVariant
   , gschemaViaVariant
   , gtoEncodingVariant
-  , gplanDecoderVariant
+  , gdeserialiserVariant
   -- * Preset schema
   , bootstrapSchema
   )where
@@ -53,6 +57,7 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Builder as BB
 import Data.Bits
 import Data.Dynamic
+import Data.Functor.Compose
 import Data.Functor.Identity
 import Data.Foldable
 import Data.Proxy
@@ -124,12 +129,18 @@ sizeFromSchema (SVariant _) = Nothing
 sizeFromSchema (SFix s) = sizeFromSchema s
 sizeFromSchema (SSelf _) = Nothing
 
+type Deserialiser = Compose Plan Decoder
+
 type Plan = ReaderT Schema (ReaderT [Decoder Dynamic] (Either String))
+
+unwrapDeserialiser :: Deserialiser a -> Schema -> ReaderT [Decoder Dynamic] (Either String) (Decoder a)
+unwrapDeserialiser (Compose m) = runReaderT m
+{-# INLINE unwrapDeserialiser #-}
 
 class Typeable a => Serialise a where
   schemaVia :: proxy a -> [TypeRep] -> Schema
   toEncoding :: a -> Encoding
-  planDecoder :: Plan (Decoder a)
+  deserialiser :: Deserialiser a
 
   -- | If this is @'Just' x@, the size of `toEncoding` must be @x@.
   constantSize :: proxy a -> Maybe Int
@@ -139,10 +150,10 @@ schema :: Serialise a => proxy a -> Schema
 schema p = schemaVia p []
 
 getDecoder :: Serialise a => Schema -> Either String (Decoder a)
-getDecoder = getDecoderBy planDecoder
+getDecoder = getDecoderBy deserialiser
 
-getDecoderBy :: Plan (Decoder a) -> Schema -> Either String (Decoder a)
-getDecoderBy plan sch = runReaderT (runReaderT plan sch) []
+getDecoderBy :: Deserialiser a -> Schema -> Either String (Decoder a)
+getDecoderBy (Compose plan) sch = runReaderT (runReaderT plan sch) []
 
 -- | Serialise a value along with a schema.
 serialise :: Serialise a => a -> B.ByteString
@@ -164,9 +175,9 @@ serialiseOnly :: Serialise a => a -> B.ByteString
 serialiseOnly = BL.toStrict . BB.toLazyByteString . snd . toEncoding
 
 deserialiseWithSchema :: Serialise a => Schema -> B.ByteString -> Either String a
-deserialiseWithSchema = deserialiseWithSchemaBy planDecoder
+deserialiseWithSchema = deserialiseWithSchemaBy deserialiser
 
-deserialiseWithSchemaBy :: Plan (Decoder a) -> Schema -> B.ByteString -> Either String a
+deserialiseWithSchemaBy :: Deserialiser a -> Schema -> B.ByteString -> Either String a
 deserialiseWithSchemaBy m sch bs = ($ bs) <$> getDecoderBy m sch
 
 substSchema :: Serialise a => proxy a -> [TypeRep] -> Schema
@@ -204,21 +215,22 @@ bootstrapSchema n = Left $ "Unsupported version: " ++ show n
 instance Serialise Schema where
   schemaVia _ _ = SSchema 0
   toEncoding = gtoEncodingVariant
-  planDecoder = ReaderT $ \case
-    SSchema n -> lift (bootstrapSchema n) >>= runReaderT gplanDecoderVariant
-    s -> runReaderT gplanDecoderVariant s
+  deserialiser = Compose $ ReaderT $ \case
+    SSchema n -> lift (bootstrapSchema n)
+      >>= unwrapDeserialiser gdeserialiserVariant
+    s -> unwrapDeserialiser gdeserialiserVariant s
 
 instance Serialise () where
   schemaVia _ _ = SUnit
   toEncoding = mempty
-  planDecoder = pure (pure ())
+  deserialiser = pure ()
   constantSize _ = Just 0
 
 instance Serialise Bool where
   schemaVia _ _ = SBool
   toEncoding False = (1, BB.word8 0)
   toEncoding True = (1, BB.word8 1)
-  planDecoder = ReaderT $ \case
+  deserialiser = Compose $ ReaderT $ \case
     SBool -> pure $ (/=0) <$> evalContT getWord8
     s -> lift $ Left $ "Expected Bool, but got " ++ show s
   constantSize _ = Just 1
@@ -226,7 +238,7 @@ instance Serialise Bool where
 instance Serialise Word8 where
   schemaVia _ _ = SWord8
   toEncoding x = (1, BB.word8 x)
-  planDecoder = ReaderT $ \case
+  deserialiser = Compose $ ReaderT $ \case
     SWord8 -> pure $ evalContT getWord8
     s -> lift $ Left $ "Expected Word8, but got " ++ show s
   constantSize _ = Just 1
@@ -234,7 +246,7 @@ instance Serialise Word8 where
 instance Serialise Word16 where
   schemaVia _ _ = SWord16
   toEncoding x = (2, BB.word16BE x)
-  planDecoder = ReaderT $ \case
+  deserialiser = Compose $ ReaderT $ \case
     SWord16 -> pure $ evalContT $ do
       a <- getWord8
       b <- getWord8
@@ -245,7 +257,7 @@ instance Serialise Word16 where
 instance Serialise Word32 where
   schemaVia _ _ = SWord32
   toEncoding x = (4, BB.word32BE x)
-  planDecoder = ReaderT $ \case
+  deserialiser = Compose $ ReaderT $ \case
     SWord32 -> pure word32be
     s -> lift $ Left $ "Expected Word32, but got " ++ show s
   constantSize _ = Just 4
@@ -253,7 +265,7 @@ instance Serialise Word32 where
 instance Serialise Word64 where
   schemaVia _ _ = SWord64
   toEncoding x = (8, BB.word64BE x)
-  planDecoder = ReaderT $ \case
+  deserialiser = Compose $ ReaderT $ \case
     SWord64 -> pure word64be
     s -> lift $ Left $ "Expected Word64, but got " ++ show s
   constantSize _ = Just 8
@@ -261,7 +273,7 @@ instance Serialise Word64 where
 instance Serialise Word where
   schemaVia _ _ = SWord64
   toEncoding x = (8, BB.word64BE $ fromIntegral x)
-  planDecoder = ReaderT $ \case
+  deserialiser = Compose $ ReaderT $ \case
     SWord64 -> pure $ fromIntegral <$> word64be
     s -> lift $ Left $ "Expected Word64, but got " ++ show s
   constantSize _ = Just 8
@@ -269,7 +281,7 @@ instance Serialise Word where
 instance Serialise Int8 where
   schemaVia _ _ = SInt8
   toEncoding x = (1, BB.int8 x)
-  planDecoder = ReaderT $ \case
+  deserialiser = Compose $ ReaderT $ \case
     SInt8 -> pure $ fromIntegral <$> evalContT getWord8
     s -> lift $ Left $ "Expected Int8, but got " ++ show s
   constantSize _ = Just 1
@@ -277,7 +289,7 @@ instance Serialise Int8 where
 instance Serialise Int16 where
   schemaVia _ _ = SInt16
   toEncoding x = (2, BB.int16BE x)
-  planDecoder = ReaderT $ \case
+  deserialiser = Compose $ ReaderT $ \case
     SInt16 -> pure $ fromIntegral <$> word16be
     s -> lift $ Left $ "Expected Int16, but got " ++ show s
   constantSize _ = Just 2
@@ -285,7 +297,7 @@ instance Serialise Int16 where
 instance Serialise Int32 where
   schemaVia _ _ = SInt32
   toEncoding x = (4, BB.int32BE x)
-  planDecoder = ReaderT $ \case
+  deserialiser = Compose $ ReaderT $ \case
     SInt32 -> pure $ fromIntegral <$> word32be
     s -> lift $ Left $ "Expected Int32, but got " ++ show s
   constantSize _ = Just 4
@@ -293,7 +305,7 @@ instance Serialise Int32 where
 instance Serialise Int64 where
   schemaVia _ _ = SInt64
   toEncoding x = (8, BB.int64BE x)
-  planDecoder = ReaderT $ \case
+  deserialiser = Compose $ ReaderT $ \case
     SInt64 -> pure $ fromIntegral <$> word64be
     s -> lift $ Left $ "Expected Int64, but got " ++ show s
   constantSize _ = Just 8
@@ -301,7 +313,7 @@ instance Serialise Int64 where
 instance Serialise Int where
   schemaVia _ _ = SInt64
   toEncoding x = (8, BB.int64BE $ fromIntegral x)
-  planDecoder = ReaderT $ \case
+  deserialiser = Compose $ ReaderT $ \case
     SInt64 -> pure $ fromIntegral <$> word64be
     s -> lift $ Left $ "Expected Int64, but got " ++ show s
   constantSize _ = Just 8
@@ -309,7 +321,7 @@ instance Serialise Int where
 instance Serialise Float where
   schemaVia _ _ = SFloat
   toEncoding x = (4, BB.word32BE $ unsafeCoerce x)
-  planDecoder = ReaderT $ \case
+  deserialiser = Compose $ ReaderT $ \case
     SFloat -> pure $ unsafeCoerce <$> word32be
     s -> lift $ Left $ "Expected Float, but got " ++ show s
   constantSize _ = Just 4
@@ -317,7 +329,7 @@ instance Serialise Float where
 instance Serialise Double where
   schemaVia _ _ = SDouble
   toEncoding x = (8, BB.word64BE $ unsafeCoerce x)
-  planDecoder= ReaderT $ \case
+  deserialiser = Compose $ ReaderT $ \case
     SDouble -> pure $ unsafeCoerce <$> word64be
     s -> lift $ Left $ "Expected Double, but got " ++ show s
   constantSize _ = Just 8
@@ -325,14 +337,14 @@ instance Serialise Double where
 instance Serialise T.Text where
   schemaVia _ _ = SText
   toEncoding = toEncoding . T.encodeUtf8
-  planDecoder = ReaderT $ \case
+  deserialiser = Compose $ ReaderT $ \case
     SText -> pure $ T.decodeUtf8 <$> getBytes
     s -> lift $ Left $ "Expected Text, but got " ++ show s
 
 instance Serialise Integer where
   schemaVia _ _ = SInteger
   toEncoding = encodeVarInt
-  planDecoder = ReaderT $ \case
+  deserialiser = Compose $ ReaderT $ \case
     SInteger -> pure $ evalContT decodeVarInt
     s -> lift $ Left $ "Expected Integer, but got " ++ show s
 
@@ -341,9 +353,9 @@ instance Serialise a => Serialise (Maybe a) where
     , ("Just", [substSchema (Proxy :: Proxy a) ts])]
   toEncoding Nothing = (1, BB.word8 0)
   toEncoding (Just a) = (1, BB.word8 1) <> toEncoding a
-  planDecoder = ReaderT $ \case
+  deserialiser = Compose $ ReaderT $ \case
     SVariant [_, (_, [sch])] -> do
-      dec <- runReaderT planDecoder sch
+      dec <- unwrapDeserialiser deserialiser sch
       return $ evalContT $ do
         t <- decodeVarInt
         case t :: Word8 of
@@ -356,7 +368,7 @@ instance Serialise B.ByteString where
   schemaVia _ _ = SBytes
   toEncoding bs = encodeVarInt (B.length bs)
     <> (Sum $ B.length bs, BB.byteString bs)
-  planDecoder = ReaderT $ \case
+  deserialiser = Compose $ ReaderT $ \case
     SBytes -> pure getBytes
     s -> lift $ Left $ "Expected SBytes, but got " ++ show s
 
@@ -368,10 +380,10 @@ instance Serialise a => Serialise [a] where
     Nothing -> encodeVarInt (length xs)
       <> encodeMulti (map toEncoding xs)
     Just _ -> encodeVarInt (length xs) <> foldMap toEncoding xs
-  planDecoder = extractListWith planDecoder
+  deserialiser = extractListWith deserialiser
 
-extractListWith :: Plan (Decoder a) -> Plan (Decoder [a])
-extractListWith plan = ReaderT $ \case
+extractListWith :: Deserialiser a -> Deserialiser [a]
+extractListWith (Compose plan) = Compose $ ReaderT $ \case
   SArray s -> do
     getItem <- runReaderT plan s
     case sizeFromSchema s of
@@ -390,44 +402,44 @@ extractListWith plan = ReaderT $ \case
 instance (Ord k, Serialise k, Serialise v) => Serialise (M.Map k v) where
   schemaVia _ = schemaVia (Proxy :: Proxy [(k, v)])
   toEncoding = toEncoding . M.toList
-  planDecoder = fmap M.fromList <$> planDecoder
+  deserialiser = M.fromList <$> deserialiser
 
 instance (Eq k, Hashable k, Serialise k, Serialise v) => Serialise (HM.HashMap k v) where
   schemaVia _ = schemaVia (Proxy :: Proxy [(k, v)])
   toEncoding = toEncoding . HM.toList
-  planDecoder = fmap HM.fromList <$> planDecoder
+  deserialiser = HM.fromList <$> deserialiser
 
 instance (Serialise v) => Serialise (IM.IntMap v) where
   schemaVia _ = schemaVia (Proxy :: Proxy [(Int, v)])
   toEncoding = toEncoding . IM.toList
-  planDecoder = fmap IM.fromList <$> planDecoder
+  deserialiser = IM.fromList <$> deserialiser
 
 instance (Ord a, Serialise a) => Serialise (S.Set a) where
   schemaVia _ = schemaVia (Proxy :: Proxy [a])
   toEncoding = toEncoding . S.toList
-  planDecoder = fmap S.fromList <$> planDecoder
+  deserialiser = S.fromList <$> deserialiser
 
 instance Serialise IS.IntSet where
   schemaVia _ = schemaVia (Proxy :: Proxy [Int])
   toEncoding = toEncoding . IS.toList
-  planDecoder = fmap IS.fromList <$> planDecoder
+  deserialiser = IS.fromList <$> deserialiser
 
 instance Serialise a => Serialise (Seq.Seq a) where
   schemaVia _ = schemaVia (Proxy :: Proxy [a])
   toEncoding = toEncoding . toList
-  planDecoder = fmap Seq.fromList <$> planDecoder
+  deserialiser = Seq.fromList <$> deserialiser
 
 instance Serialise a => Serialise (Identity a) where
   schemaVia _ ts = schemaVia (Proxy :: Proxy a) ts
   toEncoding = toEncoding . runIdentity
-  planDecoder = fmap Identity <$> planDecoder
+  deserialiser = Identity <$> deserialiser
   constantSize _ = constantSize (Proxy :: Proxy a)
 
-extractField :: Serialise a => T.Text -> Plan (Decoder a)
-extractField = extractFieldWith planDecoder
+extractField :: Serialise a => T.Text -> Deserialiser a
+extractField = extractFieldWith deserialiser
 
-extractFieldWith :: Typeable a => Plan (Decoder a) -> T.Text -> Plan (Decoder a)
-extractFieldWith g name = handleRecursion $ \case
+extractFieldWith :: Typeable a => Deserialiser a -> T.Text -> Deserialiser a
+extractFieldWith (Compose g) name = Compose $ handleRecursion $ \case
   SRecord schs -> do
     let schs' = [(k, (i, s)) | (i, (k, s)) <- zip [0..] schs]
     case lookup name schs' of
@@ -450,13 +462,13 @@ instance (Serialise a, Serialise b) => Serialise (a, b) where
   toEncoding (a, b) = case constantSize (Proxy :: Proxy (a, b)) of
     Nothing -> encodeMulti [toEncoding a, toEncoding b]
     Just _ -> toEncoding a <> toEncoding b
-  planDecoder = case constantSize (Proxy :: Proxy (a, b)) of
-    Nothing -> decodePair (,) planDecoder planDecoder
+  deserialiser = Compose $ case constantSize (Proxy :: Proxy (a, b)) of
+    Nothing -> decodePair (,) (getCompose deserialiser) (getCompose deserialiser)
     Just _ -> ReaderT $ \case
       SProduct [sa, sb] -> case constantSize (Proxy :: Proxy a) of
         Just offA -> do
-          getA <- runReaderT planDecoder sa
-          getB <- runReaderT planDecoder sb
+          getA <- unwrapDeserialiser deserialiser sa
+          getB <- unwrapDeserialiser deserialiser sb
           return $ \bs -> (getA bs, decodeAt offA getB bs)
         Nothing -> error "Impossible"
       s -> lift $ Left $ "Expected Product [a, b], but got " ++ show s
@@ -481,10 +493,10 @@ instance (Serialise a, Serialise b) => Serialise (Either a b) where
     , ("Right", [substSchema (Proxy :: Proxy b) ts])]
   toEncoding (Left a) = (1, BB.word8 0) <> toEncoding a
   toEncoding (Right b) = (1, BB.word8 1) <> toEncoding b
-  planDecoder = ReaderT $ \case
+  deserialiser = Compose $ ReaderT $ \case
     SVariant [(_, [sa]), (_, [sb])] -> do
-      getA <- runReaderT planDecoder sa
-      getB <- runReaderT planDecoder sb
+      getA <- unwrapDeserialiser deserialiser sa
+      getB <- unwrapDeserialiser deserialiser sb
       return $ evalContT $ do
         t <- decodeVarInt
         case t :: Word8 of
@@ -510,8 +522,8 @@ gschemaViaRecord p ts = SFix $ SRecord $ recordSchema (Proxy :: Proxy (Rep a)) (
 gtoEncodingRecord :: (GSerialiseRecord (Rep a), Generic a) => a -> Encoding
 gtoEncodingRecord = encodeMulti . recordEncoder . from
 
-gplanDecoderRecord :: (GSerialiseRecord (Rep a), Generic a, Typeable a) => a -> Plan (Decoder a)
-gplanDecoderRecord def = handleRecursion $ \case
+gdeserialiserRecord :: (GSerialiseRecord (Rep a), Generic a, Typeable a) => a -> Deserialiser a
+gdeserialiserRecord def = Compose $ handleRecursion $ \case
   SRecord schs -> ReaderT $ \decs -> do
     let schs' = [(k, (i, s)) | (i, (k, s)) <- zip [0..] schs]
     let go :: RecordDecoder T.Text x -> Either String ([Int] -> x)
@@ -539,13 +551,13 @@ instance (Serialise a, Selector c, GSerialiseRecord r) => GSerialiseRecord (S1 c
   recordSchema _ ts = (T.pack $ selName (M1 undefined :: M1 i c (K1 i a) x), substSchema (Proxy :: Proxy a) ts)
     : recordSchema (Proxy :: Proxy r) ts
   recordEncoder (M1 (K1 a) :*: r) = toEncoding a : recordEncoder r
-  recordDecoder (M1 (K1 def) :*: rest)= More (T.pack $ selName (M1 undefined :: M1 i c (K1 i a) x)) (Just def) planDecoder
+  recordDecoder (M1 (K1 def) :*: rest) = More (T.pack $ selName (M1 undefined :: M1 i c (K1 i a) x)) (Just def) (getCompose deserialiser)
     $ fmap (\r a -> (:*:) <$> fmap (M1 . K1) a <*> r) (recordDecoder rest)
 
 instance (Serialise a, Selector c) => GSerialiseRecord (S1 c (K1 i a)) where
   recordSchema _ ts = [(T.pack $ selName (M1 undefined :: M1 i c (K1 i a) x), substSchema (Proxy :: Proxy a) ts)]
   recordEncoder (M1 (K1 a)) = [toEncoding a]
-  recordDecoder (M1 (K1 def)) = More (T.pack $ selName (M1 undefined :: M1 i c (K1 i a) x)) (Just def) planDecoder
+  recordDecoder (M1 (K1 def)) = More (T.pack $ selName (M1 undefined :: M1 i c (K1 i a) x)) (Just def) (getCompose deserialiser)
     $ Done $ fmap $ M1 . K1
 
 instance (GSerialiseRecord f) => GSerialiseRecord (C1 c f) where
@@ -571,7 +583,7 @@ instance GSerialiseProduct U1 where
 instance (Serialise a) => GSerialiseProduct (K1 i a) where
   productSchema _ ts = [substSchema (Proxy :: Proxy a) ts]
   productEncoder (K1 a) = [toEncoding a]
-  productDecoder = More () Nothing planDecoder $ Done $ fmap K1
+  productDecoder = More () Nothing (getCompose deserialiser) $ Done $ fmap K1
 
 instance GSerialiseProduct f => GSerialiseProduct (M1 i c f) where
   productSchema _ ts = productSchema (Proxy :: Proxy f) ts
@@ -583,8 +595,8 @@ instance (GSerialiseProduct f, GSerialiseProduct g) => GSerialiseProduct (f :*: 
   productEncoder (f :*: g) = productEncoder f ++ productEncoder g
   productDecoder = liftA2 (:*:) <$> productDecoder <*> productDecoder
 
-planDecoderProduct' :: GSerialiseProduct f => [Decoder Dynamic] -> [Schema] -> Either String (Decoder (f x))
-planDecoderProduct' recs schs0 = do
+deserialiserProduct' :: GSerialiseProduct f => [Decoder Dynamic] -> [Schema] -> Either String (Decoder (f x))
+deserialiserProduct' recs schs0 = do
   let go :: Int -> [Schema] -> RecordDecoder () x -> Either String ([Int] -> x)
       go _ _ (Done a) = Right $ const a
       go _ [] _ = Left "Mismatching number of fields"
@@ -603,8 +615,8 @@ gschemaViaVariant p ts = SFix $ SVariant $ variantSchema (Proxy :: Proxy (Rep a)
 gtoEncodingVariant :: (GSerialiseVariant (Rep a), Generic a) => a -> Encoding
 gtoEncodingVariant = variantEncoder 0 . from
 
-gplanDecoderVariant :: (GSerialiseVariant (Rep a), Generic a, Typeable a) => Plan (Decoder a)
-gplanDecoderVariant = handleRecursion $ \case
+gdeserialiserVariant :: (GSerialiseVariant (Rep a), Generic a, Typeable a) => Deserialiser a
+gdeserialiserVariant = Compose $ handleRecursion $ \case
   SVariant schs0 -> ReaderT $ \decs -> do
     let ds = variantDecoder decs
     ds' <- sequence
@@ -635,7 +647,7 @@ instance (GSerialiseProduct f, Constructor c) => GSerialiseVariant (C1 c f) wher
   variantCount _ = 1
   variantSchema _ ts = [(T.pack $ conName (M1 undefined :: M1 i c f x), productSchema (Proxy :: Proxy f) ts)]
   variantEncoder i (M1 a) = encodeVarInt i <> encodeMulti (productEncoder a)
-  variantDecoder recs = [(T.pack $ conName (M1 undefined :: M1 i c f x), fmap (fmap (fmap M1)) $ planDecoderProduct' recs) ]
+  variantDecoder recs = [(T.pack $ conName (M1 undefined :: M1 i c f x), fmap (fmap (fmap M1)) $ deserialiserProduct' recs) ]
 
 instance (GSerialiseVariant f) => GSerialiseVariant (S1 c f) where
   variantCount _ = variantCount (Proxy :: Proxy f)

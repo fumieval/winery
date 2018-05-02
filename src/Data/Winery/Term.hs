@@ -6,6 +6,7 @@ import Control.Monad.Trans
 import Control.Monad.Trans.Cont
 import Control.Monad.Reader
 import qualified Data.ByteString as B
+import Data.Functor.Compose
 import Data.Int
 import Data.Monoid
 import qualified Data.Text as T
@@ -34,10 +35,10 @@ data Term = TUnit
   | TVariant !T.Text [Term]
   deriving Show
 
-decodeTerm :: Plan (Decoder Term)
+decodeTerm :: Deserialiser Term
 decodeTerm = go [] where
-  go points = ReaderT $ \s -> case s of
-    SSchema ver -> lift (bootstrapSchema ver) >>= runReaderT (go points)
+  go points = Compose $ ReaderT $ \s -> case s of
+    SSchema ver -> lift (bootstrapSchema ver) >>= unwrapDeserialiser (go points)
     SUnit -> pure (pure TUnit)
     SBool -> p s TBool
     SWord8 -> p s TWord8
@@ -53,41 +54,43 @@ decodeTerm = go [] where
     SDouble -> p s TDouble
     SBytes -> p s TBytes
     SText -> p s TText
-    SArray sch -> fmap TList <$> extractListWith (go points) `runReaderT` SArray sch
-    SList sch -> fmap TList <$> extractListWith (go points) `runReaderT` SList sch
+    SArray sch -> fmap TList <$> extractListWith (go points) `unwrapDeserialiser` SArray sch
+    SList sch -> fmap TList <$> extractListWith (go points) `unwrapDeserialiser` SList sch
     SProduct schs -> do
-      decoders <- traverse (runReaderT $ go points) schs
+      decoders <- traverse (unwrapDeserialiser $ go points) schs
       return $ evalContT $ do
         offsets <- replicateM (length decoders - 1) decodeVarInt
         asks $ \bs -> TProduct [decodeAt ofs dec bs | (dec, ofs) <- zip decoders $ 0 : offsets]
     SRecord schs -> do
-      decoders <- traverse (\(name, sch) -> (,) name <$> runReaderT (go points) sch) schs
+      decoders <- traverse (\(name, sch) -> (,) name <$> unwrapDeserialiser (go points) sch) schs
       return $ evalContT $ do
         offsets <- replicateM (length decoders - 1) decodeVarInt
         asks $ \bs -> TRecord [(name, decodeAt ofs dec bs) | ((name, dec), ofs) <- zip decoders $ 0 : offsets]
     SVariant schs -> do
-      decoders <- traverse (\(name, sch) -> (,) name <$> traverse (runReaderT (go points)) sch) schs
+      decoders <- traverse (\(name, sch) -> (,) name <$> traverse (unwrapDeserialiser (go points)) sch) schs
       return $ evalContT $ do
         tag <- decodeVarInt
         let (name, decs) = decoders !! tag
         offsets <- replicateM (length decs - 1) decodeVarInt
         asks $ \bs -> TVariant name [decodeAt ofs dec bs | (dec, ofs) <- zip decs $ 0 : offsets]
     SSelf i -> return $ points !! fromIntegral i
-    SFix s' -> mfix $ \a -> go (a : points) `runReaderT` s'
+    SFix s' -> mfix $ \a -> go (a : points) `unwrapDeserialiser` s'
 
-  p s f = fmap f <$> runReaderT planDecoder s
+  p s f = fmap f <$> unwrapDeserialiser deserialiser s
 
 -- | Deserialise a 'serialise'd 'B.Bytestring'.
 deserialiseTerm :: B.ByteString -> Either String (Term, Term)
-deserialiseTerm bs = do
-  getSchema <- getDecoder $ SSchema 0
-  getSchemaTerm <- getDecoderBy decodeTerm $ SSchema 0
-  ($bs) $ evalContT $ do
-    offB <- decodeVarInt
-    sch <- lift getSchema
-    schT <- lift getSchemaTerm
-    body <- asks $ deserialiseWithSchemaBy decodeTerm sch . B.drop offB
-    return ((,) schT <$> body)
+deserialiseTerm bs_ = case B.uncons bs_ of
+  Just (ver, bs) -> do
+    getSchema <- getDecoder $ SSchema ver
+    getSchemaTerm <- getDecoderBy decodeTerm $ SSchema 0
+    ($bs) $ evalContT $ do
+      offB <- decodeVarInt
+      sch <- lift getSchema
+      schT <- lift getSchemaTerm
+      body <- asks $ deserialiseWithSchemaBy decodeTerm sch . B.drop offB
+      return ((,) schT <$> body)
+  Nothing -> Left "Unexpected empty string"
 
 data Doc = DStr T.Text | DDocs [Doc]
     | DCon T.Text Doc
