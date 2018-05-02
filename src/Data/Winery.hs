@@ -53,7 +53,6 @@ module Data.Winery
   )where
 
 import Control.Applicative
-import Control.Monad
 import Control.Monad.Trans.Cont
 import Control.Monad.Reader
 import qualified Data.ByteString as B
@@ -383,8 +382,8 @@ extractListWith (Compose plan) = Compose $ ReaderT $ \case
     getItem <- runReaderT plan s
     return $ evalContT $ do
       n <- decodeVarInt
-      offsets <- replicateM (n - 1) decodeVarInt
-      asks $ \bs -> [decodeAt ofs getItem bs | ofs <- take n $ 0 : offsets]
+      offsets <- decodeOffsets n
+      asks $ \bs -> [decodeAt ofs getItem bs | ofs <- offsets]
   s -> lift $ Left $ "Expected List or Array, but got " ++ show s
 
 instance (Ord k, Serialise k, Serialise v) => Serialise (M.Map k v) where
@@ -434,7 +433,7 @@ extractFieldWith (Compose g) name = Compose $ handleRecursion $ \case
       Just (i, sch) -> do
         m <- runReaderT g sch
         return $ evalContT $ do
-          offsets <- (0:) <$> replicateM (length schs - 1) decodeVarInt
+          offsets <- decodeOffsets (length schs)
           lift $ \bs -> m $ B.drop (offsets !! i) bs
       Nothing -> lift $ Left $ "Schema not found for " ++ T.unpack name
   s -> lift $ Left $ "Expected Record, but got " ++ show s
@@ -520,7 +519,7 @@ gdeserialiserRecord def = Compose $ handleRecursion $ \case
             return $ \offsets -> r offsets (decodeAt (offsets !! i) getItem)
     m <- go $ recordDecoder $ from def
     return $ evalContT $ do
-      offsets <- (0:) <$> replicateM (length schs - 1) decodeVarInt
+      offsets <- decodeOffsets (length schs)
       asks $ \bs -> to $ m offsets bs
   s -> lift $ Left $ "Expected Record, but got " ++ show s
 
@@ -588,7 +587,7 @@ deserialiserProduct' recs schs0 = do
         return $ \offsets -> r offsets (decodeAt (offsets !! i) getItem)
   m <- go 0 schs0 productDecoder
   return $ evalContT $ do
-    offsets <- (0:) <$> replicateM (length schs0 - 1) decodeVarInt
+    offsets <- decodeOffsets (length schs0)
     asks $ \bs -> m offsets bs
 
 gschemaViaVariant :: forall proxy a. (GSerialiseVariant (Rep a), Typeable a, Generic a) => proxy a -> [TypeRep] -> Schema

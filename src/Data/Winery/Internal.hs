@@ -6,6 +6,7 @@ module Data.Winery.Internal
   , Decoder
   , decodeAt
   , decodeVarInt
+  , decodeOffsets
   , getWord8
   , getBytes
   , word16be
@@ -13,6 +14,7 @@ module Data.Winery.Internal
   , word64be
   )where
 
+import Control.Monad
 import Control.Monad.Trans.Cont
 import Data.ByteString.Builder
 import qualified Data.ByteString as B
@@ -75,4 +77,7 @@ word64be = \s ->
 
 encodeMulti :: [Encoding] -> Encoding
 encodeMulti ls = foldMap encodeVarInt offsets <> foldMap id ls where
-  offsets = take (length ls - 1) $ drop 1 $ scanl (+) 0 $ map (getSum . fst) ls
+  offsets = take (length ls - 1) $ map (getSum . fst) ls
+
+decodeOffsets :: Int -> ContT r Decoder [Int]
+decodeOffsets n = scanl (+) 0 <$> replicateM (n - 1) decodeVarInt
