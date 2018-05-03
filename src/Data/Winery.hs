@@ -128,12 +128,15 @@ class Typeable a => Serialise a where
 
 schema :: Serialise a => proxy a -> Schema
 schema p = schemaVia p []
+{-# INLINE schema #-}
 
 getDecoder :: Serialise a => Schema -> Either String (Decoder a)
 getDecoder = getDecoderBy deserialiser
+{-# INLINE getDecoder #-}
 
 getDecoderBy :: Deserialiser a -> Schema -> Either String (Decoder a)
 getDecoderBy (Compose plan) sch = runReaderT (runReaderT plan sch) []
+{-# INLINE getDecoderBy #-}
 
 -- | Serialise a value along with a schema.
 serialise :: Serialise a => a -> B.ByteString
@@ -153,12 +156,15 @@ deserialise bs_ = case B.uncons bs_ of
 
 serialiseOnly :: Serialise a => a -> B.ByteString
 serialiseOnly = BL.toStrict . BB.toLazyByteString . snd . toEncoding
+{-# INLINE serialiseOnly #-}
 
 deserialiseWithSchema :: Serialise a => Schema -> B.ByteString -> Either String a
 deserialiseWithSchema = deserialiseWithSchemaBy deserialiser
+{-# INLINE deserialiseWithSchema #-}
 
 deserialiseWithSchemaBy :: Deserialiser a -> Schema -> B.ByteString -> Either String a
 deserialiseWithSchemaBy m sch bs = ($ bs) <$> getDecoderBy m sch
+{-# INLINE deserialiseWithSchemaBy #-}
 
 substSchema :: Serialise a => proxy a -> [TypeRep] -> Schema
 substSchema p ts
@@ -417,13 +423,14 @@ instance Serialise a => Serialise (Seq.Seq a) where
   deserialiser = Seq.fromList <$> deserialiser
 
 instance Serialise a => Serialise (Identity a) where
-  schemaVia _ ts = schemaVia (Proxy :: Proxy a) ts
+  schemaVia _ = schemaVia (Proxy :: Proxy a)
   toEncoding = toEncoding . runIdentity
   deserialiser = Identity <$> deserialiser
   constantSize _ = constantSize (Proxy :: Proxy a)
 
 extractField :: Serialise a => T.Text -> Deserialiser a
 extractField = extractFieldWith deserialiser
+{-# INLINE extractField #-}
 
 extractFieldWith :: Typeable a => Deserialiser a -> T.Text -> Deserialiser a
 extractFieldWith (Compose g) name = Compose $ handleRecursion $ \case
@@ -434,7 +441,7 @@ extractFieldWith (Compose g) name = Compose $ handleRecursion $ \case
         m <- runReaderT g sch
         return $ evalContT $ do
           offsets <- decodeOffsets (length schs)
-          lift $ \bs -> m $ B.drop (offsets !! i) bs
+          lift $ decodeAt (offsets !! i) m
       Nothing -> lift $ Left $ "Schema not found for " ++ T.unpack name
   s -> lift $ Left $ "Expected Record, but got " ++ show s
 
@@ -502,6 +509,7 @@ gschemaViaRecord p ts = SFix $ SRecord $ recordSchema (Proxy :: Proxy (Rep a)) (
 
 gtoEncodingRecord :: (GSerialiseRecord (Rep a), Generic a) => a -> Encoding
 gtoEncodingRecord = encodeMulti . recordEncoder . from
+{-# INLINE gtoEncodingRecord #-}
 
 gdeserialiserRecord :: (GSerialiseRecord (Rep a), Generic a, Typeable a) => a -> Deserialiser a
 gdeserialiserRecord def = Compose $ handleRecursion $ \case
@@ -584,7 +592,7 @@ deserialiserProduct' recs schs0 = do
       go i (sch : schs) (More () _ p k) = do
         getItem <- runReaderT p sch `runReaderT` recs
         r <- go (i + 1) schs k
-        return $ \offsets -> r offsets (decodeAt (offsets !! i) getItem)
+        return $ \offsets -> r offsets $ decodeAt (offsets !! i) getItem
   m <- go 0 schs0 productDecoder
   return $ evalContT $ do
     offsets <- decodeOffsets (length schs0)
@@ -595,6 +603,7 @@ gschemaViaVariant p ts = SFix $ SVariant $ variantSchema (Proxy :: Proxy (Rep a)
 
 gtoEncodingVariant :: (GSerialiseVariant (Rep a), Generic a) => a -> Encoding
 gtoEncodingVariant = variantEncoder 0 . from
+{-# INLINE gtoEncodingVariant #-}
 
 gdeserialiserVariant :: (GSerialiseVariant (Rep a), Generic a, Typeable a) => Deserialiser a
 gdeserialiserVariant = Compose $ handleRecursion $ \case
