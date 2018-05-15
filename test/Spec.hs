@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveGeneric, OverloadedStrings, OverloadedLabels, DataKinds, TypeOperators #-}
+{-# LANGUAGE DeriveGeneric, OverloadedStrings, OverloadedLabels, DataKinds, TypeOperators, GeneralizedNewtypeDeriving #-}
 import Control.Monad.Fix
 import Data.ByteString (ByteString)
 import Data.Winery
@@ -14,11 +14,10 @@ data TestRec = TestRec
 instance Serialise TestRec where
   schemaVia = gschemaViaRecord
   toEncoding = gtoEncodingRecord
-  planDecoder = do
-    gfoo <- extractField "foo"
-    gbar <- extractField "bar"
-    gnodes <- extractFieldWith (extractListWith planDecoder) "nodes"
-    return $ TestRec <$> gfoo <*> gbar <*> gnodes
+  deserialiser = TestRec
+    <$> extractField "foo"
+    <*> extractField "bar"
+    <*> extractFieldWith (extractListWith deserialiser) "nodes"
 
 defTest :: TestRec
 defTest = TestRec Nothing ["hello"] [TestRec (Just 42) ["world"] []]
@@ -28,7 +27,6 @@ main = return ()
 
 data TestVar = VFoo | VBar !Int | VBaz !Bool !Bool deriving (Show, Generic)
 
-instance Serialise TestVar where
-  schemaVia = gschemaViaVariant
-  toEncoding = gtoEncodingVariant
-  planDecoder = gplanDecoderVariant
+instance Serialise TestVar
+
+newtype UserId = UserId Int deriving Serialise

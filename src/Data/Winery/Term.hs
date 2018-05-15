@@ -6,7 +6,6 @@ import Control.Monad.Trans
 import Control.Monad.Trans.Cont
 import Control.Monad.Reader
 import qualified Data.ByteString as B
-import Data.Functor.Compose
 import Data.Int
 import qualified Data.Text as T
 import Data.Text.Prettyprint.Doc
@@ -37,8 +36,8 @@ data Term = TUnit
 
 decodeTerm :: Deserialiser Term
 decodeTerm = go [] where
-  go points = Compose $ ReaderT $ \s -> case s of
-    SSchema ver -> lift (bootstrapSchema ver) >>= unwrapDeserialiser (go points)
+  go points = Deserialiser $ Plan $ \s -> case s of
+    SSchema ver -> InnerPlan (const $ bootstrapSchema ver) >>= unwrapDeserialiser (go points)
     SUnit -> pure (pure TUnit)
     SBool -> p s TBool
     SWord8 -> p s TWord8
