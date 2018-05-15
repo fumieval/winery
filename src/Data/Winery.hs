@@ -476,6 +476,35 @@ instance (Serialise a, Serialise b) => Serialise (a, b) where
 
   constantSize _ = (+) <$> constantSize (Proxy :: Proxy a) <*> constantSize (Proxy :: Proxy b)
 
+instance (Serialise a, Serialise b, Serialise c) => Serialise (a, b, c) where
+  schemaVia _ ts = case (constantSize (Proxy :: Proxy a), constantSize (Proxy :: Proxy b), constantSize (Proxy :: Proxy c)) of
+    (Just a, Just b, Just c) -> SProductFixed [(VarInt a, sa), (VarInt b, sb), (VarInt c, sc)]
+    _ -> SProduct [sa, sb, sc]
+    where
+      sa = substSchema (Proxy :: Proxy a) ts
+      sb = substSchema (Proxy :: Proxy b) ts
+      sc = substSchema (Proxy :: Proxy b) ts
+  toEncoding (a, b, c) = case constantSize (Proxy :: Proxy (a, b, c)) of
+    Nothing -> encodeMulti [toEncoding a, toEncoding b, toEncoding c]
+    Just _ -> toEncoding a <> toEncoding b <> toEncoding c
+  deserialiser = Compose $ ReaderT $ \case
+    SProduct [sa, sb, sc] -> do
+      getA <- unwrapDeserialiser deserialiser sa
+      getB <- unwrapDeserialiser deserialiser sb
+      getC <- unwrapDeserialiser deserialiser sc
+      return $ evalContT $ do
+        offA <- decodeVarInt
+        offB <- decodeVarInt
+        asks $ \bs -> (getA bs, decodeAt offA getB bs, decodeAt (offA + offB) getC bs)
+    SProductFixed [(VarInt la, sa), (VarInt lb, sb), (_, sc)] -> do
+      getA <- unwrapDeserialiser deserialiser sa
+      getB <- unwrapDeserialiser deserialiser sb
+      getC <- unwrapDeserialiser deserialiser sc
+      return $ \bs -> (getA bs, decodeAt la getB bs, decodeAt (la + lb) getC bs)
+    s -> lift $ Left $ "Expected Product or Struct, but got " ++ show s
+
+  constantSize _ = (+) <$> constantSize (Proxy :: Proxy a) <*> constantSize (Proxy :: Proxy b)
+
 instance (Serialise a, Serialise b) => Serialise (Either a b) where
   schemaVia _ ts = SVariant [("Left", [substSchema (Proxy :: Proxy a) ts])
     , ("Right", [substSchema (Proxy :: Proxy b) ts])]
