@@ -114,5 +114,6 @@ instance Pretty Term where
   pretty (TFloat x) = pretty x
   pretty (TDouble x) = pretty x
   pretty (TProduct xs) = tupled $ map pretty xs
-  pretty (TRecord xs) = encloseSep "{" "}" ", " [pretty k <> ": " <> pretty v | (k, v) <- xs]
-  pretty (TVariant tag xs) = pretty tag <> ": " <> sep (map pretty xs)
+  pretty (TRecord xs) = encloseSep "{" "}" ", " [pretty k <> " = " <> pretty v | (k, v) <- xs]
+  pretty (TVariant tag []) = pretty tag
+  pretty (TVariant tag xs) = pretty tag <> " " <> sep (map pretty xs)
