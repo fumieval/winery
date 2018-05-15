@@ -511,7 +511,7 @@ gtoEncodingRecord :: (GSerialiseRecord (Rep a), Generic a) => a -> Encoding
 gtoEncodingRecord = encodeMulti . recordEncoder . from
 {-# INLINE gtoEncodingRecord #-}
 
-gdeserialiserRecord :: (GSerialiseRecord (Rep a), Generic a, Typeable a) => a -> Deserialiser a
+gdeserialiserRecord :: (GSerialiseRecord (Rep a), Generic a, Typeable a) => Maybe a -> Deserialiser a
 gdeserialiserRecord def = Compose $ handleRecursion $ \case
   SRecord schs -> ReaderT $ \decs -> do
     let schs' = [(k, (i, s)) | (i, (k, s)) <- zip [0..] schs]
@@ -525,7 +525,7 @@ gdeserialiserRecord def = Compose $ handleRecursion $ \case
             getItem <- p `runReaderT` sch `runReaderT` decs
             r <- go k
             return $ \offsets -> r offsets (decodeAt (offsets !! i) getItem)
-    m <- go $ recordDecoder $ from def
+    m <- go $ recordDecoder $ from <$> def
     return $ evalContT $ do
       offsets <- decodeOffsets (length schs)
       asks $ \bs -> to $ m offsets bs
@@ -534,30 +534,31 @@ gdeserialiserRecord def = Compose $ handleRecursion $ \case
 class GSerialiseRecord f where
   recordSchema :: proxy f -> [TypeRep] -> [(T.Text, Schema)]
   recordEncoder :: f x -> [Encoding]
-  recordDecoder :: f x -> RecordDecoder T.Text (Decoder (f x))
+  recordDecoder :: Maybe (f x) -> RecordDecoder T.Text (Decoder (f x))
 
-instance (Serialise a, Selector c, GSerialiseRecord r) => GSerialiseRecord (S1 c (K1 i a) :*: r) where
-  recordSchema _ ts = (T.pack $ selName (M1 undefined :: M1 i c (K1 i a) x), substSchema (Proxy :: Proxy a) ts)
-    : recordSchema (Proxy :: Proxy r) ts
-  recordEncoder (M1 (K1 a) :*: r) = toEncoding a : recordEncoder r
-  recordDecoder (M1 (K1 def) :*: rest) = More (T.pack $ selName (M1 undefined :: M1 i c (K1 i a) x)) (Just def) (getCompose deserialiser)
-    $ fmap (\r a -> (:*:) <$> fmap (M1 . K1) a <*> r) (recordDecoder rest)
+instance (GSerialiseRecord f, GSerialiseRecord g) => GSerialiseRecord (f :*: g) where
+  recordSchema _ ts = recordSchema (Proxy :: Proxy f) ts
+    ++ recordSchema (Proxy :: Proxy g) ts
+  recordEncoder (f :*: g) = recordEncoder f ++ recordEncoder g
+  recordDecoder def = (\f g -> (:*:) <$> f <*> g)
+    <$> recordDecoder ((\(x :*: _) -> x) <$> def)
+    <*> recordDecoder ((\(_ :*: x) -> x) <$> def)
 
 instance (Serialise a, Selector c) => GSerialiseRecord (S1 c (K1 i a)) where
   recordSchema _ ts = [(T.pack $ selName (M1 undefined :: M1 i c (K1 i a) x), substSchema (Proxy :: Proxy a) ts)]
   recordEncoder (M1 (K1 a)) = [toEncoding a]
-  recordDecoder (M1 (K1 def)) = More (T.pack $ selName (M1 undefined :: M1 i c (K1 i a) x)) (Just def) (getCompose deserialiser)
+  recordDecoder def = More (T.pack $ selName (M1 undefined :: M1 i c (K1 i a) x)) (unK1 . unM1 <$> def) (getCompose deserialiser)
     $ Done $ fmap $ M1 . K1
 
 instance (GSerialiseRecord f) => GSerialiseRecord (C1 c f) where
   recordSchema _ = recordSchema (Proxy :: Proxy f)
   recordEncoder (M1 a) = recordEncoder a
-  recordDecoder (M1 def) = fmap M1 <$> recordDecoder def
+  recordDecoder def = fmap M1 <$> recordDecoder (unM1 <$> def)
 
 instance (GSerialiseRecord f) => GSerialiseRecord (D1 c f) where
   recordSchema _ = recordSchema (Proxy :: Proxy f)
   recordEncoder (M1 a) = recordEncoder a
-  recordDecoder (M1 def) = fmap M1 <$> recordDecoder def
+  recordDecoder def = fmap M1 <$> recordDecoder (unM1 <$> def)
 
 class GSerialiseProduct f where
   productSchema :: proxy f -> [TypeRep] -> [Schema]
