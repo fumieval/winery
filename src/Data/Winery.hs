@@ -126,6 +126,14 @@ class Typeable a => Serialise a where
   constantSize :: proxy a -> Maybe Int
   constantSize _ = Nothing
 
+  default schemaVia :: (Generic a, GSerialiseVariant (Rep a)) => proxy a -> [TypeRep] -> Schema
+  schemaVia = gschemaViaVariant
+  default toEncoding :: (Generic a, GSerialiseVariant (Rep a)) => a -> Encoding
+  toEncoding = gtoEncodingVariant
+  default deserialiser :: (Generic a, GSerialiseVariant (Rep a)) => Deserialiser a
+  deserialiser = gdeserialiserVariant
+
+
 schema :: Serialise a => proxy a -> Schema
 schema p = schemaVia p []
 {-# INLINE schema #-}
