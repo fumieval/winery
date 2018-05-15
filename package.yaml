@@ -27,6 +27,7 @@ dependencies:
 - unordered-containers
 - transformers
 - mtl
+- prettyprinter
 - text
 
 library:

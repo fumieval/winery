@@ -8,8 +8,8 @@ import Control.Monad.Reader
 import qualified Data.ByteString as B
 import Data.Functor.Compose
 import Data.Int
-import Data.Monoid
 import qualified Data.Text as T
+import Data.Text.Prettyprint.Doc
 import Data.Winery
 import Data.Winery.Internal
 import Data.Word
@@ -53,7 +53,7 @@ decodeTerm = go [] where
     SFloat -> p s TFloat
     SDouble -> p s TDouble
     SBytes -> p s TBytes
-    SText -> p s TText
+    Data.Winery.SText -> p s TText
     SArray siz sch -> fmap TList <$> extractListWith (go points) `unwrapDeserialiser` SArray siz sch
     SList sch -> fmap TList <$> extractListWith (go points) `unwrapDeserialiser` SList sch
     SProduct schs -> do
@@ -97,47 +97,23 @@ deserialiseTerm bs_ = case B.uncons bs_ of
       return ((,) schT <$> body)
   Nothing -> Left "Unexpected empty string"
 
-data Doc = DStr T.Text | DDocs [Doc]
-    | DCon T.Text Doc
-
-termToDoc :: Term -> Doc
-termToDoc TUnit = DStr "()"
-termToDoc (TWord8 i) = DStr $ show' i
-termToDoc (TWord16 i) = DStr $ show' i
-termToDoc (TWord32 i) = DStr $ show' i
-termToDoc (TWord64 i) = DStr $ show' i
-termToDoc (TInt8 i) = DStr $ show' i
-termToDoc (TInt16 i) = DStr $ show' i
-termToDoc (TInt32 i) = DStr $ show' i
-termToDoc (TInt64 i) = DStr $ show' i
-termToDoc (TInteger i) = DStr $ show' i
-termToDoc (TBytes s) = DStr $ show' s
-termToDoc (TText s) = DStr $ show' s
-termToDoc (TList xs) = DDocs (map termToDoc xs)
-termToDoc (TBool x) = DStr $ show' x
-termToDoc (TFloat x) = DStr $ show' x
-termToDoc (TDouble x) = DStr $ show' x
-termToDoc (TProduct xs) = DDocs $ map termToDoc xs
-termToDoc (TRecord xs) = DDocs [DCon k (termToDoc v) | (k, v) <- xs]
-termToDoc (TVariant tag xs) = DCon tag $ DDocs $ map termToDoc xs
-
-show' :: Show a => a -> T.Text
-show' = T.pack . show
-
-showDoc :: Doc -> T.Text
-showDoc = T.intercalate "\n" . go where
-  go :: Doc -> [T.Text]
-  go = \case
-    DStr s -> [s]
-    DCon str doc -> case go doc of
-      [] -> [str]
-      [x] -> [str <> ": " <> x]
-      xs -> str <> ": " : map ("  "<>) xs
-    DDocs [] -> []
-    DDocs [x] -> go x
-    DDocs ds -> case concatMap go ds of
-      x : xs -> "- " <> x : map ("  "<>) xs
-      [] -> []
-
-prettyTerm :: Term -> T.Text
-prettyTerm = showDoc . termToDoc
+instance Pretty Term where
+  pretty TUnit = "()"
+  pretty (TWord8 i) = pretty i
+  pretty (TWord16 i) = pretty i
+  pretty (TWord32 i) = pretty i
+  pretty (TWord64 i) = pretty i
+  pretty (TInt8 i) = pretty i
+  pretty (TInt16 i) = pretty i
+  pretty (TInt32 i) = pretty i
+  pretty (TInt64 i) = pretty i
+  pretty (TInteger i) = pretty i
+  pretty (TBytes s) = pretty $ show s
+  pretty (TText s) = pretty s
+  pretty (TList xs) = list $ map pretty xs
+  pretty (TBool x) = pretty x
+  pretty (TFloat x) = pretty x
+  pretty (TDouble x) = pretty x
+  pretty (TProduct xs) = tupled $ map pretty xs
+  pretty (TRecord xs) = encloseSep "{" "}" ", " [pretty k <> ": " <> pretty v | (k, v) <- xs]
+  pretty (TVariant tag xs) = pretty tag <> ": " <> sep (map pretty xs)
