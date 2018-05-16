@@ -226,7 +226,7 @@ getDecoderBy (Deserialiser plan) sch = unPlan plan sch `unInnerPlan` []
 
 -- | Serialise a value along with a schema.
 serialise :: Serialise a => a -> B.ByteString
-serialise a = BL.toStrict $ BB.toLazyByteString $ mappend (BB.word8 0)
+serialise a = BL.toStrict $ BB.toLazyByteString $ mappend (BB.word8 currentSchemaVersion)
   $ snd $ toEncoding (schema [a], a)
 
 -- | Deserialise a 'serialise'd 'B.Bytestring'.
@@ -257,6 +257,9 @@ substSchema p ts
   | Just i <- elemIndex (typeRep p) ts = SSelf $ fromIntegral i
   | otherwise = schemaVia p ts
 
+currentSchemaVersion :: Word8
+currentSchemaVersion = 0
+
 bootstrapSchema :: Word8 -> Either String Schema
 bootstrapSchema 0 = Right $ SFix $ SVariant [("SSchema",[SWord8])
   ,("SUnit",[])
@@ -286,7 +289,7 @@ bootstrapSchema 0 = Right $ SFix $ SVariant [("SSchema",[SWord8])
 bootstrapSchema n = Left $ "Unsupported version: " ++ show n
 
 instance Serialise Schema where
-  schemaVia _ _ = SSchema 0
+  schemaVia _ _ = SSchema currentSchemaVersion
   toEncoding = gtoEncodingVariant
   deserialiser = Deserialiser $ Plan $ \case
     SSchema n -> InnerPlan (const $ bootstrapSchema n)
@@ -573,7 +576,7 @@ instance (Serialise a, Serialise b) => Serialise (a, b) where
       getA <- unwrapDeserialiser deserialiser sa
       getB <- unwrapDeserialiser deserialiser sb
       return $ \bs -> (getA bs, decodeAt la getB bs)
-    s -> errorInnerPlan $ "Expected Product or Struct, but got " ++ show s
+    s -> errorInnerPlan $ "Expected Product, but got " ++ show s
 
   constantSize _ = (+) <$> constantSize (Proxy :: Proxy a) <*> constantSize (Proxy :: Proxy b)
 
@@ -584,7 +587,7 @@ instance (Serialise a, Serialise b, Serialise c) => Serialise (a, b, c) where
     where
       sa = substSchema (Proxy :: Proxy a) ts
       sb = substSchema (Proxy :: Proxy b) ts
-      sc = substSchema (Proxy :: Proxy b) ts
+      sc = substSchema (Proxy :: Proxy c) ts
   toEncoding (a, b, c) = case constantSize (Proxy :: Proxy (a, b, c)) of
     Nothing -> encodeMulti [toEncoding a, toEncoding b, toEncoding c]
     Just _ -> toEncoding a <> toEncoding b <> toEncoding c
@@ -602,9 +605,42 @@ instance (Serialise a, Serialise b, Serialise c) => Serialise (a, b, c) where
       getB <- unwrapDeserialiser deserialiser sb
       getC <- unwrapDeserialiser deserialiser sc
       return $ \bs -> (getA bs, decodeAt la getB bs, decodeAt (la + lb) getC bs)
-    s -> errorInnerPlan $ "Expected Product or Struct, but got " ++ show s
+    s -> errorInnerPlan $ "Expected Product, but got " ++ show s
 
-  constantSize _ = (+) <$> constantSize (Proxy :: Proxy a) <*> constantSize (Proxy :: Proxy b)
+  constantSize _ = fmap sum $ sequence [constantSize (Proxy :: Proxy a), constantSize (Proxy :: Proxy b), constantSize (Proxy :: Proxy c)]
+
+instance (Serialise a, Serialise b, Serialise c, Serialise d) => Serialise (a, b, c, d) where
+  schemaVia _ ts = case (constantSize (Proxy :: Proxy a), constantSize (Proxy :: Proxy b), constantSize (Proxy :: Proxy c), constantSize (Proxy :: Proxy d)) of
+    (Just a, Just b, Just c, Just d) -> SProductFixed [(VarInt a, sa), (VarInt b, sb), (VarInt c, sc), (VarInt d, sd)]
+    _ -> SProduct [sa, sb, sc]
+    where
+      sa = substSchema (Proxy :: Proxy a) ts
+      sb = substSchema (Proxy :: Proxy b) ts
+      sc = substSchema (Proxy :: Proxy c) ts
+      sd = substSchema (Proxy :: Proxy d) ts
+  toEncoding (a, b, c, d) = case constantSize (Proxy :: Proxy (a, b, c)) of
+    Nothing -> encodeMulti [toEncoding a, toEncoding b, toEncoding c, toEncoding d]
+    Just _ -> toEncoding a <> toEncoding b <> toEncoding c <> toEncoding d
+  deserialiser = Deserialiser $ Plan $ \case
+    SProduct [sa, sb, sc, sd] -> do
+      getA <- unwrapDeserialiser deserialiser sa
+      getB <- unwrapDeserialiser deserialiser sb
+      getC <- unwrapDeserialiser deserialiser sc
+      getD <- unwrapDeserialiser deserialiser sd
+      return $ evalContT $ do
+        offA <- decodeVarInt
+        offB <- decodeVarInt
+        offC <- decodeVarInt
+        asks $ \bs -> (getA bs, decodeAt offA getB bs, decodeAt (offA + offB) getC bs, decodeAt (offA + offB + offC) getD bs)
+    SProductFixed [(VarInt la, sa), (VarInt lb, sb), (VarInt lc, sc), (_, sd)] -> do
+      getA <- unwrapDeserialiser deserialiser sa
+      getB <- unwrapDeserialiser deserialiser sb
+      getC <- unwrapDeserialiser deserialiser sc
+      getD <- unwrapDeserialiser deserialiser sd
+      return $ \bs -> (getA bs, decodeAt la getB bs, decodeAt (la + lb) getC bs, decodeAt (la + lb + lc) getD bs)
+    s -> errorInnerPlan $ "Expected Product, but got " ++ show s
+
+  constantSize _ = fmap sum $ sequence [constantSize (Proxy :: Proxy a), constantSize (Proxy :: Proxy b), constantSize (Proxy :: Proxy c), constantSize (Proxy :: Proxy d)]
 
 instance (Serialise a, Serialise b) => Serialise (Either a b) where
   schemaVia _ ts = SVariant [("Left", [substSchema (Proxy :: Proxy a) ts])
