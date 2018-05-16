@@ -37,6 +37,8 @@ module Data.Winery
   , extractListWith
   , extractField
   , extractFieldWith
+  , extractConstructor
+  , extractConstructorWith
   -- * Variable-length quantity
   , VarInt(..)
   -- * Internal
@@ -576,6 +578,25 @@ instance (Serialise a, Serialise b) => Serialise (Either a b) where
   constantSize _ = fmap (1+) $ max
     <$> constantSize (Proxy :: Proxy a)
     <*> constantSize (Proxy :: Proxy b)
+
+extractConstructorWith :: Typeable a => Deserialiser a -> T.Text -> Deserialiser (Maybe a)
+extractConstructorWith d name = Deserialiser $ handleRecursion $ \case
+  SVariant schs0 -> InnerPlan $ \decs -> do
+    (j, dec) <- case [(i :: Int, ss) | (i, (k, ss)) <- zip [0..] schs0, name == k] of
+      [(i, [s])] -> fmap ((,) i) $ unwrapDeserialiser d s `unInnerPlan` decs
+      [(i, ss)] -> fmap ((,) i) $ unwrapDeserialiser d (SProduct ss) `unInnerPlan` decs
+      _ -> Left $ "Schema not found for " ++ T.unpack name
+
+    return $ evalContT $ do
+      i <- decodeVarInt
+      if i == j
+        then Just <$> lift dec
+        else pure Nothing
+  s -> errorInnerPlan $ "Expected Variant, but got " ++ show s
+
+extractConstructor :: (Serialise a) => T.Text -> Deserialiser (Maybe a)
+extractConstructor = extractConstructorWith deserialiser
+{-# INLINE extractConstructor #-}
 
 data RecordDecoder i x = Done x | forall a. More !i !(Maybe a) !(Plan (Decoder a)) (RecordDecoder i (Decoder a -> x))
 
