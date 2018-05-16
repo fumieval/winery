@@ -68,15 +68,15 @@ decodeTerm = go [] where
     SRecord schs -> do
       decoders <- traverse (\(name, sch) -> (,) name <$> unwrapDeserialiser (go points) sch) schs
       return $ evalContT $ do
-        offsets <- replicateM (length decoders - 1) decodeVarInt
-        asks $ \bs -> TRecord [(name, decodeAt ofs dec bs) | ((name, dec), ofs) <- zip decoders $ 0 : offsets]
+        offsets <- decodeOffsets (length decoders)
+        asks $ \bs -> TRecord [(name, decodeAt ofs dec bs) | ((name, dec), ofs) <- zip decoders offsets]
     SVariant schs -> do
       decoders <- traverse (\(name, sch) -> (,) name <$> traverse (unwrapDeserialiser (go points)) sch) schs
       return $ evalContT $ do
         tag <- decodeVarInt
         let (name, decs) = unsafeIndex ("decodeTerm/SVariant " ++ show schs ++ " " ++ show tag) decoders tag
-        offsets <- replicateM (length decs - 1) decodeVarInt
-        asks $ \bs -> TVariant name [decodeAt ofs dec bs | (dec, ofs) <- zip decs $ 0 : offsets]
+        offsets <- decodeOffsets (length decs)
+        asks $ \bs -> TVariant name [decodeAt ofs dec bs | (dec, ofs) <- zip decs offsets]
     SSelf i -> return $ unsafeIndex "decodeTerm/SSelf" points $ fromIntegral i
     SFix s' -> mfix $ \a -> go (a : points) `unwrapDeserialiser` s'
 
