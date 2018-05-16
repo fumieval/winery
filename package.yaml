@@ -29,6 +29,7 @@ dependencies:
 - mtl
 - prettyprinter
 - text
+- vector
 
 library:
   source-dirs: src

@@ -81,6 +81,9 @@ import qualified Data.Sequence as Seq
 import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import qualified Data.Vector as V
+import qualified Data.Vector.Storable as SV
+import qualified Data.Vector.Unboxed as UV
 import Data.Typeable
 import GHC.Generics
 import Unsafe.Coerce
@@ -431,6 +434,21 @@ instance Serialise a => Serialise [a] where
       <> encodeMulti (map toEncoding xs)
     Just _ -> encodeVarInt (length xs) <> foldMap toEncoding xs
   deserialiser = extractListWith deserialiser
+
+instance Serialise a => Serialise (V.Vector a) where
+  schemaVia _ = schemaVia (Proxy :: Proxy [a])
+  toEncoding = toEncoding . V.toList
+  deserialiser = V.fromList <$> deserialiser
+
+instance (SV.Storable a, Serialise a) => Serialise (SV.Vector a) where
+  schemaVia _ = schemaVia (Proxy :: Proxy [a])
+  toEncoding = toEncoding . SV.toList
+  deserialiser = SV.fromList <$> deserialiser
+
+instance (UV.Unbox a, Serialise a) => Serialise (UV.Vector a) where
+  schemaVia _ = schemaVia (Proxy :: Proxy [a])
+  toEncoding = toEncoding . UV.toList
+  deserialiser = UV.fromList <$> deserialiser
 
 extractListWith :: Deserialiser a -> Deserialiser [a]
 extractListWith (Deserialiser plan) = Deserialiser $ Plan $ \case
