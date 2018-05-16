@@ -138,7 +138,7 @@ instance Pretty Schema where
     SProduct ss -> tupled $ map pretty ss
     SProductFixed ss -> tupled $ map (pretty . snd) ss
     SRecord ss -> align $ encloseSep "{ " " }" ", " [pretty k <+> "::" <+> pretty v | (k, v) <- ss]
-    SVariant ss -> align $ encloseSep "" "" "|" [pretty k <+> align (sep (map pretty vs)) | (k, vs) <- ss]
+    SVariant ss -> align $ encloseSep "" "" "|" [pretty k <+> sep (map pretty vs) | (k, vs) <- ss]
     SFix sch -> "μ" <+> pretty sch
     SSelf i -> pretty i
 
