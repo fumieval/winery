@@ -432,8 +432,8 @@ instance Serialise Integer where
 instance Serialise a => Serialise (Maybe a) where
   schemaVia _ ts = SVariant [("Nothing", [])
     , ("Just", [substSchema (Proxy :: Proxy a) ts])]
-  toEncoding Nothing = (1, BB.word8 0)
-  toEncoding (Just a) = (1, BB.word8 1) <> toEncoding a
+  toEncoding Nothing = encodeVarInt (0 :: Word8)
+  toEncoding (Just a) = encodeVarInt (1 :: Word8) <> toEncoding a
   deserialiser = Deserialiser $ Plan $ \case
     SVariant [_, (_, [sch])] -> do
       dec <- unwrapDeserialiser deserialiser sch

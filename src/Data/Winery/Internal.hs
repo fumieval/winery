@@ -81,6 +81,7 @@ encodeMulti ls = foldMap encodeVarInt offsets <> foldMap id ls where
   offsets = take (length ls - 1) $ map (getSum . fst) ls
 
 decodeOffsets :: Int -> ContT r Decoder [Int]
+decodeOffsets 0 = pure []
 decodeOffsets n = scanl (+) 0 <$> replicateM (n - 1) decodeVarInt
 
 unsafeIndex :: String -> [a] -> Int -> a
