@@ -514,13 +514,13 @@ extractFieldWith (Deserialiser g) name = Deserialiser $ handleRecursion $ \case
         m <- unPlan g sch
         return $ evalContT $ do
           offsets <- decodeOffsets (length schs)
-          lift $ decodeAt (offsets !! i) m
+          lift $ decodeAt (unsafeIndex ("extractFieldWith _ " <> "name") offsets i) m
       Nothing -> errorInnerPlan $ "Schema not found for " ++ T.unpack name
   s -> errorInnerPlan $ "Expected Record, but got " ++ show s
 
 handleRecursion :: Typeable a => (Schema -> InnerPlan (Decoder a)) -> Plan (Decoder a)
 handleRecursion k = Plan $ \sch -> InnerPlan $ \decs -> case sch of
-  SSelf i -> return $ fmap (`fromDyn` error "Invalid recursion") $ decs !! fromIntegral i
+  SSelf i -> return $ fmap (`fromDyn` error "Invalid recursion") $ unsafeIndex "handleRecursion" decs (fromIntegral i)
   SFix s -> mfix $ \a -> unPlan (handleRecursion k) s `unInnerPlan` (fmap toDyn a : decs)
   s -> k s `unInnerPlan` decs
 
@@ -645,7 +645,7 @@ gdeserialiserRecord def = Deserialiser $ handleRecursion $ \case
           Just (i, sch) -> do
             getItem <- p `unPlan` sch `unInnerPlan` decs
             r <- go k
-            return $ \offsets -> r offsets (decodeAt (offsets !! i) getItem)
+            return $ \offsets -> r offsets (decodeAt (unsafeIndex "gdeserialiserRecord" offsets i) getItem)
     m <- go $ recordDecoder $ from <$> def
     return $ evalContT $ do
       offsets <- decodeOffsets (length schs)
@@ -714,7 +714,7 @@ deserialiserProduct' recs schs0 = do
       go i (sch : schs) (More () _ p k) = do
         getItem <- unPlan p sch `unInnerPlan` recs
         r <- go (i + 1) schs k
-        return $ \offsets -> r offsets $ decodeAt (offsets !! i) getItem
+        return $ \offsets -> r offsets $ decodeAt (unsafeIndex "gdeserialiserProduct" offsets i) getItem
   m <- go 0 schs0 productDecoder
   return $ evalContT $ do
     offsets <- decodeOffsets (length schs0)
@@ -738,7 +738,7 @@ gdeserialiserVariant = Deserialiser $ handleRecursion $ \case
       | (name, sch) <- schs0]
     return $ evalContT $ do
       i <- decodeVarInt
-      lift $ fmap to $ ds' !! i
+      lift $ fmap to $ unsafeIndex "gdeserialiserVariant" ds' i
   s -> errorInnerPlan $ "Expected Variant, but got " ++ show s
 
 class GSerialiseVariant f where

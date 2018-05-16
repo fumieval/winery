@@ -12,6 +12,7 @@ module Data.Winery.Internal
   , word16be
   , word32be
   , word64be
+  , unsafeIndex
   )where
 
 import Control.Monad
@@ -81,3 +82,6 @@ encodeMulti ls = foldMap encodeVarInt offsets <> foldMap id ls where
 
 decodeOffsets :: Int -> ContT r Decoder [Int]
 decodeOffsets n = scanl (+) 0 <$> replicateM (n - 1) decodeVarInt
+
+unsafeIndex :: String -> [a] -> Int -> a
+unsafeIndex err xs i = (xs ++ repeat (error err)) !! i
