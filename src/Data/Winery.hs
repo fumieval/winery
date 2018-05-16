@@ -84,6 +84,7 @@ import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
 import qualified Data.Vector.Unboxed as UV
+import Data.Text.Prettyprint.Doc hiding ((<>), SText)
 import Data.Typeable
 import GHC.Generics
 import Unsafe.Coerce
@@ -113,6 +114,33 @@ data Schema = SSchema !Word8
   | SFix Schema
   | SSelf !Word8
   deriving (Show, Read, Eq, Generic)
+
+instance Pretty Schema where
+  pretty = \case
+    SSchema v -> "Schema " <> pretty v
+    SUnit -> "()"
+    SBool -> "Bool"
+    SWord8 -> "Word8"
+    SWord16 -> "Word16"
+    SWord32 -> "Word32"
+    SWord64 -> "Word64"
+    SInt8 -> "Int8"
+    SInt16 -> "Int16"
+    SInt32 -> "Int32"
+    SInt64 -> "Int64"
+    SInteger -> "Integer"
+    SFloat -> "Float"
+    SDouble -> "Double"
+    SBytes -> "ByteString"
+    SText -> "Text"
+    SList s -> "[" <> pretty s <> "]"
+    SArray _ s -> "[" <> pretty s <> "]"
+    SProduct ss -> tupled $ map pretty ss
+    SProductFixed ss -> tupled $ map (pretty . snd) ss
+    SRecord ss -> align $ encloseSep "{ " " }" ", " [pretty k <+> "::" <+> pretty v | (k, v) <- ss]
+    SVariant ss -> align $ encloseSep "" "" "|" [pretty k <+> align (sep (map pretty vs)) | (k, vs) <- ss]
+    SFix sch -> "μ" <+> pretty sch
+    SSelf i -> pretty i
 
 newtype Deserialiser a = Deserialiser { getDeserialiser :: Plan (Decoder a) }
   deriving Functor

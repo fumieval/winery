@@ -83,17 +83,15 @@ decodeTerm = go [] where
   p s f = fmap f <$> unwrapDeserialiser deserialiser s
 
 -- | Deserialise a 'serialise'd 'B.Bytestring'.
-deserialiseTerm :: B.ByteString -> Either String (Term, Term)
+deserialiseTerm :: B.ByteString -> Either String (Schema, Term)
 deserialiseTerm bs_ = case B.uncons bs_ of
   Just (ver, bs) -> do
     getSchema <- getDecoder $ SSchema ver
-    getSchemaTerm <- getDecoderBy decodeTerm $ SSchema 0
     ($bs) $ evalContT $ do
       offB <- decodeVarInt
       sch <- lift getSchema
-      schT <- lift getSchemaTerm
       body <- asks $ deserialiseWithSchemaBy decodeTerm sch . B.drop offB
-      return ((,) schT <$> body)
+      return ((,) sch <$> body)
   Nothing -> Left "Unexpected empty string"
 
 instance Pretty Term where
