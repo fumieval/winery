@@ -107,8 +107,8 @@ data Schema = SSchema !Word8
   | SProductFixed [(VarInt Int, Schema)]
   | SRecord [(T.Text, Schema)]
   | SVariant [(T.Text, [Schema])]
-  | SSelf !Word8
   | SFix Schema
+  | SSelf !Word8
   deriving (Show, Read, Eq, Generic)
 
 newtype Deserialiser a = Deserialiser { getDeserialiser :: Plan (Decoder a) }
