@@ -39,6 +39,14 @@ library:
     - Data.Winery.Term
     - Data.Winery.Internal
 
+executables:
+  winery:
+    source-dirs: app
+    main: Main.hs
+    dependencies:
+      - winery
+      - prettyprinter-ansi-terminal
+
 tests:
   spec:
     source-dirs: test
