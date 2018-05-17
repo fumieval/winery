@@ -138,8 +138,11 @@ instance Pretty Schema where
     SProduct ss -> tupled $ map pretty ss
     SProductFixed ss -> tupled $ map (pretty . snd) ss
     SRecord ss -> align $ encloseSep "{ " " }" ", " [pretty k <+> "::" <+> pretty v | (k, v) <- ss]
-    SVariant ss -> align $ encloseSep "" "" "|" [pretty k <+> sep (map pretty vs) | (k, vs) <- ss]
-    SFix sch -> "μ" <+> pretty sch
+    SVariant ss -> align $ encloseSep "( " " )" (flatAlt "| " " | ")
+      [ if null vs
+          then pretty k
+          else nest 2 $ sep $ pretty k : map pretty vs | (k, vs) <- ss]
+    SFix sch -> group $ nest 2 $ sep ["μ", pretty sch]
     SSelf i -> pretty i
 
 newtype Deserialiser a = Deserialiser { getDeserialiser :: Plan (Decoder a) }
