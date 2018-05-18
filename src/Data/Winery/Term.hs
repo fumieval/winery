@@ -1,7 +1,6 @@
 {-# LANGUAGE OverloadedStrings, LambdaCase #-}
 module Data.Winery.Term where
 
-import Control.Monad
 import Control.Monad.Trans
 import Control.Monad.Trans.Cont
 import Control.Monad.Reader
@@ -58,8 +57,8 @@ decodeTerm = go [] where
     SProduct schs -> do
       decoders <- traverse (unwrapDeserialiser $ go points) schs
       return $ evalContT $ do
-        offsets <- replicateM (length decoders - 1) decodeVarInt
-        asks $ \bs -> TProduct [decodeAt ofs dec bs | (dec, ofs) <- zip decoders $ 0 : offsets]
+        offsets <- decodeOffsets (length decoders)
+        asks $ \bs -> TProduct [decodeAt ofs dec bs | (dec, ofs) <- zip decoders offsets]
     SProductFixed schs -> do
       decoders <- traverse (\(VarInt n, sch) -> (,) n <$> unwrapDeserialiser (go points) sch) schs
       let f bs ((n, dec) : decs) = dec bs : f (B.drop n bs) decs
