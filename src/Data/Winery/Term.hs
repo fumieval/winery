@@ -12,6 +12,8 @@ import Data.Winery
 import Data.Winery.Internal
 import Data.Word
 
+-- | Common representation for any winery data.
+-- Handy for prettyprinting winery-serialised data.
 data Term = TUnit
   | TBool !Bool
   | TWord8 !Word8
@@ -33,6 +35,7 @@ data Term = TUnit
   | TVariant !T.Text [Term]
   deriving Show
 
+-- | Deserialiser for a 'Term'.
 decodeTerm :: Deserialiser Term
 decodeTerm = go [] where
   go points = Deserialiser $ Plan $ \s -> case s of

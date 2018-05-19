@@ -19,19 +19,19 @@ module Data.Winery
   , Serialise(..)
   , Deserialiser(..)
   , schema
+  -- * Standalone serialisation
   , serialise
-  , serialiseOnly
   , deserialise
+  -- * Separate serialisation
+  , serialiseOnly
   , deserialiseWithSchema
   , deserialiseWithSchemaBy
-  -- * Encoding
+  -- * Encoding combinators
   , Encoding
   , encodeMulti
   -- * Decoding combinators
   , Decoder
   , Plan(..)
-  , InnerPlan(..)
-  , errorInnerPlan
   , getDecoder
   , getDecoderBy
   , extractListWith
@@ -42,6 +42,8 @@ module Data.Winery
   -- * Variable-length quantity
   , VarInt(..)
   -- * Internal
+  , InnerPlan(..)
+  , errorInnerPlan
   , unwrapDeserialiser
   -- * Generics
   , GSerialiseRecord
@@ -106,13 +108,13 @@ data Schema = SSchema !Word8
   | SBytes
   | SText
   | SList !Schema
-  | SArray !(VarInt Int) !Schema
+  | SArray !(VarInt Int) !Schema -- fixed size
   | SProduct [Schema]
-  | SProductFixed [(VarInt Int, Schema)]
+  | SProductFixed [(VarInt Int, Schema)] -- fixed size
   | SRecord [(T.Text, Schema)]
   | SVariant [(T.Text, [Schema])]
-  | SFix Schema
-  | SSelf !Word8
+  | SFix Schema -- ^ binds a fixpoint
+  | SSelf !Word8 -- ^ @SSelf n@ refers to the n-th innermost fixpoint
   deriving (Show, Read, Eq, Generic)
 
 instance Pretty Schema where
@@ -145,6 +147,7 @@ instance Pretty Schema where
     SFix sch -> group $ nest 2 $ sep ["μ", pretty sch]
     SSelf i -> pretty i
 
+-- | 'Deserialiser' is a 'Plan' that creates a 'Decoder'.
 newtype Deserialiser a = Deserialiser { getDeserialiser :: Plan (Decoder a) }
   deriving Functor
 
@@ -197,9 +200,15 @@ unwrapDeserialiser :: Deserialiser a -> Schema -> InnerPlan (Decoder a)
 unwrapDeserialiser (Deserialiser m) = unPlan m
 {-# INLINE unwrapDeserialiser #-}
 
+-- | Serialisable datatype
 class Typeable a => Serialise a where
+  -- | Obtain the schema of the datatype. @[TypeRep]@ is for handling recursion.
   schemaVia :: Proxy a -> [TypeRep] -> Schema
+
+  -- | Serialise a value.
   toEncoding :: a -> Encoding
+
+  -- | The 'Deserialiser'
   deserialiser :: Deserialiser a
 
   -- | If this is @'Just' x@, the size of `toEncoding` must be @x@.
@@ -214,15 +223,17 @@ class Typeable a => Serialise a where
   default deserialiser :: (Generic a, GSerialiseVariant (Rep a)) => Deserialiser a
   deserialiser = gdeserialiserVariant
 
-
+-- | Obtain the schema of the datatype.
 schema :: forall proxy a. Serialise a => proxy a -> Schema
 schema _ = schemaVia (Proxy :: Proxy a) []
 {-# INLINE schema #-}
 
+-- | Obtain a decoder from a schema.
 getDecoder :: Serialise a => Schema -> Either String (Decoder a)
 getDecoder = getDecoderBy deserialiser
 {-# INLINE getDecoder #-}
 
+-- | Get a decoder from a `Deserialiser` and a schema.
 getDecoderBy :: Deserialiser a -> Schema -> Either String (Decoder a)
 getDecoderBy (Deserialiser plan) sch = unPlan plan sch `unInnerPlan` []
 {-# INLINE getDecoderBy #-}
@@ -243,14 +254,17 @@ deserialise bs_ = case B.uncons bs_ of
       asks $ deserialiseWithSchema sch . B.drop offB
   Nothing -> Left "Unexpected empty string"
 
+-- | Serialise a value without its schema.
 serialiseOnly :: Serialise a => a -> B.ByteString
 serialiseOnly = BL.toStrict . BB.toLazyByteString . snd . toEncoding
 {-# INLINE serialiseOnly #-}
 
+-- | Deserialise a content.
 deserialiseWithSchema :: Serialise a => Schema -> B.ByteString -> Either String a
 deserialiseWithSchema = deserialiseWithSchemaBy deserialiser
 {-# INLINE deserialiseWithSchema #-}
 
+-- | Deserialise a content using the specified `Deserialiser`.
 deserialiseWithSchemaBy :: Deserialiser a -> Schema -> B.ByteString -> Either String a
 deserialiseWithSchemaBy m sch bs = ($ bs) <$> getDecoderBy m sch
 {-# INLINE deserialiseWithSchemaBy #-}
@@ -664,6 +678,8 @@ instance (Serialise a, Serialise b) => Serialise (Either a b) where
     <$> constantSize (Proxy :: Proxy a)
     <*> constantSize (Proxy :: Proxy b)
 
+-- | Tries to extract a specific constructor of a variant. Useful for
+-- implementing backward-compatible deserialisers.
 extractConstructorWith :: Typeable a => Deserialiser a -> T.Text -> Deserialiser (Maybe a)
 extractConstructorWith d name = Deserialiser $ handleRecursion $ \case
   SVariant schs0 -> InnerPlan $ \decs -> do
@@ -692,14 +708,19 @@ instance Applicative (RecordDecoder i) where
   Done f <*> a = fmap f a
   More i p d k <*> c = More i p d (flip <$> k <*> c)
 
+-- | Generic implementation of 'schemaVia' for a record.
 gschemaViaRecord :: forall proxy a. (GSerialiseRecord (Rep a), Generic a, Typeable a) => proxy a -> [TypeRep] -> Schema
 gschemaViaRecord p ts = SFix $ SRecord $ recordSchema (Proxy :: Proxy (Rep a)) (typeRep p : ts)
 
+-- | Generic implementation of 'toEncoding' for a record.
 gtoEncodingRecord :: (GSerialiseRecord (Rep a), Generic a) => a -> Encoding
 gtoEncodingRecord = encodeMulti . recordEncoder . from
 {-# INLINE gtoEncodingRecord #-}
 
-gdeserialiserRecord :: (GSerialiseRecord (Rep a), Generic a, Typeable a) => Maybe a -> Deserialiser a
+-- | Generic implementation of 'deserialiser' for a record.
+gdeserialiserRecord :: (GSerialiseRecord (Rep a), Generic a, Typeable a)
+  => Maybe a -- ^ default value (optional)
+  -> Deserialiser a
 gdeserialiserRecord def = Deserialiser $ handleRecursion $ \case
   SRecord schs -> InnerPlan $ \decs -> do
     let schs' = [(k, (i, s)) | (i, (k, s)) <- zip [0..] schs]
@@ -787,13 +808,16 @@ deserialiserProduct' schs0 = InnerPlan $ \recs -> do
     offsets <- decodeOffsets (length schs0)
     asks $ \bs -> m offsets bs
 
+-- | Generic implementation of 'schemaVia' for an ADT.
 gschemaViaVariant :: forall proxy a. (GSerialiseVariant (Rep a), Typeable a, Generic a) => proxy a -> [TypeRep] -> Schema
 gschemaViaVariant p ts = SFix $ SVariant $ variantSchema (Proxy :: Proxy (Rep a)) (typeRep p : ts)
 
+-- | Generic implementation of 'toEncoding' for an ADT.
 gtoEncodingVariant :: (GSerialiseVariant (Rep a), Generic a) => a -> Encoding
 gtoEncodingVariant = variantEncoder 0 . from
 {-# INLINE gtoEncodingVariant #-}
 
+-- | Generic implementation of 'deserialiser' for an ADT.
 gdeserialiserVariant :: (GSerialiseVariant (Rep a), Generic a, Typeable a) => Deserialiser a
 gdeserialiserVariant = Deserialiser $ handleRecursion $ \case
   SVariant schs0 -> InnerPlan $ \decs -> do
