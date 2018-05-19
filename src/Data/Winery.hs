@@ -773,8 +773,8 @@ instance (GSerialiseProduct f, GSerialiseProduct g) => GSerialiseProduct (f :*: 
   productEncoder (f :*: g) = productEncoder f ++ productEncoder g
   productDecoder = liftA2 (:*:) <$> productDecoder <*> productDecoder
 
-deserialiserProduct' :: GSerialiseProduct f => [Decoder Dynamic] -> [Schema] -> Either String (Decoder (f x))
-deserialiserProduct' recs schs0 = do
+deserialiserProduct' :: GSerialiseProduct f => [Schema] -> InnerPlan (Decoder (f x))
+deserialiserProduct' schs0 = InnerPlan $ \recs -> do
   let go :: Int -> [Schema] -> RecordDecoder () x -> Either String ([Int] -> x)
       go _ _ (Done a) = Right $ const a
       go _ [] _ = Left "Mismatching number of fields"
@@ -797,11 +797,10 @@ gtoEncodingVariant = variantEncoder 0 . from
 gdeserialiserVariant :: (GSerialiseVariant (Rep a), Generic a, Typeable a) => Deserialiser a
 gdeserialiserVariant = Deserialiser $ handleRecursion $ \case
   SVariant schs0 -> InnerPlan $ \decs -> do
-    let ds = variantDecoder decs
     ds' <- sequence
-      [ case lookup name ds of
+      [ case lookup name variantDecoder of
           Nothing -> Left $ "Schema not found for " ++ T.unpack name
-          Just f -> f sch
+          Just f -> f sch `unInnerPlan` decs
       | (name, sch) <- schs0]
     return $ evalContT $ do
       i <- decodeVarInt
@@ -812,30 +811,31 @@ class GSerialiseVariant f where
   variantCount :: proxy f -> Int
   variantSchema :: proxy f -> [TypeRep] -> [(T.Text, [Schema])]
   variantEncoder :: Int -> f x -> Encoding
-  variantDecoder :: [Decoder Dynamic] -> [(T.Text, [Schema] -> Either String (Decoder (f x)))]
+  variantDecoder :: [(T.Text, [Schema] -> InnerPlan (Decoder (f x)))]
 
 instance (GSerialiseVariant f, GSerialiseVariant g) => GSerialiseVariant (f :+: g) where
   variantCount _ = variantCount (Proxy :: Proxy f) + variantCount (Proxy :: Proxy g)
   variantSchema _ ts = variantSchema (Proxy :: Proxy f) ts ++ variantSchema (Proxy :: Proxy g) ts
   variantEncoder i (L1 f) = variantEncoder i f
   variantEncoder i (R1 g) = variantEncoder (i + variantCount (Proxy :: Proxy f)) g
-  variantDecoder recs = fmap (fmap (fmap (fmap (fmap L1)))) (variantDecoder recs)
-    ++ fmap (fmap (fmap (fmap (fmap R1)))) (variantDecoder recs)
+  variantDecoder = fmap (fmap (fmap (fmap (fmap L1)))) variantDecoder
+    ++ fmap (fmap (fmap (fmap (fmap R1)))) variantDecoder
 
 instance (GSerialiseProduct f, Constructor c) => GSerialiseVariant (C1 c f) where
   variantCount _ = 1
   variantSchema _ ts = [(T.pack $ conName (M1 undefined :: M1 i c f x), productSchema (Proxy :: Proxy f) ts)]
   variantEncoder i (M1 a) = encodeVarInt i <> encodeMulti (productEncoder a)
-  variantDecoder recs = [(T.pack $ conName (M1 undefined :: M1 i c f x), fmap (fmap (fmap M1)) $ deserialiserProduct' recs) ]
+  variantDecoder = [(T.pack $ conName (M1 undefined :: M1 i c f x)
+    , fmap (fmap M1) . deserialiserProduct') ]
 
 instance (GSerialiseVariant f) => GSerialiseVariant (S1 c f) where
   variantCount _ = variantCount (Proxy :: Proxy f)
   variantSchema _ ts = variantSchema (Proxy :: Proxy f) ts
   variantEncoder i (M1 a) = variantEncoder i a
-  variantDecoder recs = fmap (fmap (fmap (fmap M1))) <$> variantDecoder recs
+  variantDecoder = fmap (fmap (fmap (fmap M1))) <$> variantDecoder
 
 instance (GSerialiseVariant f) => GSerialiseVariant (D1 c f) where
   variantCount _ = variantCount (Proxy :: Proxy f)
   variantSchema _ ts = variantSchema (Proxy :: Proxy f) ts
   variantEncoder i (M1 a) = variantEncoder i a
-  variantDecoder recs = fmap (fmap (fmap (fmap M1))) <$> variantDecoder recs
+  variantDecoder = fmap (fmap (fmap (fmap M1))) <$> variantDecoder
