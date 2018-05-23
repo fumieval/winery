@@ -86,7 +86,7 @@ import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
 import qualified Data.Vector.Unboxed as UV
-import Data.Text.Prettyprint.Doc hiding ((<>), SText)
+import Data.Text.Prettyprint.Doc hiding ((<>), SText, SChar)
 import Data.Typeable
 import GHC.Generics
 import Unsafe.Coerce
@@ -94,6 +94,7 @@ import Unsafe.Coerce
 data Schema = SSchema !Word8
   | SUnit
   | SBool
+  | SChar
   | SWord8
   | SWord16
   | SWord32
@@ -122,6 +123,7 @@ instance Pretty Schema where
     SSchema v -> "Schema " <> pretty v
     SUnit -> "()"
     SBool -> "Bool"
+    SChar -> "Char"
     SWord8 -> "Word8"
     SWord16 -> "Word16"
     SWord32 -> "Word32"
@@ -448,6 +450,13 @@ instance Serialise Integer where
   schemaVia _ _ = SInteger
   toEncoding = toEncoding . VarInt
   deserialiser = getVarInt <$> deserialiser
+
+instance Serialise Char where
+  schemaVia _ _ = SChar
+  toEncoding = toEncoding . fromEnum
+  deserialiser = Deserialiser $ Plan $ \case
+    SChar -> pure $ toEnum . evalContT decodeVarInt
+    s -> errorInnerPlan $ "Expected Integer, but got " ++ show s
 
 instance Serialise a => Serialise (Maybe a) where
   schemaVia _ ts = SVariant [("Nothing", [])

@@ -16,6 +16,7 @@ import Data.Word
 -- Handy for prettyprinting winery-serialised data.
 data Term = TUnit
   | TBool !Bool
+  | TChar !Char
   | TWord8 !Word8
   | TWord16 !Word16
   | TWord32 !Word32
@@ -42,6 +43,7 @@ decodeTerm = go [] where
     SSchema ver -> InnerPlan (const $ bootstrapSchema ver) >>= unwrapDeserialiser (go points)
     SUnit -> pure (pure TUnit)
     SBool -> p s TBool
+    Data.Winery.SChar -> p s TChar
     SWord8 -> p s TWord8
     SWord16 -> p s TWord16
     SWord32 -> p s TWord32
@@ -111,6 +113,7 @@ instance Pretty Term where
   pretty (TText s) = pretty s
   pretty (TList xs) = list $ map pretty xs
   pretty (TBool x) = pretty x
+  pretty (TChar x) = pretty x
   pretty (TFloat x) = pretty x
   pretty (TDouble x) = pretty x
   pretty (TProduct xs) = tupled $ map pretty xs
