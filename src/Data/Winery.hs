@@ -603,7 +603,7 @@ instance (Serialise a, Serialise b) => Serialise (a, b) where
       getA <- unwrapDeserialiser deserialiser sa
       getB <- unwrapDeserialiser deserialiser sb
       return $ \bs -> (getA bs, decodeAt la getB bs)
-    s -> errorInnerPlan $ "Expected Product, but got " ++ show s
+    s -> errorInnerPlan $ "Expected a tuple, but got " ++ show s
 
   constantSize _ = (+) <$> constantSize (Proxy :: Proxy a) <*> constantSize (Proxy :: Proxy b)
 
@@ -632,14 +632,14 @@ instance (Serialise a, Serialise b, Serialise c) => Serialise (a, b, c) where
       getB <- unwrapDeserialiser deserialiser sb
       getC <- unwrapDeserialiser deserialiser sc
       return $ \bs -> (getA bs, decodeAt la getB bs, decodeAt (la + lb) getC bs)
-    s -> errorInnerPlan $ "Expected Product, but got " ++ show s
+    s -> errorInnerPlan $ "Expected 3-tuple, but got " ++ show s
 
   constantSize _ = fmap sum $ sequence [constantSize (Proxy :: Proxy a), constantSize (Proxy :: Proxy b), constantSize (Proxy :: Proxy c)]
 
 instance (Serialise a, Serialise b, Serialise c, Serialise d) => Serialise (a, b, c, d) where
   schemaVia _ ts = case (constantSize (Proxy :: Proxy a), constantSize (Proxy :: Proxy b), constantSize (Proxy :: Proxy c), constantSize (Proxy :: Proxy d)) of
     (Just a, Just b, Just c, Just d) -> SProductFixed [(VarInt a, sa), (VarInt b, sb), (VarInt c, sc), (VarInt d, sd)]
-    _ -> SProduct [sa, sb, sc]
+    _ -> SProduct [sa, sb, sc, sd]
     where
       sa = substSchema (Proxy :: Proxy a) ts
       sb = substSchema (Proxy :: Proxy b) ts
@@ -665,7 +665,7 @@ instance (Serialise a, Serialise b, Serialise c, Serialise d) => Serialise (a, b
       getC <- unwrapDeserialiser deserialiser sc
       getD <- unwrapDeserialiser deserialiser sd
       return $ \bs -> (getA bs, decodeAt la getB bs, decodeAt (la + lb) getC bs, decodeAt (la + lb + lc) getD bs)
-    s -> errorInnerPlan $ "Expected Product, but got " ++ show s
+    s -> errorInnerPlan $ "Expected 4-tuple, but got " ++ show s
 
   constantSize _ = fmap sum $ sequence [constantSize (Proxy :: Proxy a), constantSize (Proxy :: Proxy b), constantSize (Proxy :: Proxy c), constantSize (Proxy :: Proxy d)]
 
