@@ -283,6 +283,7 @@ bootstrapSchema :: Word8 -> Either String Schema
 bootstrapSchema 0 = Right $ SFix $ SVariant [("SSchema",[SWord8])
   ,("SUnit",[])
   ,("SBool",[])
+  ,("SChar",[])
   ,("SWord8",[])
   ,("SWord16",[])
   ,("SWord32",[])
