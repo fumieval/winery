@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Data.Winery.Internal
   ( Encoding
   , encodeMulti
@@ -15,6 +16,7 @@ module Data.Winery.Internal
   , word64be
   , unsafeIndex
   , Strategy(..)
+  , StrategyError
   , errorStrategy
   )where
 
@@ -29,6 +31,8 @@ import qualified Data.ByteString.Builder as BB
 import Data.Bits
 import Data.Dynamic
 import Data.Monoid
+import Data.Text.Prettyprint.Doc (Doc)
+import Data.Text.Prettyprint.Doc.Render.Terminal (AnsiStyle)
 import Data.Word
 
 type Encoding = (Sum Int, Builder)
@@ -93,7 +97,9 @@ decodeOffsets n = scanl (+) 0 <$> replicateM (n - 1) decodeVarInt
 unsafeIndex :: String -> [a] -> Int -> a
 unsafeIndex err xs i = (xs ++ repeat (error err)) !! i
 
-newtype Strategy a = Strategy { unStrategy :: [Decoder Dynamic] -> Either String a }
+type StrategyError = Doc AnsiStyle
+
+newtype Strategy a = Strategy { unStrategy :: [Decoder Dynamic] -> Either StrategyError a }
   deriving Functor
 
 instance Applicative Strategy where
@@ -116,5 +122,5 @@ instance MonadFix Strategy where
   mfix f = Strategy $ \r -> mfix $ \a -> unStrategy (f a) r
   {-# INLINE mfix #-}
 
-errorStrategy :: String -> Strategy a
+errorStrategy :: Doc AnsiStyle -> Strategy a
 errorStrategy = Strategy . const . Left

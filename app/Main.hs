@@ -40,7 +40,7 @@ main = getOpt Permute options <$> getArgs >>= \case
         n <- readLn
         bs <- B.hGet stdin n
         case deserialiseTerm bs of
-          Left err -> hPutStrLn stderr err
+          Left err -> hPutDoc stderr err
           Right (s, t) -> do
             when (printSchema o) $ putDoc $ pretty s <> hardline
             putDoc $ pretty t <> hardline
@@ -48,14 +48,14 @@ main = getOpt Permute options <$> getArgs >>= \case
         n <- readLn
         bs <- B.hGet stdin n
         case deserialise bs of
-          Left err -> hPutStrLn stderr err
+          Left err -> hPutDoc stderr err
           Right sch -> do
             when (printSchema o) $ putDoc $ pretty (sch :: Schema) <> hardline
             forever $ do
               n <- readLn
               bs <- B.hGet stdin n
               case deserialiseWithSchemaBy decodeTerm sch bs of
-                Left err -> hPutStrLn stderr err
+                Left err -> hPutDoc stderr err
                 Right t -> putDoc $ pretty t <> hardline
   (_, _, es) -> do
     name <- getProgName

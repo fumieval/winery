@@ -8,6 +8,7 @@ import qualified Data.ByteString as B
 import Data.Int
 import qualified Data.Text as T
 import Data.Text.Prettyprint.Doc
+import Data.Text.Prettyprint.Doc.Render.Terminal
 import Data.Winery
 import Data.Winery.Internal
 import Data.Word
@@ -78,7 +79,7 @@ decodeTerm = go [] where
       decoders <- traverse (\(name, sch) -> (,) name <$> traverse (unwrapDeserialiser (go points)) sch) schs
       return $ evalContT $ do
         tag <- decodeVarInt
-        let (name, decs) = unsafeIndex ("decodeTerm/SVariant " ++ show schs ++ " " ++ show tag) decoders tag
+        let (name, decs) = unsafeIndex ("decodeTerm/SVariant") decoders tag
         offsets <- decodeOffsets (length decs)
         asks $ \bs -> TVariant name [decodeAt ofs dec bs | (dec, ofs) <- zip decs offsets]
     SSelf i -> return $ unsafeIndex "decodeTerm/SSelf" points $ fromIntegral i
@@ -87,7 +88,7 @@ decodeTerm = go [] where
   p s f = fmap f <$> unwrapDeserialiser deserialiser s
 
 -- | Deserialise a 'serialise'd 'B.Bytestring'.
-deserialiseTerm :: B.ByteString -> Either String (Schema, Term)
+deserialiseTerm :: B.ByteString -> Either (Doc AnsiStyle) (Schema, Term)
 deserialiseTerm bs_ = case B.uncons bs_ of
   Just (ver, bs) -> do
     getSchema <- getDecoder $ SSchema ver
