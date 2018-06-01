@@ -240,7 +240,7 @@ getDecoderBy :: Deserialiser a -> Schema -> Either String (Decoder a)
 getDecoderBy (Deserialiser plan) sch = unPlan plan sch `unInnerPlan` []
 {-# INLINE getDecoderBy #-}
 
--- | Serialise a value along with a schema.
+-- | Serialise a value along with its schema.
 serialise :: Serialise a => a -> B.ByteString
 serialise a = BL.toStrict $ BB.toLazyByteString $ mappend (BB.word8 currentSchemaVersion)
   $ snd $ toEncoding (schema [a], a)
@@ -437,6 +437,7 @@ instance Serialise T.Text where
     SText -> pure $ T.decodeUtf8 <$> getBytes
     s -> errorInnerPlan $ "Expected Text, but got " ++ show s
 
+-- | Encoded in variable-length quantity.
 newtype VarInt a = VarInt { getVarInt :: a } deriving (Show, Read, Eq, Ord, Enum
   , Bounded, Num, Real, Integral, Bits, Typeable)
 
@@ -508,6 +509,7 @@ instance (UV.Unbox a, Serialise a) => Serialise (UV.Vector a) where
   toEncoding = toEncoding . UV.toList
   deserialiser = UV.fromList <$> deserialiser
 
+-- | Extract a list or an array of values.
 extractListWith :: Deserialiser a -> Deserialiser [a]
 extractListWith (Deserialiser plan) = Deserialiser $ Plan $ \case
   SArray (VarInt size) s -> do
@@ -559,10 +561,12 @@ instance Serialise a => Serialise (Identity a) where
   deserialiser = Identity <$> deserialiser
   constantSize _ = constantSize (Proxy :: Proxy a)
 
+-- | Extract a field of a record.
 extractField :: Serialise a => T.Text -> Deserialiser a
 extractField = extractFieldWith deserialiser
 {-# INLINE extractField #-}
 
+-- | Extract a field using the supplied 'Deserialiser'.
 extractFieldWith :: Typeable a => Deserialiser a -> T.Text -> Deserialiser a
 extractFieldWith (Deserialiser g) name = Deserialiser $ handleRecursion $ \case
   SRecord schs -> do
@@ -572,13 +576,16 @@ extractFieldWith (Deserialiser g) name = Deserialiser $ handleRecursion $ \case
         m <- unPlan g sch
         return $ evalContT $ do
           offsets <- decodeOffsets (length schs)
-          lift $ decodeAt (unsafeIndex ("extractFieldWith _ " <> "name") offsets i) m
+          lift $ decodeAt (unsafeIndex msg offsets i) m
       Nothing -> errorInnerPlan $ "Schema not found for " ++ T.unpack name
   s -> errorInnerPlan $ "Expected Record, but got " ++ show s
+  where
+    msg = "Data.Winery.extractFieldWith ... " <> show name <> ": impossible"
 
 handleRecursion :: Typeable a => (Schema -> InnerPlan (Decoder a)) -> Plan (Decoder a)
 handleRecursion k = Plan $ \sch -> InnerPlan $ \decs -> case sch of
-  SSelf i -> return $ fmap (`fromDyn` error "Invalid recursion") $ unsafeIndex "handleRecursion" decs (fromIntegral i)
+  SSelf i -> return $ fmap (`fromDyn` error "Invalid recursion")
+    $ unsafeIndex "Data.Winery.handleRecursion: unbound fixpoint" decs (fromIntegral i)
   SFix s -> mfix $ \a -> unPlan (handleRecursion k) s `unInnerPlan` (fmap toDyn a : decs)
   s -> k s `unInnerPlan` decs
 
@@ -743,7 +750,8 @@ gdeserialiserRecord def = Deserialiser $ handleRecursion $ \case
           Just (i, sch) -> do
             getItem <- p `unPlan` sch `unInnerPlan` decs
             r <- go k
-            return $ \offsets -> r offsets (decodeAt (unsafeIndex "gdeserialiserRecord" offsets i) getItem)
+            return $ \offsets -> r offsets
+              $ decodeAt (unsafeIndex "Data.Winery.gdeserialiserRecord: impossible" offsets i) getItem
     m <- go $ recordDecoder $ from <$> def
     return $ evalContT $ do
       offsets <- decodeOffsets (length schs)
@@ -812,7 +820,7 @@ deserialiserProduct' schs0 = InnerPlan $ \recs -> do
       go i (sch : schs) (More () _ p k) = do
         getItem <- unPlan p sch `unInnerPlan` recs
         r <- go (i + 1) schs k
-        return $ \offsets -> r offsets $ decodeAt (unsafeIndex "gdeserialiserProduct" offsets i) getItem
+        return $ \offsets -> r offsets $ decodeAt (unsafeIndex "Data.Winery.gdeserialiserProduct: impossible" offsets i) getItem
   m <- go 0 schs0 productDecoder
   return $ evalContT $ do
     offsets <- decodeOffsets (length schs0)
@@ -838,7 +846,7 @@ gdeserialiserVariant = Deserialiser $ handleRecursion $ \case
       | (name, sch) <- schs0]
     return $ evalContT $ do
       i <- decodeVarInt
-      lift $ fmap to $ unsafeIndex "gdeserialiserVariant" ds' i
+      lift $ fmap to $ unsafeIndex "Data.Winery.gdeserialiserVariant" ds' i
   s -> errorInnerPlan $ "Expected Variant, but got " ++ show s
 
 class GSerialiseVariant f where
