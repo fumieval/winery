@@ -14,7 +14,7 @@ import System.IO
 
 data Options = Options
   { streamInput :: Bool
-  , separateSchema :: Bool
+  , separateSchema :: Maybe (Maybe FilePath)
   , printSchema :: Bool
   }
 
@@ -22,41 +22,43 @@ defaultOptions :: Options
 defaultOptions = Options
   { streamInput = False
   , printSchema = True
-  , separateSchema = False
+  , separateSchema = Nothing
   }
 
 options :: [OptDescr (Options -> Options)]
 options =
   [ Option "s" ["stream"] (NoArg $ \o -> o { streamInput = True }) "stream input"
-  , Option "S" ["separate-schema"] (NoArg $ \o -> o { separateSchema = True }) "the schema is separated"
+  , Option "S" ["separate-schema"] (OptArg (\s o -> o { separateSchema = Just s }) "PATH") "the schema is separated"
   , Option "" ["print-schema"] (NoArg $ \o -> o { printSchema = True }) "print the schema"
   ]
+
+getRight :: Either StrategyError a -> IO a
+getRight (Left err) = do
+  hPutDoc stderr err
+  exitFailure
+getRight (Right a) = return a
 
 main = getOpt Permute options <$> getArgs >>= \case
   (fs, _, []) -> do
     let o = foldl (flip id) defaultOptions fs
-    case separateSchema o of
-      False -> forever $ do
+
+    printer <- case separateSchema o of
+      Just mpath -> do
+        bs <- maybe (readLn >>= B.hGet stdin) B.readFile mpath
+        sch <- getRight $ deserialise bs
+        when (printSchema o) $ putDoc $ pretty sch <> hardline
+        dec <- getRight $ getDecoderBy decodeTerm sch
+        return $ \bs -> putDoc $ pretty (dec bs) <> hardline
+      Nothing -> return $ \bs -> do
+        (s, t) <- getRight $ deserialiseTerm bs
+        when (printSchema o) $ putDoc $ pretty s <> hardline
+        putDoc $ pretty t <> hardline
+
+    case streamInput o of
+      False -> B.hGetContents stdin >>= printer
+      True -> forever $ do
         n <- readLn
-        bs <- B.hGet stdin n
-        case deserialiseTerm bs of
-          Left err -> hPutDoc stderr err
-          Right (s, t) -> do
-            when (printSchema o) $ putDoc $ pretty s <> hardline
-            putDoc $ pretty t <> hardline
-      True -> do
-        n <- readLn
-        bs <- B.hGet stdin n
-        case deserialise bs of
-          Left err -> hPutDoc stderr err
-          Right sch -> do
-            when (printSchema o) $ putDoc $ pretty (sch :: Schema) <> hardline
-            case getDecoderBy decodeTerm sch of
-              Left err -> hPutDoc stderr err
-              Right dec -> forever $ do
-                n <- readLn
-                bs <- B.hGet stdin n
-                putDoc $ pretty (dec bs) <> hardline
+        B.hGet stdin n >>= printer
   (_, _, es) -> do
     name <- getProgName
     die $ unlines es ++ usageInfo name options

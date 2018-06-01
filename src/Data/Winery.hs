@@ -41,6 +41,8 @@ module Data.Winery
   , VarInt(..)
   -- * Internal
   , unwrapDeserialiser
+  , Strategy
+  , StrategyError
   -- * Generics
   , GSerialiseRecord
   , gschemaViaRecord
