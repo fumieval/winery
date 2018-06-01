@@ -3,7 +3,6 @@
 winery is a serialisation library for Haskell. It tries to achieve two
 goals: compact representation and perpetual inspectability.
 
-
 The `binary` library provides a compact representation, but there is no way to
 inspect the serialised value without the original instance.
 
@@ -21,12 +20,18 @@ serialise :: Serialise a => a -> B.ByteString
 deserialise :: Serialise a => B.ByteString -> Either String a
 ```
 
-It's also possible to (de)serialise schemata and data separately.
+It's also possible to serialise schemata and data separately.
 
 ```haskell
+-- Note that 'Schema' is an instance of 'Serialise'
 schema :: Serialise a => proxy a -> Schema
 serialiseOnly :: Serialise a => a -> B.ByteString
-deserialiseWithSchema :: Serialise a => Schema -> B.ByteString -> Either String a
+```
+
+`getDecoder` gives you a deserialiser.
+
+```haskell
+getDecoder :: Serialise a => Schema -> Either StrategyError (ByteString -> a)
 ```
 
 For user-defined datatypes, you can either define instances
@@ -58,6 +63,7 @@ The definition of `Schema` is as follows:
 data Schema = SSchema !Word8
   | SUnit
   | SBool
+  | SChar
   | SWord8
   | SWord16
   | SWord32
