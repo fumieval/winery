@@ -407,12 +407,11 @@ instance Serialise Int64 where
   constantSize _ = Just 8
 
 instance Serialise Int where
-  schemaVia _ _ = SInt64
-  toEncoding x = (8, BB.int64BE $ fromIntegral x)
+  schemaVia _ _ = SInteger
+  toEncoding = toEncoding . VarInt
   deserialiser = Deserialiser $ Plan $ \case
-    SInt64 -> pure $ fromIntegral <$> word64be
-    s -> errorInnerPlan $ "Expected Int64, but got " ++ show s
-  constantSize _ = Just 8
+    SInteger -> pure $ getVarInt . evalContT decodeVarInt
+    s -> errorInnerPlan $ "Expected Integer, but got " ++ show s
 
 instance Serialise Float where
   schemaVia _ _ = SFloat
