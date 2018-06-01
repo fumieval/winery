@@ -17,23 +17,21 @@
 module Data.Winery
   ( Schema(..)
   , Serialise(..)
-  , Deserialiser(..)
   , schema
   -- * Standalone serialisation
   , serialise
   , deserialise
   -- * Separate serialisation
+  , Deserialiser(..)
+  , Decoder
   , serialiseOnly
-  , deserialiseWithSchema
-  , deserialiseWithSchemaBy
+  , getDecoder
+  , getDecoderBy
   -- * Encoding combinators
   , Encoding
   , encodeMulti
   -- * Decoding combinators
-  , Decoder
   , Plan(..)
-  , getDecoder
-  , getDecoderBy
   , extractListWith
   , extractField
   , extractFieldWith
@@ -228,23 +226,13 @@ deserialise bs_ = case B.uncons bs_ of
     ($bs) $ evalContT $ do
       offB <- decodeVarInt
       sch <- lift m
-      asks $ deserialiseWithSchema sch . B.drop offB
+      asks $ \bs' -> ($ B.drop offB bs') <$> getDecoderBy deserialiser sch
   Nothing -> Left "Unexpected empty string"
 
 -- | Serialise a value without its schema.
 serialiseOnly :: Serialise a => a -> B.ByteString
 serialiseOnly = BL.toStrict . BB.toLazyByteString . snd . toEncoding
 {-# INLINE serialiseOnly #-}
-
--- | Deserialise a content.
-deserialiseWithSchema :: Serialise a => Schema -> B.ByteString -> Either StrategyError a
-deserialiseWithSchema = deserialiseWithSchemaBy deserialiser
-{-# INLINE deserialiseWithSchema #-}
-
--- | Deserialise a content using the specified `Deserialiser`.
-deserialiseWithSchemaBy :: Deserialiser a -> Schema -> B.ByteString -> Either StrategyError a
-deserialiseWithSchemaBy m sch bs = ($ bs) <$> getDecoderBy m sch
-{-# INLINE deserialiseWithSchemaBy #-}
 
 substSchema :: Serialise a => Proxy a -> [TypeRep] -> Schema
 substSchema p ts

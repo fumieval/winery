@@ -95,7 +95,7 @@ deserialiseTerm bs_ = case B.uncons bs_ of
     ($bs) $ evalContT $ do
       offB <- decodeVarInt
       sch <- lift getSchema
-      body <- asks $ deserialiseWithSchemaBy decodeTerm sch . B.drop offB
+      body <- asks $ \bs' -> ($ B.drop offB bs') <$> getDecoderBy decodeTerm sch
       return ((,) sch <$> body)
   Nothing -> Left "Unexpected empty string"
 

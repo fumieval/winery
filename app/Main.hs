@@ -51,12 +51,12 @@ main = getOpt Permute options <$> getArgs >>= \case
           Left err -> hPutDoc stderr err
           Right sch -> do
             when (printSchema o) $ putDoc $ pretty (sch :: Schema) <> hardline
-            forever $ do
-              n <- readLn
-              bs <- B.hGet stdin n
-              case deserialiseWithSchemaBy decodeTerm sch bs of
-                Left err -> hPutDoc stderr err
-                Right t -> putDoc $ pretty t <> hardline
+            case getDecoderBy decodeTerm sch of
+              Left err -> hPutDoc stderr err
+              Right dec -> forever $ do
+                n <- readLn
+                bs <- B.hGet stdin n
+                putDoc $ pretty (dec bs) <> hardline
   (_, _, es) -> do
     name <- getProgName
     die $ unlines es ++ usageInfo name options
