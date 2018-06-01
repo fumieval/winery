@@ -40,7 +40,7 @@ data Term = TUnit
 decodeTerm :: Deserialiser Term
 decodeTerm = go [] where
   go points = Deserialiser $ Plan $ \s -> case s of
-    SSchema ver -> InnerPlan (const $ bootstrapSchema ver) >>= unwrapDeserialiser (go points)
+    SSchema ver -> Strategy (const $ bootstrapSchema ver) >>= unwrapDeserialiser (go points)
     SUnit -> pure (pure TUnit)
     SBool -> p s TBool
     Data.Winery.SChar -> p s TChar

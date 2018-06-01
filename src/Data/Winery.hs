@@ -42,8 +42,6 @@ module Data.Winery
   -- * Variable-length quantity
   , VarInt(..)
   -- * Internal
-  , InnerPlan(..)
-  , errorInnerPlan
   , unwrapDeserialiser
   -- * Generics
   , GSerialiseRecord
@@ -157,31 +155,7 @@ instance Applicative Deserialiser where
   pure = Deserialiser . pure . pure
   Deserialiser f <*> Deserialiser x = Deserialiser $ (<*>) <$> f <*> x
 
-newtype InnerPlan a = InnerPlan { unInnerPlan :: [Decoder Dynamic] -> Either String a }
-  deriving Functor
-
-instance Applicative InnerPlan where
-  pure = return
-  (<*>) = ap
-
-instance Monad InnerPlan where
-  return = InnerPlan . const . Right
-  m >>= k = InnerPlan $ \decs -> case unInnerPlan m decs of
-    Right a -> unInnerPlan (k a) decs
-    Left e -> Left e
-
-instance Alternative InnerPlan where
-  empty = InnerPlan $ const empty
-  InnerPlan a <|> InnerPlan b = InnerPlan $ \decs -> a decs <|> b decs
-
-instance MonadFix InnerPlan where
-  mfix f = InnerPlan $ \r -> mfix $ \a -> unInnerPlan (f a) r
-  {-# INLINE mfix #-}
-
-errorInnerPlan :: String -> InnerPlan a
-errorInnerPlan = InnerPlan . const . Left
-
-newtype Plan a = Plan { unPlan :: Schema -> InnerPlan a }
+newtype Plan a = Plan { unPlan :: Schema -> Strategy a }
   deriving Functor
 
 instance Applicative Plan where
@@ -190,15 +164,15 @@ instance Applicative Plan where
 
 instance Monad Plan where
   return = Plan . const . pure
-  m >>= k = Plan $ \sch -> InnerPlan $ \decs -> case unInnerPlan (unPlan m sch) decs of
-    Right a -> unInnerPlan (unPlan (k a) sch) decs
+  m >>= k = Plan $ \sch -> Strategy $ \decs -> case unStrategy (unPlan m sch) decs of
+    Right a -> unStrategy (unPlan (k a) sch) decs
     Left e -> Left e
 
 instance Alternative Plan where
   empty = Plan $ const empty
   Plan a <|> Plan b = Plan $ \s -> a s <|> b s
 
-unwrapDeserialiser :: Deserialiser a -> Schema -> InnerPlan (Decoder a)
+unwrapDeserialiser :: Deserialiser a -> Schema -> Strategy (Decoder a)
 unwrapDeserialiser (Deserialiser m) = unPlan m
 {-# INLINE unwrapDeserialiser #-}
 
@@ -237,7 +211,7 @@ getDecoder = getDecoderBy deserialiser
 
 -- | Get a decoder from a `Deserialiser` and a schema.
 getDecoderBy :: Deserialiser a -> Schema -> Either String (Decoder a)
-getDecoderBy (Deserialiser plan) sch = unPlan plan sch `unInnerPlan` []
+getDecoderBy (Deserialiser plan) sch = unPlan plan sch `unStrategy` []
 {-# INLINE getDecoderBy #-}
 
 -- | Serialise a value along with its schema.
@@ -312,7 +286,7 @@ instance Serialise Schema where
   schemaVia _ _ = SSchema currentSchemaVersion
   toEncoding = gtoEncodingVariant
   deserialiser = Deserialiser $ Plan $ \case
-    SSchema n -> InnerPlan (const $ bootstrapSchema n)
+    SSchema n -> Strategy (const $ bootstrapSchema n)
       >>= unwrapDeserialiser gdeserialiserVariant
     s -> unwrapDeserialiser gdeserialiserVariant s
 
@@ -328,7 +302,7 @@ instance Serialise Bool where
   toEncoding True = (1, BB.word8 1)
   deserialiser = Deserialiser $ Plan $ \case
     SBool -> pure $ (/=0) <$> evalContT getWord8
-    s -> errorInnerPlan $ "Expected Bool, but got " ++ show s
+    s -> errorStrategy $ "Expected Bool, but got " ++ show s
   constantSize _ = Just 1
 
 instance Serialise Word8 where
@@ -336,7 +310,7 @@ instance Serialise Word8 where
   toEncoding x = (1, BB.word8 x)
   deserialiser = Deserialiser $ Plan $ \case
     SWord8 -> pure $ evalContT getWord8
-    s -> errorInnerPlan $ "Expected Word8, but got " ++ show s
+    s -> errorStrategy $ "Expected Word8, but got " ++ show s
   constantSize _ = Just 1
 
 instance Serialise Word16 where
@@ -347,7 +321,7 @@ instance Serialise Word16 where
       a <- getWord8
       b <- getWord8
       return $! fromIntegral a `unsafeShiftL` 8 .|. fromIntegral b
-    s -> errorInnerPlan $ "Expected Word16, but got " ++ show s
+    s -> errorStrategy $ "Expected Word16, but got " ++ show s
   constantSize _ = Just 2
 
 instance Serialise Word32 where
@@ -355,7 +329,7 @@ instance Serialise Word32 where
   toEncoding x = (4, BB.word32BE x)
   deserialiser = Deserialiser $ Plan $ \case
     SWord32 -> pure word32be
-    s -> errorInnerPlan $ "Expected Word32, but got " ++ show s
+    s -> errorStrategy $ "Expected Word32, but got " ++ show s
   constantSize _ = Just 4
 
 instance Serialise Word64 where
@@ -363,7 +337,7 @@ instance Serialise Word64 where
   toEncoding x = (8, BB.word64BE x)
   deserialiser = Deserialiser $ Plan $ \case
     SWord64 -> pure word64be
-    s -> errorInnerPlan $ "Expected Word64, but got " ++ show s
+    s -> errorStrategy $ "Expected Word64, but got " ++ show s
   constantSize _ = Just 8
 
 instance Serialise Word where
@@ -371,7 +345,7 @@ instance Serialise Word where
   toEncoding x = (8, BB.word64BE $ fromIntegral x)
   deserialiser = Deserialiser $ Plan $ \case
     SWord64 -> pure $ fromIntegral <$> word64be
-    s -> errorInnerPlan $ "Expected Word64, but got " ++ show s
+    s -> errorStrategy $ "Expected Word64, but got " ++ show s
   constantSize _ = Just 8
 
 instance Serialise Int8 where
@@ -379,7 +353,7 @@ instance Serialise Int8 where
   toEncoding x = (1, BB.int8 x)
   deserialiser = Deserialiser $ Plan $ \case
     SInt8 -> pure $ fromIntegral <$> evalContT getWord8
-    s -> errorInnerPlan $ "Expected Int8, but got " ++ show s
+    s -> errorStrategy $ "Expected Int8, but got " ++ show s
   constantSize _ = Just 1
 
 instance Serialise Int16 where
@@ -387,7 +361,7 @@ instance Serialise Int16 where
   toEncoding x = (2, BB.int16BE x)
   deserialiser = Deserialiser $ Plan $ \case
     SInt16 -> pure $ fromIntegral <$> word16be
-    s -> errorInnerPlan $ "Expected Int16, but got " ++ show s
+    s -> errorStrategy $ "Expected Int16, but got " ++ show s
   constantSize _ = Just 2
 
 instance Serialise Int32 where
@@ -395,7 +369,7 @@ instance Serialise Int32 where
   toEncoding x = (4, BB.int32BE x)
   deserialiser = Deserialiser $ Plan $ \case
     SInt32 -> pure $ fromIntegral <$> word32be
-    s -> errorInnerPlan $ "Expected Int32, but got " ++ show s
+    s -> errorStrategy $ "Expected Int32, but got " ++ show s
   constantSize _ = Just 4
 
 instance Serialise Int64 where
@@ -403,7 +377,7 @@ instance Serialise Int64 where
   toEncoding x = (8, BB.int64BE x)
   deserialiser = Deserialiser $ Plan $ \case
     SInt64 -> pure $ fromIntegral <$> word64be
-    s -> errorInnerPlan $ "Expected Int64, but got " ++ show s
+    s -> errorStrategy $ "Expected Int64, but got " ++ show s
   constantSize _ = Just 8
 
 instance Serialise Int where
@@ -411,14 +385,14 @@ instance Serialise Int where
   toEncoding = toEncoding . VarInt
   deserialiser = Deserialiser $ Plan $ \case
     SInteger -> pure $ getVarInt . evalContT decodeVarInt
-    s -> errorInnerPlan $ "Expected Integer, but got " ++ show s
+    s -> errorStrategy $ "Expected Integer, but got " ++ show s
 
 instance Serialise Float where
   schemaVia _ _ = SFloat
   toEncoding x = (4, BB.word32BE $ unsafeCoerce x)
   deserialiser = Deserialiser $ Plan $ \case
     SFloat -> pure $ unsafeCoerce <$> word32be
-    s -> errorInnerPlan $ "Expected Float, but got " ++ show s
+    s -> errorStrategy $ "Expected Float, but got " ++ show s
   constantSize _ = Just 4
 
 instance Serialise Double where
@@ -426,7 +400,7 @@ instance Serialise Double where
   toEncoding x = (8, BB.word64BE $ unsafeCoerce x)
   deserialiser = Deserialiser $ Plan $ \case
     SDouble -> pure $ unsafeCoerce <$> word64be
-    s -> errorInnerPlan $ "Expected Double, but got " ++ show s
+    s -> errorStrategy $ "Expected Double, but got " ++ show s
   constantSize _ = Just 8
 
 instance Serialise T.Text where
@@ -434,7 +408,7 @@ instance Serialise T.Text where
   toEncoding = toEncoding . T.encodeUtf8
   deserialiser = Deserialiser $ Plan $ \case
     SText -> pure $ T.decodeUtf8 <$> getBytes
-    s -> errorInnerPlan $ "Expected Text, but got " ++ show s
+    s -> errorStrategy $ "Expected Text, but got " ++ show s
 
 -- | Encoded in variable-length quantity.
 newtype VarInt a = VarInt { getVarInt :: a } deriving (Show, Read, Eq, Ord, Enum
@@ -445,7 +419,7 @@ instance (Typeable a, Integral a, Bits a) => Serialise (VarInt a) where
   toEncoding = encodeVarInt
   deserialiser = Deserialiser $ Plan $ \case
     SInteger -> pure $ evalContT decodeVarInt
-    s -> errorInnerPlan $ "Expected Integer, but got " ++ show s
+    s -> errorStrategy $ "Expected Integer, but got " ++ show s
 
 instance Serialise Integer where
   schemaVia _ _ = SInteger
@@ -457,7 +431,7 @@ instance Serialise Char where
   toEncoding = toEncoding . fromEnum
   deserialiser = Deserialiser $ Plan $ \case
     SChar -> pure $ toEnum . evalContT decodeVarInt
-    s -> errorInnerPlan $ "Expected Integer, but got " ++ show s
+    s -> errorStrategy $ "Expected Integer, but got " ++ show s
 
 instance Serialise a => Serialise (Maybe a) where
   schemaVia _ ts = SVariant [("Nothing", [])
@@ -472,7 +446,7 @@ instance Serialise a => Serialise (Maybe a) where
         case t :: Word8 of
           0 -> pure Nothing
           _ -> Just <$> lift dec
-    s -> errorInnerPlan $ "Expected Variant [a, b], but got " ++ show s
+    s -> errorStrategy $ "Expected Variant [a, b], but got " ++ show s
   constantSize _ = (1+) <$> constantSize (Proxy :: Proxy a)
 
 instance Serialise B.ByteString where
@@ -481,7 +455,7 @@ instance Serialise B.ByteString where
     <> (Sum $ B.length bs, BB.byteString bs)
   deserialiser = Deserialiser $ Plan $ \case
     SBytes -> pure getBytes
-    s -> errorInnerPlan $ "Expected SBytes, but got " ++ show s
+    s -> errorStrategy $ "Expected SBytes, but got " ++ show s
 
 instance Serialise a => Serialise [a] where
   schemaVia _ ts = case constantSize (Proxy :: Proxy a) of
@@ -522,7 +496,7 @@ extractListWith (Deserialiser plan) = Deserialiser $ Plan $ \case
       n <- decodeVarInt
       offsets <- decodeOffsets n
       asks $ \bs -> [decodeAt ofs getItem bs | ofs <- offsets]
-  s -> errorInnerPlan $ "Expected List or Array, but got " ++ show s
+  s -> errorStrategy $ "Expected List or Array, but got " ++ show s
 
 instance (Ord k, Serialise k, Serialise v) => Serialise (M.Map k v) where
   schemaVia _ = schemaVia (Proxy :: Proxy [(k, v)])
@@ -576,17 +550,17 @@ extractFieldWith (Deserialiser g) name = Deserialiser $ handleRecursion $ \case
         return $ evalContT $ do
           offsets <- decodeOffsets (length schs)
           lift $ decodeAt (unsafeIndex msg offsets i) m
-      Nothing -> errorInnerPlan $ "Schema not found for " ++ T.unpack name
-  s -> errorInnerPlan $ "Expected Record, but got " ++ show s
+      Nothing -> errorStrategy $ "Schema not found for " ++ T.unpack name
+  s -> errorStrategy $ "Expected Record, but got " ++ show s
   where
     msg = "Data.Winery.extractFieldWith ... " <> show name <> ": impossible"
 
-handleRecursion :: Typeable a => (Schema -> InnerPlan (Decoder a)) -> Plan (Decoder a)
-handleRecursion k = Plan $ \sch -> InnerPlan $ \decs -> case sch of
+handleRecursion :: Typeable a => (Schema -> Strategy (Decoder a)) -> Plan (Decoder a)
+handleRecursion k = Plan $ \sch -> Strategy $ \decs -> case sch of
   SSelf i -> return $ fmap (`fromDyn` error "Invalid recursion")
     $ unsafeIndex "Data.Winery.handleRecursion: unbound fixpoint" decs (fromIntegral i)
-  SFix s -> mfix $ \a -> unPlan (handleRecursion k) s `unInnerPlan` (fmap toDyn a : decs)
-  s -> k s `unInnerPlan` decs
+  SFix s -> mfix $ \a -> unPlan (handleRecursion k) s `unStrategy` (fmap toDyn a : decs)
+  s -> k s `unStrategy` decs
 
 instance (Serialise a, Serialise b) => Serialise (a, b) where
   schemaVia _ ts = case (constantSize (Proxy :: Proxy a), constantSize (Proxy :: Proxy b)) of
@@ -609,7 +583,7 @@ instance (Serialise a, Serialise b) => Serialise (a, b) where
       getA <- unwrapDeserialiser deserialiser sa
       getB <- unwrapDeserialiser deserialiser sb
       return $ \bs -> (getA bs, decodeAt la getB bs)
-    s -> errorInnerPlan $ "Expected a tuple, but got " ++ show s
+    s -> errorStrategy $ "Expected a tuple, but got " ++ show s
 
   constantSize _ = (+) <$> constantSize (Proxy :: Proxy a) <*> constantSize (Proxy :: Proxy b)
 
@@ -638,7 +612,7 @@ instance (Serialise a, Serialise b, Serialise c) => Serialise (a, b, c) where
       getB <- unwrapDeserialiser deserialiser sb
       getC <- unwrapDeserialiser deserialiser sc
       return $ \bs -> (getA bs, decodeAt la getB bs, decodeAt (la + lb) getC bs)
-    s -> errorInnerPlan $ "Expected 3-tuple, but got " ++ show s
+    s -> errorStrategy $ "Expected 3-tuple, but got " ++ show s
 
   constantSize _ = fmap sum $ sequence [constantSize (Proxy :: Proxy a), constantSize (Proxy :: Proxy b), constantSize (Proxy :: Proxy c)]
 
@@ -671,7 +645,7 @@ instance (Serialise a, Serialise b, Serialise c, Serialise d) => Serialise (a, b
       getC <- unwrapDeserialiser deserialiser sc
       getD <- unwrapDeserialiser deserialiser sd
       return $ \bs -> (getA bs, decodeAt la getB bs, decodeAt (la + lb) getC bs, decodeAt (la + lb + lc) getD bs)
-    s -> errorInnerPlan $ "Expected 4-tuple, but got " ++ show s
+    s -> errorStrategy $ "Expected 4-tuple, but got " ++ show s
 
   constantSize _ = fmap sum $ sequence [constantSize (Proxy :: Proxy a), constantSize (Proxy :: Proxy b), constantSize (Proxy :: Proxy c), constantSize (Proxy :: Proxy d)]
 
@@ -689,7 +663,7 @@ instance (Serialise a, Serialise b) => Serialise (Either a b) where
         case t :: Word8 of
           0 -> Left <$> lift getA
           _ -> Right <$> lift getB
-    s -> errorInnerPlan $ "Expected Variant [a, b], but got " ++ show s
+    s -> errorStrategy $ "Expected Variant [a, b], but got " ++ show s
   constantSize _ = fmap (1+) $ max
     <$> constantSize (Proxy :: Proxy a)
     <*> constantSize (Proxy :: Proxy b)
@@ -698,10 +672,10 @@ instance (Serialise a, Serialise b) => Serialise (Either a b) where
 -- implementing backward-compatible deserialisers.
 extractConstructorWith :: Typeable a => Deserialiser a -> T.Text -> Deserialiser (Maybe a)
 extractConstructorWith d name = Deserialiser $ handleRecursion $ \case
-  SVariant schs0 -> InnerPlan $ \decs -> do
+  SVariant schs0 -> Strategy $ \decs -> do
     (j, dec) <- case [(i :: Int, ss) | (i, (k, ss)) <- zip [0..] schs0, name == k] of
-      [(i, [s])] -> fmap ((,) i) $ unwrapDeserialiser d s `unInnerPlan` decs
-      [(i, ss)] -> fmap ((,) i) $ unwrapDeserialiser d (SProduct ss) `unInnerPlan` decs
+      [(i, [s])] -> fmap ((,) i) $ unwrapDeserialiser d s `unStrategy` decs
+      [(i, ss)] -> fmap ((,) i) $ unwrapDeserialiser d (SProduct ss) `unStrategy` decs
       _ -> Left $ "Schema not found for " ++ T.unpack name
 
     return $ evalContT $ do
@@ -709,7 +683,7 @@ extractConstructorWith d name = Deserialiser $ handleRecursion $ \case
       if i == j
         then Just <$> lift dec
         else pure Nothing
-  s -> errorInnerPlan $ "Expected Variant, but got " ++ show s
+  s -> errorStrategy $ "Expected Variant, but got " ++ show s
 
 extractConstructor :: (Serialise a) => T.Text -> Deserialiser (Maybe a)
 extractConstructor = extractConstructorWith deserialiser
@@ -738,7 +712,7 @@ gdeserialiserRecord :: (GSerialiseRecord (Rep a), Generic a, Typeable a)
   => Maybe a -- ^ default value (optional)
   -> Deserialiser a
 gdeserialiserRecord def = Deserialiser $ handleRecursion $ \case
-  SRecord schs -> InnerPlan $ \decs -> do
+  SRecord schs -> Strategy $ \decs -> do
     let schs' = [(k, (i, s)) | (i, (k, s)) <- zip [0..] schs]
     let go :: RecordDecoder T.Text x -> Either String ([Int] -> x)
         go (Done a) = Right $ const a
@@ -747,7 +721,7 @@ gdeserialiserRecord def = Deserialiser $ handleRecursion $ \case
             Just d -> go k >>= \r -> return $ \offsets -> r offsets (pure d)
             Nothing -> Left $ "Default value not found for " ++ T.unpack name
           Just (i, sch) -> do
-            getItem <- p `unPlan` sch `unInnerPlan` decs
+            getItem <- p `unPlan` sch `unStrategy` decs
             r <- go k
             return $ \offsets -> r offsets
               $ decodeAt (unsafeIndex "Data.Winery.gdeserialiserRecord: impossible" offsets i) getItem
@@ -755,7 +729,7 @@ gdeserialiserRecord def = Deserialiser $ handleRecursion $ \case
     return $ evalContT $ do
       offsets <- decodeOffsets (length schs)
       asks $ \bs -> to $ m offsets bs
-  s -> errorInnerPlan $ "Expected Record, but got " ++ show s
+  s -> errorStrategy $ "Expected Record, but got " ++ show s
 
 class GSerialiseRecord f where
   recordSchema :: proxy f -> [TypeRep] -> [(T.Text, Schema)]
@@ -811,13 +785,13 @@ instance (GSerialiseProduct f, GSerialiseProduct g) => GSerialiseProduct (f :*: 
   productEncoder (f :*: g) = productEncoder f ++ productEncoder g
   productDecoder = liftA2 (:*:) <$> productDecoder <*> productDecoder
 
-deserialiserProduct' :: GSerialiseProduct f => [Schema] -> InnerPlan (Decoder (f x))
-deserialiserProduct' schs0 = InnerPlan $ \recs -> do
+deserialiserProduct' :: GSerialiseProduct f => [Schema] -> Strategy (Decoder (f x))
+deserialiserProduct' schs0 = Strategy $ \recs -> do
   let go :: Int -> [Schema] -> RecordDecoder () x -> Either String ([Int] -> x)
       go _ _ (Done a) = Right $ const a
       go _ [] _ = Left "Mismatching number of fields"
       go i (sch : schs) (More () _ p k) = do
-        getItem <- unPlan p sch `unInnerPlan` recs
+        getItem <- unPlan p sch `unStrategy` recs
         r <- go (i + 1) schs k
         return $ \offsets -> r offsets $ decodeAt (unsafeIndex "Data.Winery.gdeserialiserProduct: impossible" offsets i) getItem
   m <- go 0 schs0 productDecoder
@@ -837,22 +811,22 @@ gtoEncodingVariant = variantEncoder 0 . from
 -- | Generic implementation of 'deserialiser' for an ADT.
 gdeserialiserVariant :: (GSerialiseVariant (Rep a), Generic a, Typeable a) => Deserialiser a
 gdeserialiserVariant = Deserialiser $ handleRecursion $ \case
-  SVariant schs0 -> InnerPlan $ \decs -> do
+  SVariant schs0 -> Strategy $ \decs -> do
     ds' <- sequence
       [ case lookup name variantDecoder of
           Nothing -> Left $ "Schema not found for " ++ T.unpack name
-          Just f -> f sch `unInnerPlan` decs
+          Just f -> f sch `unStrategy` decs
       | (name, sch) <- schs0]
     return $ evalContT $ do
       i <- decodeVarInt
       lift $ fmap to $ unsafeIndex "Data.Winery.gdeserialiserVariant" ds' i
-  s -> errorInnerPlan $ "Expected Variant, but got " ++ show s
+  s -> errorStrategy $ "Expected Variant, but got " ++ show s
 
 class GSerialiseVariant f where
   variantCount :: proxy f -> Int
   variantSchema :: proxy f -> [TypeRep] -> [(T.Text, [Schema])]
   variantEncoder :: Int -> f x -> Encoding
-  variantDecoder :: [(T.Text, [Schema] -> InnerPlan (Decoder (f x)))]
+  variantDecoder :: [(T.Text, [Schema] -> Strategy (Decoder (f x)))]
 
 instance (GSerialiseVariant f, GSerialiseVariant g) => GSerialiseVariant (f :+: g) where
   variantCount _ = variantCount (Proxy :: Proxy f) + variantCount (Proxy :: Proxy g)

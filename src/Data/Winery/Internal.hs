@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE LambdaCase #-}
 module Data.Winery.Internal
   ( Encoding
@@ -13,15 +14,20 @@ module Data.Winery.Internal
   , word32be
   , word64be
   , unsafeIndex
+  , Strategy(..)
+  , errorStrategy
   )where
 
+import Control.Applicative
 import Control.Monad
+import Control.Monad.Fix
 import Control.Monad.Trans.Cont
 import Data.ByteString.Builder
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Unsafe as B
 import qualified Data.ByteString.Builder as BB
 import Data.Bits
+import Data.Dynamic
 import Data.Monoid
 import Data.Word
 
@@ -86,3 +92,29 @@ decodeOffsets n = scanl (+) 0 <$> replicateM (n - 1) decodeVarInt
 
 unsafeIndex :: String -> [a] -> Int -> a
 unsafeIndex err xs i = (xs ++ repeat (error err)) !! i
+
+newtype Strategy a = Strategy { unStrategy :: [Decoder Dynamic] -> Either String a }
+  deriving Functor
+
+instance Applicative Strategy where
+  pure = return
+  (<*>) = ap
+
+instance Monad Strategy where
+  return = Strategy . const . Right
+  m >>= k = Strategy $ \decs -> case unStrategy m decs of
+    Right a -> unStrategy (k a) decs
+    Left e -> Left e
+
+instance Alternative Strategy where
+  empty = Strategy $ const $ Left "empty"
+  Strategy a <|> Strategy b = Strategy $ \decs -> case a decs of
+    Left _ -> b decs
+    Right x -> Right x
+
+instance MonadFix Strategy where
+  mfix f = Strategy $ \r -> mfix $ \a -> unStrategy (f a) r
+  {-# INLINE mfix #-}
+
+errorStrategy :: String -> Strategy a
+errorStrategy = Strategy . const . Left
