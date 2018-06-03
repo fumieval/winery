@@ -21,7 +21,7 @@ data Options = Options
 defaultOptions :: Options
 defaultOptions = Options
   { streamInput = False
-  , printSchema = True
+  , printSchema = False
   , separateSchema = Nothing
   }
 
