@@ -43,13 +43,10 @@ instance Serialise Foo where
   deserialiser = gdeserialiserRecord Nothing
 ```
 
-for single-constructor records, or
+for single-constructor records, or just
 
 ```haskell
-instance Serialise Foo where
-  schemaVia = gschemaViaVariant
-  toEncoding = gtoEncodingVariant
-  deserialiser = gdeserialiserVariant
+instance Serialise Foo
 ```
 
 for any ADT. The former explicitly describes field names in the schema, and the
