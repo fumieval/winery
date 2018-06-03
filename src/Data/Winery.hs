@@ -146,7 +146,7 @@ instance Pretty Schema where
           then pretty k
           else nest 2 $ sep $ pretty k : map pretty vs | (k, vs) <- ss]
     SFix sch -> group $ nest 2 $ sep ["μ", pretty sch]
-    SSelf i -> pretty i
+    SSelf i -> "Self" <+> pretty i
 
 -- | 'Deserialiser' is a 'Plan' that creates a 'Decoder'.
 newtype Deserialiser a = Deserialiser { getDeserialiser :: Plan (Decoder a) }
