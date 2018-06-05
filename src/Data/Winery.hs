@@ -226,9 +226,10 @@ deserialise bs_ = case B.uncons bs_ of
   Just (ver, bs) -> do
     m <- getDecoder $ SSchema ver
     ($bs) $ evalContT $ do
-      offB <- decodeVarInt
-      sch <- lift m
-      asks $ \bs' -> ($ B.drop offB bs') <$> getDecoderBy deserialiser sch
+      sizA <- decodeVarInt
+      (_ :: Int) <- decodeVarInt
+      sch <- lift $ m . B.take sizA
+      asks $ \bs' -> ($ B.drop sizA bs') <$> getDecoderBy deserialiser sch
   Nothing -> Left "Unexpected empty string"
 
 -- | Serialise a value without its schema.
@@ -408,7 +409,7 @@ instance Serialise T.Text where
   schemaVia _ _ = SText
   toEncoding = toEncoding . T.encodeUtf8
   deserialiser = Deserialiser $ Plan $ \case
-    SText -> pure $ T.decodeUtf8 <$> getBytes
+    SText -> pure T.decodeUtf8
     s -> unexpectedSchema "Serialise Text" s
 
 -- | Encoded in variable-length quantity.
@@ -453,10 +454,9 @@ instance Serialise a => Serialise (Maybe a) where
 
 instance Serialise B.ByteString where
   schemaVia _ _ = SBytes
-  toEncoding bs = encodeVarInt (B.length bs)
-    <> Encoding (B.length bs) (BB.byteString bs)
+  toEncoding bs = Encoding (B.length bs) (BB.byteString bs)
   deserialiser = Deserialiser $ Plan $ \case
-    SBytes -> pure getBytes
+    SBytes -> pure id
     s -> unexpectedSchema "Serialise ByteString" s
 
 instance Serialise a => Serialise [a] where
@@ -491,7 +491,7 @@ extractListWith (Deserialiser plan) = Deserialiser $ Plan $ \case
     getItem <- unPlan plan s
     return $ evalContT $ do
       n <- decodeVarInt
-      asks $ \bs -> [decodeAt (size * i) getItem bs | i <- [0..n - 1]]
+      asks $ \bs -> [decodeAt (size * i, size) getItem bs | i <- [0..n - 1]]
   SList s -> do
     getItem <- unPlan plan s
     return $ evalContT $ do
@@ -581,11 +581,12 @@ instance (Serialise a, Serialise b) => Serialise (a, b) where
       getB <- unwrapDeserialiser deserialiser sb
       return $ evalContT $ do
         offA <- decodeVarInt
-        asks $ \bs -> (getA bs, decodeAt offA getB bs)
-    SProductFixed [(VarInt la, sa), (_, sb)] -> do
+        offB <- decodeVarInt
+        asks $ \bs -> (decodeAt (0, offA) getA bs, decodeAt (offA, offB) getB bs)
+    SProductFixed [(VarInt la, sa), (VarInt lb, sb)] -> do
       getA <- unwrapDeserialiser deserialiser sa
       getB <- unwrapDeserialiser deserialiser sb
-      return $ \bs -> (getA bs, decodeAt la getB bs)
+      return $ \bs -> (decodeAt (0, la) getA bs, decodeAt (la, lb) getB bs)
     s -> unexpectedSchema "Serialise (a, b)" s
 
   constantSize _ = (+) <$> constantSize (Proxy :: Proxy a) <*> constantSize (Proxy :: Proxy b)
@@ -609,12 +610,13 @@ instance (Serialise a, Serialise b, Serialise c) => Serialise (a, b, c) where
       return $ evalContT $ do
         offA <- decodeVarInt
         offB <- decodeVarInt
-        asks $ \bs -> (getA bs, decodeAt offA getB bs, decodeAt (offA + offB) getC bs)
-    SProductFixed [(VarInt la, sa), (VarInt lb, sb), (_, sc)] -> do
+        offC <- decodeVarInt
+        asks $ \bs -> (decodeAt (0, offA) getA bs, decodeAt (offA, offB) getB bs, decodeAt (offA + offB, offC) getC bs)
+    SProductFixed [(VarInt la, sa), (VarInt lb, sb), (VarInt lc, sc)] -> do
       getA <- unwrapDeserialiser deserialiser sa
       getB <- unwrapDeserialiser deserialiser sb
       getC <- unwrapDeserialiser deserialiser sc
-      return $ \bs -> (getA bs, decodeAt la getB bs, decodeAt (la + lb) getC bs)
+      return $ \bs -> (decodeAt (0, la) getA bs, decodeAt (la, lb) getB bs, decodeAt (la + lb, lc) getC bs)
     s -> unexpectedSchema "Serialise (a, b, c)" s
 
   constantSize _ = fmap sum $ sequence [constantSize (Proxy :: Proxy a), constantSize (Proxy :: Proxy b), constantSize (Proxy :: Proxy c)]
@@ -641,13 +643,14 @@ instance (Serialise a, Serialise b, Serialise c, Serialise d) => Serialise (a, b
         offA <- decodeVarInt
         offB <- decodeVarInt
         offC <- decodeVarInt
-        asks $ \bs -> (getA bs, decodeAt offA getB bs, decodeAt (offA + offB) getC bs, decodeAt (offA + offB + offC) getD bs)
-    SProductFixed [(VarInt la, sa), (VarInt lb, sb), (VarInt lc, sc), (_, sd)] -> do
+        offD <- decodeVarInt
+        asks $ \bs -> (decodeAt (0, offA) getA bs, decodeAt (offB, offA) getB bs, decodeAt (offA + offB, offC) getC bs, decodeAt (offA + offB + offC, offD) getD bs)
+    SProductFixed [(VarInt la, sa), (VarInt lb, sb), (VarInt lc, sc), (VarInt ld, sd)] -> do
       getA <- unwrapDeserialiser deserialiser sa
       getB <- unwrapDeserialiser deserialiser sb
       getC <- unwrapDeserialiser deserialiser sc
       getD <- unwrapDeserialiser deserialiser sd
-      return $ \bs -> (getA bs, decodeAt la getB bs, decodeAt (la + lb) getC bs, decodeAt (la + lb + lc) getD bs)
+      return $ \bs -> (decodeAt (0, la) getA bs, decodeAt (la, lb) getB bs, decodeAt (la + lb, lc) getC bs, decodeAt (la + lb + lc, ld) getD bs)
     s -> unexpectedSchema "Serialise (a, b, c, d)" s
 
   constantSize _ = fmap sum $ sequence [constantSize (Proxy :: Proxy a), constantSize (Proxy :: Proxy b), constantSize (Proxy :: Proxy c), constantSize (Proxy :: Proxy d)]
@@ -719,7 +722,7 @@ gdeserialiserRecord :: forall a. (GSerialiseRecord (Rep a), Generic a, Typeable 
 gdeserialiserRecord def = Deserialiser $ handleRecursion $ \case
   SRecord schs -> Strategy $ \decs -> do
     let schs' = [(k, (i, s)) | (i, (k, s)) <- zip [0..] schs]
-    let go :: RecordDecoder T.Text x -> Either StrategyError ([Int] -> x)
+    let go :: RecordDecoder T.Text x -> Either StrategyError ([(Int, Int)] -> x)
         go (Done a) = Right $ const a
         go (More name def' p k) = case lookup name schs' of
           Nothing -> case def' of
@@ -799,7 +802,7 @@ instance (GSerialiseProduct f, GSerialiseProduct g) => GSerialiseProduct (f :*: 
 
 deserialiserProduct' :: GSerialiseProduct f => [Schema] -> Strategy (Decoder (f x))
 deserialiserProduct' schs0 = Strategy $ \recs -> do
-  let go :: Int -> [Schema] -> RecordDecoder () x -> Either StrategyError ([Int] -> x)
+  let go :: Int -> [Schema] -> RecordDecoder () x -> Either StrategyError ([(Int, Int)] -> x)
       go _ _ (Done a) = Right $ const a
       go _ [] _ = Left "deserialiserProduct': Mismatching number of fields"
       go i (sch : schs) (More () _ p k) = do

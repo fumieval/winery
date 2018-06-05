@@ -13,7 +13,6 @@ module Data.Winery.Internal
   , decodeVarInt
   , decodeOffsets
   , getWord8
-  , getBytes
   , word16be
   , word32be
   , word64be
@@ -37,6 +36,7 @@ import Data.List (foldl')
 import Data.Monoid
 import Data.Text.Prettyprint.Doc (Doc)
 import Data.Text.Prettyprint.Doc.Render.Terminal (AnsiStyle)
+import Data.Traversable
 import Data.Word
 
 data Encoding = Encoding
@@ -50,8 +50,8 @@ instance Monoid Encoding where
 
 type Decoder = (->) B.ByteString
 
-decodeAt :: Int -> Decoder a -> Decoder a
-decodeAt i m bs = m $ B.drop i bs
+decodeAt :: (Int, Int) -> Decoder a -> Decoder a
+decodeAt (i, l) m bs = m $ B.take l $ B.drop i bs
 
 encodeVarInt :: (Bits a, Integral a) => a -> Encoding
 encodeVarInt n
@@ -72,9 +72,6 @@ getWord8 :: ContT r Decoder Word8
 getWord8 = ContT $ \k bs -> case B.uncons bs of
   Nothing -> k 0 bs
   Just (x, bs') -> k x bs'
-
-getBytes :: Decoder B.ByteString
-getBytes = runContT decodeVarInt B.take
 
 decodeVarInt :: (Num a, Bits a) => ContT r Decoder a
 decodeVarInt = getWord8 >>= \case
@@ -119,15 +116,12 @@ word64be = \s ->
 
 encodeMulti :: [Encoding] -> Encoding
 encodeMulti ls = mconcat offsets <> mconcat ls where
-  offsets = safeInit $ map (encodeVarInt . encodingLength) ls
-  safeInit [] = []
-  safeInit [_] = []
-  safeInit (x : xs) = x : safeInit xs
+  offsets = map (encodeVarInt . encodingLength) ls
 {-# INLINE encodeMulti #-}
 
-decodeOffsets :: Int -> ContT r Decoder [Int]
-decodeOffsets 0 = pure []
-decodeOffsets n = scanl (+) 0 <$> replicateM (n - 1) decodeVarInt
+decodeOffsets :: Int -> ContT r Decoder [(Int, Int)]
+decodeOffsets n = snd <$> mapAccumL (\ofs s -> (s + ofs, (ofs, s))) 0
+  <$> replicateM n decodeVarInt
 
 unsafeIndex :: String -> [a] -> Int -> a
 unsafeIndex err xs i = (xs ++ repeat (error err)) !! i
