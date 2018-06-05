@@ -35,13 +35,12 @@ import Control.Monad
 import Control.Monad.Fix
 import Control.Monad.ST
 import Control.Monad.Trans.Cont
-import Data.ByteString.Builder
+import Data.ByteString.FastBuilder
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Unsafe as B
-import qualified Data.ByteString.Builder as BB
+import qualified Data.ByteString.FastBuilder as BB
 import Data.Bits
 import Data.Dynamic
-import Data.List (foldl')
 import Data.Monoid
 import Data.Text.Prettyprint.Doc (Doc)
 import Data.Text.Prettyprint.Doc.Render.Terminal (AnsiStyle)
@@ -55,7 +54,9 @@ data Encoding = Encoding
 instance Monoid Encoding where
   mempty = Encoding 0 mempty
   mappend (Encoding m a) (Encoding n b) = Encoding (m + n) (mappend a b)
-  mconcat = foldl' mappend mempty
+
+rebuildEncoding :: Encoding -> Encoding
+rebuildEncoding (Encoding l b) = Encoding l (BB.rebuild b)
 
 type Decoder = (->) B.ByteString
 
@@ -124,11 +125,8 @@ word64be = \s ->
   (fromIntegral (s `B.unsafeIndex` 7) )
 
 encodeMulti :: [Encoding] -> Encoding
-encodeMulti = uncurry mappend . foldl'
-  (\(p, b) e -> let !p' = p <> encodeVarInt (encodingLength e)
-                    !b' = b <> e
-                in (p', b'))
-  (mempty, mempty)
+encodeMulti xs = rebuildEncoding
+  $ foldMap (encodeVarInt . encodingLength) xs <> mconcat xs
 {-# INLINE encodeMulti #-}
 
 type Offsets = U.Vector (Int, Int)

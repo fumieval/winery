@@ -59,8 +59,7 @@ import Control.Applicative
 import Control.Monad.Trans.Cont
 import Control.Monad.Reader
 import qualified Data.ByteString as B
-import qualified Data.ByteString.Lazy as BL
-import qualified Data.ByteString.Builder as BB
+import qualified Data.ByteString.FastBuilder as BB
 import Data.Bits
 import Data.Dynamic
 import Data.Functor.Compose
@@ -217,7 +216,7 @@ getDecoderBy (Deserialiser plan) sch = unPlan plan sch `unStrategy` []
 
 -- | Serialise a value along with its schema.
 serialise :: Serialise a => a -> B.ByteString
-serialise a = BL.toStrict $ BB.toLazyByteString $ mappend (BB.word8 currentSchemaVersion)
+serialise a = BB.toStrictByteString $ mappend (BB.word8 currentSchemaVersion)
   $ encodingBuilder $ toEncoding (schema [a], a)
 
 -- | Deserialise a 'serialise'd 'B.Bytestring'.
@@ -234,7 +233,7 @@ deserialise bs_ = case B.uncons bs_ of
 
 -- | Serialise a value without its schema.
 serialiseOnly :: Serialise a => a -> B.ByteString
-serialiseOnly = BL.toStrict . BB.toLazyByteString . encodingBuilder . toEncoding
+serialiseOnly = BB.toStrictByteString . encodingBuilder . toEncoding
 {-# INLINE serialiseOnly #-}
 
 substSchema :: Serialise a => Proxy a -> [TypeRep] -> Schema
