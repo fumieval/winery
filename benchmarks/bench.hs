@@ -1,8 +1,9 @@
-{-# LANGUAGE DeriveGeneric, OverloadedStrings #-}
-{-# OPTIONS -ddump-simpl -dsuppress-all -ddump-to-file #-}
+{-# LANGUAGE DeriveGeneric, OverloadedStrings, ScopedTypeVariables #-}
+import Control.DeepSeq
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString as B
 import qualified Data.Binary as B
+import Data.Either
 import Data.Winery
 import Data.Word
 import Data.Text (Text)
@@ -17,10 +18,6 @@ data Gender = Male | Female deriving (Show, Generic)
 instance Serialise Gender
 instance CBOR.Serialise Gender
 instance B.Binary Gender
-instance CSV.FromField Gender where
-  parseField "Male" = pure Male
-  parseField "Female" = pure Female
-  parseField _ = fail "Unknwon gender"
 
 data TestRec = TestRec
   { id_ :: !Int
@@ -33,6 +30,9 @@ data TestRec = TestRec
   , longitude :: !Double
   } deriving (Show, Generic)
 
+instance NFData TestRec where
+  rnf TestRec{} = ()
+
 instance Serialise TestRec where
   schemaVia = gschemaViaRecord
   toEncoding = gtoEncodingRecord
@@ -41,16 +41,20 @@ instance Serialise TestRec where
 instance B.Binary TestRec
 instance CBOR.Serialise TestRec
 
-instance CSV.FromRecord TestRec
-
 main = do
-  Right values_ <- CSV.decode CSV.HasHeader <$> BL.readFile "benchmarks/data.csv"
-  let values = V.toList values_ :: [TestRec]
-  B.writeFile "benchmarks/data.winery" $ serialise values
-  BL.writeFile "benchmarks/data.binary" $ B.encode values
-  BL.writeFile "benchmarks/data.cbor" $ CBOR.serialise values
+  winery <- B.readFile "benchmarks/data.winery"
+  binary <- B.readFile "benchmarks/data.binary"
+  cbor <- B.readFile "benchmarks/data.cbor"
+  Right (values :: [TestRec]) <- return $ deserialise winery
   defaultMain
-    [ bench "serialise/winery" $ whnf serialiseOnly values
-    , bench "serialise/binary" $ whnf (BL.toStrict . B.encode) values
-    , bench "serialise/serialise" $ whnf (BL.toStrict . CBOR.serialise) values
+    [ bgroup "serialise"
+      [ bench "winery" $ nf serialise values
+      , bench "binary" $ nf (BL.toStrict . B.encode) values
+      , bench "serialise" $ nf (BL.toStrict . CBOR.serialise) values
+      ]
+    , bgroup "deserialise"
+      [ bench "winery" $ nf (fromRight undefined . deserialise :: B.ByteString -> [TestRec]) winery
+      , bench "binary" $ nf (B.decode . BL.fromStrict :: B.ByteString -> [TestRec]) binary
+      , bench "serialise" $ nf (CBOR.deserialise . BL.fromStrict :: B.ByteString -> [TestRec]) cbor
+      ]
     ]

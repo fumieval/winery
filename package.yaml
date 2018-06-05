@@ -59,6 +59,7 @@ benchmarks:
     source-dirs: benchmarks
     main: bench.hs
     dependencies:
+    - deepseq
     - gauge
     - cassava
     - binary
