@@ -1,8 +1,11 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 module Data.Winery.Internal
   ( Encoding(..)
@@ -20,6 +23,9 @@ module Data.Winery.Internal
   , Strategy(..)
   , StrategyError
   , errorStrategy
+  , TransList(..)
+  , TransFusion(..)
+  , runTransFusion
   )where
 
 import Control.Applicative
@@ -153,3 +159,24 @@ instance MonadFix Strategy where
 
 errorStrategy :: Doc AnsiStyle -> Strategy a
 errorStrategy = Strategy . const . Left
+
+newtype TransFusion f g a = TransFusion { unTransFusion :: forall h. Applicative h => (forall x. f x -> h (g x)) -> h a }
+
+runTransFusion :: TransFusion f g a -> TransList f g a
+runTransFusion (TransFusion k) = k (\f -> More f (Done id))
+
+instance Functor (TransFusion f g) where
+  fmap f (TransFusion m) = TransFusion $ \k -> fmap f (m k)
+
+instance Applicative (TransFusion f g) where
+  pure a = TransFusion $ const $ pure a
+  TransFusion a <*> TransFusion b = TransFusion $ \k -> a k <*> b k
+
+data TransList f g a = Done a | forall x. More (f x) (TransList f g (g x -> a))
+
+deriving instance Functor (TransList f g)
+
+instance Applicative (TransList f g) where
+  pure = Done
+  Done f <*> a = fmap f a
+  More i k <*> c = More i (flip <$> k <*> c)
