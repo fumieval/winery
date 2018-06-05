@@ -44,6 +44,7 @@ module Data.Winery
   -- * Generics
   , GSerialiseRecord
   , gschemaViaRecord
+  , GEncodeRecord
   , gtoEncodingRecord
   , gdeserialiserRecord
   , GSerialiseVariant
@@ -701,7 +702,7 @@ gschemaViaRecord :: forall proxy a. (GSerialiseRecord (Rep a), Generic a, Typeab
 gschemaViaRecord p ts = SFix $ SRecord $ recordSchema (Proxy :: Proxy (Rep a)) (typeRep p : ts)
 
 -- | Generic implementation of 'toEncoding' for a record.
-gtoEncodingRecord :: (GSerialiseRecord (Rep a), Generic a) => a -> Encoding
+gtoEncodingRecord :: (GEncodeRecord (Rep a), Generic a) => a -> Encoding
 gtoEncodingRecord = encodeMulti . recordEncoder . from
 {-# INLINE gtoEncodingRecord #-}
 
@@ -731,24 +732,38 @@ gdeserialiserRecord def = Deserialiser $ handleRecursion $ \case
     rep = "gdeserialiserRecord :: Deserialiser "
       <> viaShow (typeRep (Proxy :: Proxy a))
 
+class GEncodeRecord f where
+  recordEncoder :: f x -> [Encoding]
+
+instance (GEncodeRecord f, GEncodeRecord g) => GEncodeRecord (f :*: g) where
+  recordEncoder (f :*: g) = recordEncoder f ++ recordEncoder g
+  {-# INLINE recordEncoder #-}
+
+instance Serialise a => GEncodeRecord (S1 c (K1 i a)) where
+  recordEncoder (M1 (K1 a)) = pure $! toEncoding a
+  {-# INLINE recordEncoder #-}
+
+instance GEncodeRecord f => GEncodeRecord (C1 c f) where
+  recordEncoder (M1 a) = recordEncoder a
+  {-# INLINE recordEncoder #-}
+
+instance GEncodeRecord f => GEncodeRecord (D1 c f) where
+  recordEncoder (M1 a) = recordEncoder a
+  {-# INLINE recordEncoder #-}
+
 class GSerialiseRecord f where
   recordSchema :: proxy f -> [TypeRep] -> [(T.Text, Schema)]
-  recordEncoder :: f x -> [Encoding]
   recordDecoder :: Maybe (f x) -> TransFusion (FieldDecoder T.Text) Decoder (Decoder (f x))
 
 instance (GSerialiseRecord f, GSerialiseRecord g) => GSerialiseRecord (f :*: g) where
   recordSchema _ ts = recordSchema (Proxy :: Proxy f) ts
     ++ recordSchema (Proxy :: Proxy g) ts
-  recordEncoder (f :*: g) = recordEncoder f ++ recordEncoder g
-  {-# INLINE recordEncoder #-}
   recordDecoder def = (\f g -> (:*:) <$> f <*> g)
     <$> recordDecoder ((\(x :*: _) -> x) <$> def)
     <*> recordDecoder ((\(_ :*: x) -> x) <$> def)
 
 instance (Serialise a, Selector c) => GSerialiseRecord (S1 c (K1 i a)) where
   recordSchema _ ts = [(T.pack $ selName (M1 undefined :: M1 i c (K1 i a) x), substSchema (Proxy :: Proxy a) ts)]
-  recordEncoder (M1 (K1 a)) = [toEncoding a]
-  {-# INLINE recordEncoder #-}
   recordDecoder def = TransFusion $ \k -> fmap (fmap (M1 . K1)) $ k $ FieldDecoder
     (T.pack $ selName (M1 undefined :: M1 i c (K1 i a) x))
     (unK1 . unM1 <$> def)
@@ -756,14 +771,10 @@ instance (Serialise a, Selector c) => GSerialiseRecord (S1 c (K1 i a)) where
 
 instance (GSerialiseRecord f) => GSerialiseRecord (C1 c f) where
   recordSchema _ = recordSchema (Proxy :: Proxy f)
-  recordEncoder (M1 a) = recordEncoder a
-  {-# INLINE recordEncoder #-}
   recordDecoder def = fmap M1 <$> recordDecoder (unM1 <$> def)
 
 instance (GSerialiseRecord f) => GSerialiseRecord (D1 c f) where
   recordSchema _ = recordSchema (Proxy :: Proxy f)
-  recordEncoder (M1 a) = recordEncoder a
-  {-# INLINE recordEncoder #-}
   recordDecoder def = fmap M1 <$> recordDecoder (unM1 <$> def)
 
 class GSerialiseProduct f where

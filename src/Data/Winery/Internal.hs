@@ -50,12 +50,11 @@ import qualified Data.Vector.Unboxed.Mutable as UM
 import Data.Word
 
 data Encoding = Encoding
-  { encodingLength :: {-# UNPACK #-} !Int, encodingBuilder :: !Builder }
+  { encodingLength :: !Int, encodingBuilder :: !Builder }
 
 instance Monoid Encoding where
   mempty = Encoding 0 mempty
   mappend (Encoding m a) (Encoding n b) = Encoding (m + n) (mappend a b)
-  {-# INLINE mappend #-}
   mconcat = foldl' mappend mempty
 
 type Decoder = (->) B.ByteString
@@ -81,7 +80,8 @@ encodeVarInt n
 getWord8 :: ContT r Decoder Word8
 getWord8 = ContT $ \k bs -> case B.uncons bs of
   Nothing -> k 0 bs
-  Just (x, bs') -> k x bs'
+  Just (x, bs') -> k x $! bs'
+{-# INLINE getWord8 #-}
 
 decodeVarInt :: (Num a, Bits a) => ContT r Decoder a
 decodeVarInt = getWord8 >>= \case
@@ -124,8 +124,11 @@ word64be = \s ->
   (fromIntegral (s `B.unsafeIndex` 7) )
 
 encodeMulti :: [Encoding] -> Encoding
-encodeMulti ls = mconcat offsets <> mconcat ls where
-  offsets = map (encodeVarInt . encodingLength) ls
+encodeMulti = uncurry mappend . foldl'
+  (\(p, b) e -> let !p' = p <> encodeVarInt (encodingLength e)
+                    !b' = b <> e
+                in (p', b'))
+  (mempty, mempty)
 {-# INLINE encodeMulti #-}
 
 type Offsets = U.Vector (Int, Int)
@@ -178,10 +181,12 @@ runTransFusion (TransFusion k) = k (\f -> More f (Done id))
 
 instance Functor (TransFusion f g) where
   fmap f (TransFusion m) = TransFusion $ \k -> fmap f (m k)
+  {-# INLINE fmap #-}
 
 instance Applicative (TransFusion f g) where
   pure a = TransFusion $ const $ pure a
   TransFusion a <*> TransFusion b = TransFusion $ \k -> a k <*> b k
+  {-# INLINE (<*>) #-}
 
 data TransList f g a = Done a | forall x. More (f x) (TransList f g (g x -> a))
 
