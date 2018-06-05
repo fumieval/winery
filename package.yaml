@@ -53,3 +53,14 @@ tests:
     main: Spec.hs
     dependencies:
       - winery
+
+benchmarks:
+  bench-winery:
+    source-dirs: benchmarks
+    main: bench.hs
+    dependencies:
+    - gauge
+    - cassava
+    - binary
+    - serialise
+    - winery
