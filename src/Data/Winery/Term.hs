@@ -12,6 +12,7 @@ import Data.Text.Prettyprint.Doc.Render.Terminal
 import Data.Winery
 import Data.Winery.Internal
 import Data.Word
+import qualified Data.Vector.Unboxed as V
 
 -- | Common representation for any winery data.
 -- Handy for prettyprinting winery-serialised data.
@@ -63,7 +64,7 @@ decodeTerm = go [] where
     SProduct schs -> do
       decoders <- traverse (unwrapDeserialiser $ go points) schs
       return $ evalContT $ do
-        offsets <- decodeOffsets (length decoders)
+        offsets <- V.toList <$> decodeOffsets (length decoders)
         asks $ \bs -> TProduct [decodeAt ofs dec bs | (dec, ofs) <- zip decoders offsets]
     SProductFixed schs -> do
       decoders <- traverse (\(VarInt n, sch) -> (,) n <$> unwrapDeserialiser (go points) sch) schs
@@ -73,14 +74,14 @@ decodeTerm = go [] where
     SRecord schs -> do
       decoders <- traverse (\(name, sch) -> (,) name <$> unwrapDeserialiser (go points) sch) schs
       return $ evalContT $ do
-        offsets <- decodeOffsets (length decoders)
+        offsets <- V.toList <$> decodeOffsets (length decoders)
         asks $ \bs -> TRecord [(name, decodeAt ofs dec bs) | ((name, dec), ofs) <- zip decoders offsets]
     SVariant schs -> do
       decoders <- traverse (\(name, sch) -> (,) name <$> traverse (unwrapDeserialiser (go points)) sch) schs
       return $ evalContT $ do
         tag <- decodeVarInt
         let (name, decs) = unsafeIndex ("decodeTerm/SVariant") decoders tag
-        offsets <- decodeOffsets (length decs)
+        offsets <- V.toList <$> decodeOffsets (length decs)
         asks $ \bs -> TVariant name [decodeAt ofs dec bs | (dec, ofs) <- zip decs offsets]
     SSelf i -> return $ unsafeIndex "decodeTerm/SSelf" points $ fromIntegral i
     SFix s' -> mfix $ \a -> go (a : points) `unwrapDeserialiser` s'

@@ -496,7 +496,7 @@ extractListWith (Deserialiser plan) = Deserialiser $ Plan $ \case
     return $ evalContT $ do
       n <- decodeVarInt
       offsets <- decodeOffsets n
-      asks $ \bs -> [decodeAt ofs getItem bs | ofs <- offsets]
+      asks $ \bs -> [decodeAt ofs getItem bs | ofs <- UV.toList offsets]
   s -> unexpectedSchema' "extractListWith ..." "[a]" s
 
 instance (Ord k, Serialise k, Serialise v) => Serialise (M.Map k v) where
@@ -550,7 +550,7 @@ extractFieldWith (Deserialiser g) name = Deserialiser $ handleRecursion $ \case
         m <- unPlan g sch
         return $ evalContT $ do
           offsets <- decodeOffsets (length schs)
-          lift $ decodeAt (unsafeIndex msg offsets i) m
+          lift $ decodeAt (unsafeIndexV msg offsets i) m
       Nothing -> errorStrategy $ rep <> ": Schema not found in " <> pretty (map fst schs)
   s -> unexpectedSchema' rep "a record" s
   where
@@ -714,13 +714,13 @@ gdeserialiserRecord :: forall a. (GSerialiseRecord (Rep a), Generic a, Typeable 
 gdeserialiserRecord def = Deserialiser $ handleRecursion $ \case
   SRecord schs -> Strategy $ \decs -> do
     let schs' = [(k, (i, s)) | (i, (k, s)) <- zip [0..] schs]
-    let go :: FieldDecoder T.Text x -> Compose (Either StrategyError) ((->) [(Int, Int)]) (Decoder x)
+    let go :: FieldDecoder T.Text x -> Compose (Either StrategyError) ((->) Offsets) (Decoder x)
         go (FieldDecoder name def' p) = case lookup name schs' of
           Nothing -> Compose $ case def' of
             Just d -> Right (pure (pure d))
             Nothing -> Left $ rep <> ": Default value not found for " <> pretty name
           Just (i, sch) -> Compose $ case p `unPlan` sch `unStrategy` decs of
-            Right getItem -> Right $ \offsets -> decodeAt (unsafeIndex "Data.Winery.gdeserialiserRecord: impossible" offsets i) getItem
+            Right getItem -> Right $ \offsets -> decodeAt (unsafeIndexV "Data.Winery.gdeserialiserRecord: impossible" offsets i) getItem
             Left e -> Left e
     m <- getCompose $ unTransFusion (recordDecoder $ from <$> def) go
     return $ evalContT $ do
@@ -793,13 +793,13 @@ instance (GSerialiseProduct f, GSerialiseProduct g) => GSerialiseProduct (f :*: 
 
 deserialiserProduct' :: GSerialiseProduct f => [Schema] -> Strategy (Decoder (f x))
 deserialiserProduct' schs0 = Strategy $ \recs -> do
-  let go :: Int -> [Schema] -> TransList (FieldDecoder ()) Decoder x -> Either StrategyError ([(Int, Int)] -> x)
+  let go :: Int -> [Schema] -> TransList (FieldDecoder ()) Decoder x -> Either StrategyError (Offsets -> x)
       go _ _ (Done a) = Right $ const a
       go _ [] _ = Left "deserialiserProduct': Mismatching number of fields"
       go i (sch : schs) (More (FieldDecoder () _ p) k) = do
         getItem <- unPlan p sch `unStrategy` recs
         r <- go (i + 1) schs k
-        return $ \offsets -> r offsets $ decodeAt (unsafeIndex "Data.Winery.gdeserialiserProduct: impossible" offsets i) getItem
+        return $ \offsets -> r offsets $ decodeAt (unsafeIndexV "Data.Winery.gdeserialiserProduct: impossible" offsets i) getItem
   m <- go 0 schs0 $ runTransFusion productDecoder
   return $ evalContT $ do
     offsets <- decodeOffsets (length schs0)
@@ -819,14 +819,14 @@ gdeserialiserVariant :: forall a. (GSerialiseVariant (Rep a), Generic a, Typeabl
   => Deserialiser a
 gdeserialiserVariant = Deserialiser $ handleRecursion $ \case
   SVariant schs0 -> Strategy $ \decs -> do
-    ds' <- sequence
+    ds' <- V.fromList <$> sequence
       [ case lookup name variantDecoder of
           Nothing -> Left $ rep <> ": Schema not found for " <> pretty name
           Just f -> f sch `unStrategy` decs
       | (name, sch) <- schs0]
     return $ evalContT $ do
       i <- decodeVarInt
-      lift $ fmap to $ unsafeIndex "Data.Winery.gdeserialiserVariant" ds' i
+      lift $ fmap to $ ds' V.! i
   s -> unexpectedSchema' rep "a variant" s
   where
     rep = "gdeserialiserVariant :: Deserialiser "

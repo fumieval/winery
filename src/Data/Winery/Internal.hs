@@ -14,12 +14,14 @@ module Data.Winery.Internal
   , Decoder
   , decodeAt
   , decodeVarInt
+  , Offsets
   , decodeOffsets
   , getWord8
   , word16be
   , word32be
   , word64be
   , unsafeIndex
+  , unsafeIndexV
   , Strategy(..)
   , StrategyError
   , errorStrategy
@@ -31,6 +33,7 @@ module Data.Winery.Internal
 import Control.Applicative
 import Control.Monad
 import Control.Monad.Fix
+import Control.Monad.ST
 import Control.Monad.Trans.Cont
 import Data.ByteString.Builder
 import qualified Data.ByteString as B
@@ -42,7 +45,8 @@ import Data.List (foldl')
 import Data.Monoid
 import Data.Text.Prettyprint.Doc (Doc)
 import Data.Text.Prettyprint.Doc.Render.Terminal (AnsiStyle)
-import Data.Traversable
+import qualified Data.Vector.Unboxed as U
+import qualified Data.Vector.Unboxed.Mutable as UM
 import Data.Word
 
 data Encoding = Encoding
@@ -81,14 +85,12 @@ getWord8 = ContT $ \k bs -> case B.uncons bs of
 
 decodeVarInt :: (Num a, Bits a) => ContT r Decoder a
 decodeVarInt = getWord8 >>= \case
-  n | testBit n 6 -> if testBit n 7
-      then do
-        m <- getWord8 >>= go
-        return $! negate $ shiftL m 6 .|. fromIntegral n .&. 0x3f
-      else return $ negate $ fromIntegral $ clearBit n 6
-    | testBit n 7 -> do
+  n | testBit n 7 -> do
       m <- getWord8 >>= go
-      return $! shiftL m 6 .|. clearBit (fromIntegral n) 7
+      if testBit n 6
+        then return $! negate $ shiftL m 6 .|. fromIntegral n .&. 0x3f
+        else return $! shiftL m 6 .|. clearBit (fromIntegral n) 7
+    | testBit n 6 -> return $ negate $ fromIntegral $ clearBit n 6
     | otherwise -> return $ fromIntegral n
   where
     go n
@@ -96,6 +98,7 @@ decodeVarInt = getWord8 >>= \case
         m <- getWord8 >>= go
         return $! shiftL m 7 .|. clearBit (fromIntegral n) 7
       | otherwise = return $ fromIntegral n
+{-# INLINE decodeVarInt #-}
 
 word16be :: B.ByteString -> Word16
 word16be = \s ->
@@ -125,9 +128,17 @@ encodeMulti ls = mconcat offsets <> mconcat ls where
   offsets = map (encodeVarInt . encodingLength) ls
 {-# INLINE encodeMulti #-}
 
-decodeOffsets :: Int -> ContT r Decoder [(Int, Int)]
-decodeOffsets n = snd <$> mapAccumL (\ofs s -> (s + ofs, (ofs, s))) 0
-  <$> replicateM n decodeVarInt
+type Offsets = U.Vector (Int, Int)
+
+decodeOffsets :: Int -> ContT r Decoder Offsets
+decodeOffsets n = mapAccumLV (\ofs s -> (s + ofs, (ofs, s))) 0
+  <$> U.replicateM n decodeVarInt
+
+unsafeIndexV :: U.Unbox a => String -> U.Vector a -> Int -> a
+unsafeIndexV err xs i
+  | i >= U.length xs || i < 0 = error err
+  | otherwise = U.unsafeIndex xs i
+{-# INLINE unsafeIndexV #-}
 
 unsafeIndex :: String -> [a] -> Int -> a
 unsafeIndex err xs i = (xs ++ repeat (error err)) !! i
@@ -180,3 +191,14 @@ instance Applicative (TransList f g) where
   pure = Done
   Done f <*> a = fmap f a
   More i k <*> c = More i (flip <$> k <*> c)
+
+mapAccumLV :: (U.Unbox b, U.Unbox c) => (a -> b -> (a, c)) -> a -> U.Vector b -> U.Vector c
+mapAccumLV f s0 xs = runST $ do
+  r <- UM.unsafeNew (U.length xs)
+  let go s i
+        | i == U.length xs = U.unsafeFreeze r
+        | otherwise = do
+          let (s', y) = f s $ U.unsafeIndex xs i
+          UM.write r i y
+          go s' (i + 1)
+  go s0 0
