@@ -1,8 +1,11 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeFamilies #-}
 module Data.Winery.Internal
-  ( Encoding
+  ( Encoding(..)
   , encodeMulti
   , encodeVarInt
   , Decoder
@@ -30,23 +33,40 @@ import qualified Data.ByteString.Unsafe as B
 import qualified Data.ByteString.Builder as BB
 import Data.Bits
 import Data.Dynamic
+import Data.List (foldl')
 import Data.Monoid
 import Data.Text.Prettyprint.Doc (Doc)
 import Data.Text.Prettyprint.Doc.Render.Terminal (AnsiStyle)
 import Data.Word
 
-type Encoding = (Sum Int, Builder)
+data Encoding = Encoding
+  { encodingLength :: {-# UNPACK #-} !Int, encodingBuilder :: !Builder }
+
+instance Monoid Encoding where
+  mempty = Encoding 0 mempty
+  mappend (Encoding m a) (Encoding n b) = Encoding (m + n) (mappend a b)
+  {-# INLINE mappend #-}
+  mconcat = foldl' mappend mempty
 
 type Decoder = (->) B.ByteString
 
 decodeAt :: Int -> Decoder a -> Decoder a
 decodeAt i m bs = m $ B.drop i bs
 
-encodeVarInt :: (Integral a, Bits a) => a -> Encoding
+encodeVarInt :: (Bits a, Integral a) => a -> Encoding
 encodeVarInt n
-  | n < 0x80 = (1, BB.word8 $ fromIntegral n)
-  | otherwise = let (s, b) = encodeVarInt (shiftR n 7)
-    in (1 + s, BB.word8 (setBit (fromIntegral n) 7) `mappend` b)
+  | n < 0 = case negate n of
+    n'
+      | n' < 0x40 -> e1 (fromIntegral n' `setBit` 6)
+      | otherwise -> go (e1 (0xc0 .|. fromIntegral n')) (shiftR n' 6)
+  | n < 0x40 = e1 (fromIntegral n)
+  | otherwise = go (e1 (fromIntegral n `setBit` 7 `clearBit` 6)) (shiftR n 6)
+  where
+  e1 = Encoding 1 . BB.word8
+  go !acc m
+    | m < 0x80 = acc `mappend` e1 (fromIntegral m)
+    | otherwise = go (acc <> e1 (setBit (fromIntegral m) 7)) (shiftR m 7)
+{-# INLINE encodeVarInt #-}
 
 getWord8 :: ContT r Decoder Word8
 getWord8 = ContT $ \k bs -> case B.uncons bs of
@@ -58,10 +78,21 @@ getBytes = runContT decodeVarInt B.take
 
 decodeVarInt :: (Num a, Bits a) => ContT r Decoder a
 decodeVarInt = getWord8 >>= \case
-  n | testBit n 7 -> do
-      m <- decodeVarInt
-      return $! shiftL m 7 .|. clearBit (fromIntegral n) 7
+  n | testBit n 6 -> if testBit n 7
+      then do
+        m <- getWord8 >>= go
+        return $! negate $ shiftL m 6 .|. fromIntegral n .&. 0x3f
+      else return $ negate $ fromIntegral $ clearBit n 6
+    | testBit n 7 -> do
+      m <- getWord8 >>= go
+      return $! shiftL m 6 .|. clearBit (fromIntegral n) 7
     | otherwise -> return $ fromIntegral n
+  where
+    go n
+      | testBit n 7 = do
+        m <- getWord8 >>= go
+        return $! shiftL m 7 .|. clearBit (fromIntegral n) 7
+      | otherwise = return $ fromIntegral n
 
 word16be :: B.ByteString -> Word16
 word16be = \s ->
@@ -87,8 +118,12 @@ word64be = \s ->
   (fromIntegral (s `B.unsafeIndex` 7) )
 
 encodeMulti :: [Encoding] -> Encoding
-encodeMulti ls = foldMap encodeVarInt offsets <> foldMap id ls where
-  offsets = take (length ls - 1) $ map (getSum . fst) ls
+encodeMulti ls = mconcat offsets <> mconcat ls where
+  offsets = safeInit $ map (encodeVarInt . encodingLength) ls
+  safeInit [] = []
+  safeInit [_] = []
+  safeInit (x : xs) = x : safeInit xs
+{-# INLINE encodeMulti #-}
 
 decodeOffsets :: Int -> ContT r Decoder [Int]
 decodeOffsets 0 = pure []
