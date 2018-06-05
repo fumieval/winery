@@ -8,12 +8,10 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE DefaultSignatures #-}
-{-# LANGUAGE ExistentialQuantification #-}
 module Data.Winery
   ( Schema(..)
   , Serialise(..)
@@ -46,6 +44,7 @@ module Data.Winery
   -- * Generics
   , GSerialiseRecord
   , gschemaViaRecord
+  , GEncodeRecord
   , gtoEncodingRecord
   , gdeserialiserRecord
   , GSerialiseVariant
@@ -64,6 +63,7 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Builder as BB
 import Data.Bits
 import Data.Dynamic
+import Data.Functor.Compose
 import Data.Functor.Identity
 import Data.Foldable
 import Data.Proxy
@@ -218,7 +218,7 @@ getDecoderBy (Deserialiser plan) sch = unPlan plan sch `unStrategy` []
 -- | Serialise a value along with its schema.
 serialise :: Serialise a => a -> B.ByteString
 serialise a = BL.toStrict $ BB.toLazyByteString $ mappend (BB.word8 currentSchemaVersion)
-  $ snd $ toEncoding (schema [a], a)
+  $ encodingBuilder $ toEncoding (schema [a], a)
 
 -- | Deserialise a 'serialise'd 'B.Bytestring'.
 deserialise :: Serialise a => B.ByteString -> Either StrategyError a
@@ -226,14 +226,15 @@ deserialise bs_ = case B.uncons bs_ of
   Just (ver, bs) -> do
     m <- getDecoder $ SSchema ver
     ($bs) $ evalContT $ do
-      offB <- decodeVarInt
-      sch <- lift m
-      asks $ \bs' -> ($ B.drop offB bs') <$> getDecoderBy deserialiser sch
+      sizA <- decodeVarInt
+      (_ :: Int) <- decodeVarInt
+      sch <- lift $ m . B.take sizA
+      asks $ \bs' -> ($ B.drop sizA bs') <$> getDecoderBy deserialiser sch
   Nothing -> Left "Unexpected empty string"
 
 -- | Serialise a value without its schema.
 serialiseOnly :: Serialise a => a -> B.ByteString
-serialiseOnly = BL.toStrict . BB.toLazyByteString . snd . toEncoding
+serialiseOnly = BL.toStrict . BB.toLazyByteString . encodingBuilder . toEncoding
 {-# INLINE serialiseOnly #-}
 
 substSchema :: Serialise a => Proxy a -> [TypeRep] -> Schema
@@ -299,8 +300,8 @@ instance Serialise () where
 
 instance Serialise Bool where
   schemaVia _ _ = SBool
-  toEncoding False = (1, BB.word8 0)
-  toEncoding True = (1, BB.word8 1)
+  toEncoding False = Encoding 1 (BB.word8 0)
+  toEncoding True = Encoding 1 (BB.word8 1)
   deserialiser = Deserialiser $ Plan $ \case
     SBool -> pure $ (/=0) <$> evalContT getWord8
     s -> unexpectedSchema "Serialise Bool" s
@@ -308,7 +309,7 @@ instance Serialise Bool where
 
 instance Serialise Word8 where
   schemaVia _ _ = SWord8
-  toEncoding x = (1, BB.word8 x)
+  toEncoding x = Encoding 1 (BB.word8 x)
   deserialiser = Deserialiser $ Plan $ \case
     SWord8 -> pure $ evalContT getWord8
     s -> unexpectedSchema "Serialise Word8" s
@@ -316,7 +317,7 @@ instance Serialise Word8 where
 
 instance Serialise Word16 where
   schemaVia _ _ = SWord16
-  toEncoding x = (2, BB.word16BE x)
+  toEncoding x = Encoding 2 (BB.word16BE x)
   deserialiser = Deserialiser $ Plan $ \case
     SWord16 -> pure $ evalContT $ do
       a <- getWord8
@@ -327,7 +328,7 @@ instance Serialise Word16 where
 
 instance Serialise Word32 where
   schemaVia _ _ = SWord32
-  toEncoding x = (4, BB.word32BE x)
+  toEncoding x = Encoding 4 (BB.word32BE x)
   deserialiser = Deserialiser $ Plan $ \case
     SWord32 -> pure word32be
     s -> unexpectedSchema "Serialise Word32" s
@@ -335,7 +336,7 @@ instance Serialise Word32 where
 
 instance Serialise Word64 where
   schemaVia _ _ = SWord64
-  toEncoding x = (8, BB.word64BE x)
+  toEncoding x = Encoding 8 (BB.word64BE x)
   deserialiser = Deserialiser $ Plan $ \case
     SWord64 -> pure word64be
     s -> unexpectedSchema "Serialise Word64" s
@@ -343,7 +344,7 @@ instance Serialise Word64 where
 
 instance Serialise Word where
   schemaVia _ _ = SWord64
-  toEncoding x = (8, BB.word64BE $ fromIntegral x)
+  toEncoding x = Encoding 8 $ BB.word64BE $ fromIntegral x
   deserialiser = Deserialiser $ Plan $ \case
     SWord64 -> pure $ fromIntegral <$> word64be
     s -> unexpectedSchema "Serialise Word" s
@@ -351,7 +352,7 @@ instance Serialise Word where
 
 instance Serialise Int8 where
   schemaVia _ _ = SInt8
-  toEncoding x = (1, BB.int8 x)
+  toEncoding x = Encoding 1 (BB.int8 x)
   deserialiser = Deserialiser $ Plan $ \case
     SInt8 -> pure $ fromIntegral <$> evalContT getWord8
     s -> unexpectedSchema "Serialise Int8" s
@@ -359,7 +360,7 @@ instance Serialise Int8 where
 
 instance Serialise Int16 where
   schemaVia _ _ = SInt16
-  toEncoding x = (2, BB.int16BE x)
+  toEncoding x = Encoding 2 (BB.int16BE x)
   deserialiser = Deserialiser $ Plan $ \case
     SInt16 -> pure $ fromIntegral <$> word16be
     s -> unexpectedSchema "Serialise Int16" s
@@ -367,7 +368,7 @@ instance Serialise Int16 where
 
 instance Serialise Int32 where
   schemaVia _ _ = SInt32
-  toEncoding x = (4, BB.int32BE x)
+  toEncoding x = Encoding 4 (BB.int32BE x)
   deserialiser = Deserialiser $ Plan $ \case
     SInt32 -> pure $ fromIntegral <$> word32be
     s -> unexpectedSchema "Serialise Int32" s
@@ -375,7 +376,7 @@ instance Serialise Int32 where
 
 instance Serialise Int64 where
   schemaVia _ _ = SInt64
-  toEncoding x = (8, BB.int64BE x)
+  toEncoding x = Encoding 8 (BB.int64BE x)
   deserialiser = Deserialiser $ Plan $ \case
     SInt64 -> pure $ fromIntegral <$> word64be
     s -> unexpectedSchema "Serialise Int64" s
@@ -390,7 +391,7 @@ instance Serialise Int where
 
 instance Serialise Float where
   schemaVia _ _ = SFloat
-  toEncoding x = (4, BB.word32BE $ unsafeCoerce x)
+  toEncoding x = Encoding 4 $ BB.word32BE $ unsafeCoerce x
   deserialiser = Deserialiser $ Plan $ \case
     SFloat -> pure $ unsafeCoerce <$> word32be
     s -> unexpectedSchema "Serialise Float" s
@@ -398,7 +399,7 @@ instance Serialise Float where
 
 instance Serialise Double where
   schemaVia _ _ = SDouble
-  toEncoding x = (8, BB.word64BE $ unsafeCoerce x)
+  toEncoding x = Encoding 8 $ BB.word64BE $ unsafeCoerce x
   deserialiser = Deserialiser $ Plan $ \case
     SDouble -> pure $ unsafeCoerce <$> word64be
     s -> unexpectedSchema "Serialise Double" s
@@ -408,16 +409,17 @@ instance Serialise T.Text where
   schemaVia _ _ = SText
   toEncoding = toEncoding . T.encodeUtf8
   deserialiser = Deserialiser $ Plan $ \case
-    SText -> pure $ T.decodeUtf8 <$> getBytes
+    SText -> pure T.decodeUtf8
     s -> unexpectedSchema "Serialise Text" s
 
 -- | Encoded in variable-length quantity.
 newtype VarInt a = VarInt { getVarInt :: a } deriving (Show, Read, Eq, Ord, Enum
   , Bounded, Num, Real, Integral, Bits, Typeable)
 
-instance (Typeable a, Integral a, Bits a) => Serialise (VarInt a) where
+instance (Typeable a, Bits a, Integral a) => Serialise (VarInt a) where
   schemaVia _ _ = SInteger
-  toEncoding = encodeVarInt
+  toEncoding = encodeVarInt . getVarInt
+  {-# INLINE toEncoding #-}
   deserialiser = Deserialiser $ Plan $ \case
     SInteger -> pure $ evalContT decodeVarInt
     s -> unexpectedSchema "Serialise (VarInt a)" s
@@ -452,10 +454,9 @@ instance Serialise a => Serialise (Maybe a) where
 
 instance Serialise B.ByteString where
   schemaVia _ _ = SBytes
-  toEncoding bs = encodeVarInt (B.length bs)
-    <> (Sum $ B.length bs, BB.byteString bs)
+  toEncoding bs = Encoding (B.length bs) (BB.byteString bs)
   deserialiser = Deserialiser $ Plan $ \case
-    SBytes -> pure getBytes
+    SBytes -> pure id
     s -> unexpectedSchema "Serialise ByteString" s
 
 instance Serialise a => Serialise [a] where
@@ -490,13 +491,13 @@ extractListWith (Deserialiser plan) = Deserialiser $ Plan $ \case
     getItem <- unPlan plan s
     return $ evalContT $ do
       n <- decodeVarInt
-      asks $ \bs -> [decodeAt (size * i) getItem bs | i <- [0..n - 1]]
+      asks $ \bs -> [decodeAt (size * i, size) getItem bs | i <- [0..n - 1]]
   SList s -> do
     getItem <- unPlan plan s
     return $ evalContT $ do
       n <- decodeVarInt
       offsets <- decodeOffsets n
-      asks $ \bs -> [decodeAt ofs getItem bs | ofs <- offsets]
+      asks $ \bs -> [decodeAt ofs getItem bs | ofs <- UV.toList offsets]
   s -> unexpectedSchema' "extractListWith ..." "[a]" s
 
 instance (Ord k, Serialise k, Serialise v) => Serialise (M.Map k v) where
@@ -550,7 +551,7 @@ extractFieldWith (Deserialiser g) name = Deserialiser $ handleRecursion $ \case
         m <- unPlan g sch
         return $ evalContT $ do
           offsets <- decodeOffsets (length schs)
-          lift $ decodeAt (unsafeIndex msg offsets i) m
+          lift $ decodeAt (unsafeIndexV msg offsets i) m
       Nothing -> errorStrategy $ rep <> ": Schema not found in " <> pretty (map fst schs)
   s -> unexpectedSchema' rep "a record" s
   where
@@ -580,11 +581,12 @@ instance (Serialise a, Serialise b) => Serialise (a, b) where
       getB <- unwrapDeserialiser deserialiser sb
       return $ evalContT $ do
         offA <- decodeVarInt
-        asks $ \bs -> (getA bs, decodeAt offA getB bs)
-    SProductFixed [(VarInt la, sa), (_, sb)] -> do
+        offB <- decodeVarInt
+        asks $ \bs -> (decodeAt (0, offA) getA bs, decodeAt (offA, offB) getB bs)
+    SProductFixed [(VarInt la, sa), (VarInt lb, sb)] -> do
       getA <- unwrapDeserialiser deserialiser sa
       getB <- unwrapDeserialiser deserialiser sb
-      return $ \bs -> (getA bs, decodeAt la getB bs)
+      return $ \bs -> (decodeAt (0, la) getA bs, decodeAt (la, lb) getB bs)
     s -> unexpectedSchema "Serialise (a, b)" s
 
   constantSize _ = (+) <$> constantSize (Proxy :: Proxy a) <*> constantSize (Proxy :: Proxy b)
@@ -608,12 +610,13 @@ instance (Serialise a, Serialise b, Serialise c) => Serialise (a, b, c) where
       return $ evalContT $ do
         offA <- decodeVarInt
         offB <- decodeVarInt
-        asks $ \bs -> (getA bs, decodeAt offA getB bs, decodeAt (offA + offB) getC bs)
-    SProductFixed [(VarInt la, sa), (VarInt lb, sb), (_, sc)] -> do
+        offC <- decodeVarInt
+        asks $ \bs -> (decodeAt (0, offA) getA bs, decodeAt (offA, offB) getB bs, decodeAt (offA + offB, offC) getC bs)
+    SProductFixed [(VarInt la, sa), (VarInt lb, sb), (VarInt lc, sc)] -> do
       getA <- unwrapDeserialiser deserialiser sa
       getB <- unwrapDeserialiser deserialiser sb
       getC <- unwrapDeserialiser deserialiser sc
-      return $ \bs -> (getA bs, decodeAt la getB bs, decodeAt (la + lb) getC bs)
+      return $ \bs -> (decodeAt (0, la) getA bs, decodeAt (la, lb) getB bs, decodeAt (la + lb, lc) getC bs)
     s -> unexpectedSchema "Serialise (a, b, c)" s
 
   constantSize _ = fmap sum $ sequence [constantSize (Proxy :: Proxy a), constantSize (Proxy :: Proxy b), constantSize (Proxy :: Proxy c)]
@@ -640,13 +643,14 @@ instance (Serialise a, Serialise b, Serialise c, Serialise d) => Serialise (a, b
         offA <- decodeVarInt
         offB <- decodeVarInt
         offC <- decodeVarInt
-        asks $ \bs -> (getA bs, decodeAt offA getB bs, decodeAt (offA + offB) getC bs, decodeAt (offA + offB + offC) getD bs)
-    SProductFixed [(VarInt la, sa), (VarInt lb, sb), (VarInt lc, sc), (_, sd)] -> do
+        offD <- decodeVarInt
+        asks $ \bs -> (decodeAt (0, offA) getA bs, decodeAt (offB, offA) getB bs, decodeAt (offA + offB, offC) getC bs, decodeAt (offA + offB + offC, offD) getD bs)
+    SProductFixed [(VarInt la, sa), (VarInt lb, sb), (VarInt lc, sc), (VarInt ld, sd)] -> do
       getA <- unwrapDeserialiser deserialiser sa
       getB <- unwrapDeserialiser deserialiser sb
       getC <- unwrapDeserialiser deserialiser sc
       getD <- unwrapDeserialiser deserialiser sd
-      return $ \bs -> (getA bs, decodeAt la getB bs, decodeAt (la + lb) getC bs, decodeAt (la + lb + lc) getD bs)
+      return $ \bs -> (decodeAt (0, la) getA bs, decodeAt (la, lb) getB bs, decodeAt (la + lb, lc) getC bs, decodeAt (la + lb + lc, ld) getD bs)
     s -> unexpectedSchema "Serialise (a, b, c, d)" s
 
   constantSize _ = fmap sum $ sequence [constantSize (Proxy :: Proxy a), constantSize (Proxy :: Proxy b), constantSize (Proxy :: Proxy c), constantSize (Proxy :: Proxy d)]
@@ -654,8 +658,8 @@ instance (Serialise a, Serialise b, Serialise c, Serialise d) => Serialise (a, b
 instance (Serialise a, Serialise b) => Serialise (Either a b) where
   schemaVia _ ts = SVariant [("Left", [substSchema (Proxy :: Proxy a) ts])
     , ("Right", [substSchema (Proxy :: Proxy b) ts])]
-  toEncoding (Left a) = (1, BB.word8 0) <> toEncoding a
-  toEncoding (Right b) = (1, BB.word8 1) <> toEncoding b
+  toEncoding (Left a) = Encoding 1 (BB.word8 0) <> toEncoding a
+  toEncoding (Right b) = Encoding 1 (BB.word8 1) <> toEncoding b
   deserialiser = Deserialiser $ Plan $ \case
     SVariant [(_, [sa]), (_, [sb])] -> do
       getA <- unwrapDeserialiser deserialiser sa
@@ -693,23 +697,16 @@ extractConstructor :: (Serialise a) => T.Text -> Deserialiser (Maybe a)
 extractConstructor = extractConstructorWith deserialiser
 {-# INLINE extractConstructor #-}
 
-data RecordDecoder i x = Done x | forall a. More !i !(Maybe a) !(Plan (Decoder a)) (RecordDecoder i (Decoder a -> x))
-
-deriving instance Functor (RecordDecoder i)
-
-instance Applicative (RecordDecoder i) where
-  pure = Done
-  Done f <*> a = fmap f a
-  More i p d k <*> c = More i p d (flip <$> k <*> c)
-
 -- | Generic implementation of 'schemaVia' for a record.
 gschemaViaRecord :: forall proxy a. (GSerialiseRecord (Rep a), Generic a, Typeable a) => proxy a -> [TypeRep] -> Schema
 gschemaViaRecord p ts = SFix $ SRecord $ recordSchema (Proxy :: Proxy (Rep a)) (typeRep p : ts)
 
 -- | Generic implementation of 'toEncoding' for a record.
-gtoEncodingRecord :: (GSerialiseRecord (Rep a), Generic a) => a -> Encoding
+gtoEncodingRecord :: (GEncodeRecord (Rep a), Generic a) => a -> Encoding
 gtoEncodingRecord = encodeMulti . recordEncoder . from
 {-# INLINE gtoEncodingRecord #-}
+
+data FieldDecoder i a = FieldDecoder !i !(Maybe a) !(Plan (Decoder a))
 
 -- | Generic implementation of 'deserialiser' for a record.
 gdeserialiserRecord :: forall a. (GSerialiseRecord (Rep a), Generic a, Typeable a)
@@ -718,18 +715,15 @@ gdeserialiserRecord :: forall a. (GSerialiseRecord (Rep a), Generic a, Typeable 
 gdeserialiserRecord def = Deserialiser $ handleRecursion $ \case
   SRecord schs -> Strategy $ \decs -> do
     let schs' = [(k, (i, s)) | (i, (k, s)) <- zip [0..] schs]
-    let go :: RecordDecoder T.Text x -> Either StrategyError ([Int] -> x)
-        go (Done a) = Right $ const a
-        go (More name def' p k) = case lookup name schs' of
-          Nothing -> case def' of
-            Just d -> go k >>= \r -> return $ \offsets -> r offsets (pure d)
+    let go :: FieldDecoder T.Text x -> Compose (Either StrategyError) ((->) Offsets) (Decoder x)
+        go (FieldDecoder name def' p) = case lookup name schs' of
+          Nothing -> Compose $ case def' of
+            Just d -> Right (pure (pure d))
             Nothing -> Left $ rep <> ": Default value not found for " <> pretty name
-          Just (i, sch) -> do
-            getItem <- p `unPlan` sch `unStrategy` decs
-            r <- go k
-            return $ \offsets -> r offsets
-              $ decodeAt (unsafeIndex "Data.Winery.gdeserialiserRecord: impossible" offsets i) getItem
-    m <- go $ recordDecoder $ from <$> def
+          Just (i, sch) -> Compose $ case p `unPlan` sch `unStrategy` decs of
+            Right getItem -> Right $ \offsets -> decodeAt (unsafeIndexV "Data.Winery.gdeserialiserRecord: impossible" offsets i) getItem
+            Left e -> Left e
+    m <- getCompose $ unTransFusion (recordDecoder $ from <$> def) go
     return $ evalContT $ do
       offsets <- decodeOffsets (length schs)
       asks $ \bs -> to $ m offsets bs
@@ -738,49 +732,65 @@ gdeserialiserRecord def = Deserialiser $ handleRecursion $ \case
     rep = "gdeserialiserRecord :: Deserialiser "
       <> viaShow (typeRep (Proxy :: Proxy a))
 
+class GEncodeRecord f where
+  recordEncoder :: f x -> [Encoding]
+
+instance (GEncodeRecord f, GEncodeRecord g) => GEncodeRecord (f :*: g) where
+  recordEncoder (f :*: g) = recordEncoder f ++ recordEncoder g
+  {-# INLINE recordEncoder #-}
+
+instance Serialise a => GEncodeRecord (S1 c (K1 i a)) where
+  recordEncoder (M1 (K1 a)) = pure $! toEncoding a
+  {-# INLINE recordEncoder #-}
+
+instance GEncodeRecord f => GEncodeRecord (C1 c f) where
+  recordEncoder (M1 a) = recordEncoder a
+  {-# INLINE recordEncoder #-}
+
+instance GEncodeRecord f => GEncodeRecord (D1 c f) where
+  recordEncoder (M1 a) = recordEncoder a
+  {-# INLINE recordEncoder #-}
+
 class GSerialiseRecord f where
   recordSchema :: proxy f -> [TypeRep] -> [(T.Text, Schema)]
-  recordEncoder :: f x -> [Encoding]
-  recordDecoder :: Maybe (f x) -> RecordDecoder T.Text (Decoder (f x))
+  recordDecoder :: Maybe (f x) -> TransFusion (FieldDecoder T.Text) Decoder (Decoder (f x))
 
 instance (GSerialiseRecord f, GSerialiseRecord g) => GSerialiseRecord (f :*: g) where
   recordSchema _ ts = recordSchema (Proxy :: Proxy f) ts
     ++ recordSchema (Proxy :: Proxy g) ts
-  recordEncoder (f :*: g) = recordEncoder f ++ recordEncoder g
   recordDecoder def = (\f g -> (:*:) <$> f <*> g)
     <$> recordDecoder ((\(x :*: _) -> x) <$> def)
     <*> recordDecoder ((\(_ :*: x) -> x) <$> def)
 
 instance (Serialise a, Selector c) => GSerialiseRecord (S1 c (K1 i a)) where
   recordSchema _ ts = [(T.pack $ selName (M1 undefined :: M1 i c (K1 i a) x), substSchema (Proxy :: Proxy a) ts)]
-  recordEncoder (M1 (K1 a)) = [toEncoding a]
-  recordDecoder def = More (T.pack $ selName (M1 undefined :: M1 i c (K1 i a) x)) (unK1 . unM1 <$> def) (getDeserialiser deserialiser)
-    $ Done $ fmap $ M1 . K1
+  recordDecoder def = TransFusion $ \k -> fmap (fmap (M1 . K1)) $ k $ FieldDecoder
+    (T.pack $ selName (M1 undefined :: M1 i c (K1 i a) x))
+    (unK1 . unM1 <$> def)
+    (getDeserialiser deserialiser)
 
 instance (GSerialiseRecord f) => GSerialiseRecord (C1 c f) where
   recordSchema _ = recordSchema (Proxy :: Proxy f)
-  recordEncoder (M1 a) = recordEncoder a
   recordDecoder def = fmap M1 <$> recordDecoder (unM1 <$> def)
 
 instance (GSerialiseRecord f) => GSerialiseRecord (D1 c f) where
   recordSchema _ = recordSchema (Proxy :: Proxy f)
-  recordEncoder (M1 a) = recordEncoder a
   recordDecoder def = fmap M1 <$> recordDecoder (unM1 <$> def)
 
 class GSerialiseProduct f where
   productSchema :: proxy f -> [TypeRep] -> [Schema]
   productEncoder :: f x -> [Encoding]
-  productDecoder :: RecordDecoder () (Decoder (f x))
+  productDecoder :: TransFusion (FieldDecoder ()) Decoder (Decoder (f x))
 
 instance GSerialiseProduct U1 where
   productSchema _ _ = []
   productEncoder _ = []
-  productDecoder = Done (pure U1)
+  productDecoder = pure (pure U1)
 
 instance (Serialise a) => GSerialiseProduct (K1 i a) where
   productSchema _ ts = [substSchema (Proxy :: Proxy a) ts]
   productEncoder (K1 a) = [toEncoding a]
-  productDecoder = More () Nothing (getDeserialiser deserialiser) $ Done $ fmap K1
+  productDecoder = TransFusion $ \k -> fmap (fmap K1) $ k $ FieldDecoder () Nothing (getDeserialiser deserialiser)
 
 instance GSerialiseProduct f => GSerialiseProduct (M1 i c f) where
   productSchema _ ts = productSchema (Proxy :: Proxy f) ts
@@ -794,14 +804,14 @@ instance (GSerialiseProduct f, GSerialiseProduct g) => GSerialiseProduct (f :*: 
 
 deserialiserProduct' :: GSerialiseProduct f => [Schema] -> Strategy (Decoder (f x))
 deserialiserProduct' schs0 = Strategy $ \recs -> do
-  let go :: Int -> [Schema] -> RecordDecoder () x -> Either StrategyError ([Int] -> x)
+  let go :: Int -> [Schema] -> TransList (FieldDecoder ()) Decoder x -> Either StrategyError (Offsets -> x)
       go _ _ (Done a) = Right $ const a
       go _ [] _ = Left "deserialiserProduct': Mismatching number of fields"
-      go i (sch : schs) (More () _ p k) = do
+      go i (sch : schs) (More (FieldDecoder () _ p) k) = do
         getItem <- unPlan p sch `unStrategy` recs
         r <- go (i + 1) schs k
-        return $ \offsets -> r offsets $ decodeAt (unsafeIndex "Data.Winery.gdeserialiserProduct: impossible" offsets i) getItem
-  m <- go 0 schs0 productDecoder
+        return $ \offsets -> r offsets $ decodeAt (unsafeIndexV "Data.Winery.gdeserialiserProduct: impossible" offsets i) getItem
+  m <- go 0 schs0 $ runTransFusion productDecoder
   return $ evalContT $ do
     offsets <- decodeOffsets (length schs0)
     asks $ \bs -> m offsets bs
@@ -820,14 +830,14 @@ gdeserialiserVariant :: forall a. (GSerialiseVariant (Rep a), Generic a, Typeabl
   => Deserialiser a
 gdeserialiserVariant = Deserialiser $ handleRecursion $ \case
   SVariant schs0 -> Strategy $ \decs -> do
-    ds' <- sequence
+    ds' <- V.fromList <$> sequence
       [ case lookup name variantDecoder of
           Nothing -> Left $ rep <> ": Schema not found for " <> pretty name
           Just f -> f sch `unStrategy` decs
       | (name, sch) <- schs0]
     return $ evalContT $ do
       i <- decodeVarInt
-      lift $ fmap to $ unsafeIndex "Data.Winery.gdeserialiserVariant" ds' i
+      lift $ fmap to $ ds' V.! i
   s -> unexpectedSchema' rep "a variant" s
   where
     rep = "gdeserialiserVariant :: Deserialiser "
