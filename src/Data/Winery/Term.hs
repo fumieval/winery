@@ -95,7 +95,6 @@ deserialiseTerm bs_ = case B.uncons bs_ of
     getSchema <- getDecoder $ SSchema ver
     ($bs) $ evalContT $ do
       offB <- decodeVarInt
-      (_ :: Int) <- decodeVarInt
       sch <- lift getSchema
       body <- asks $ \bs' -> ($ B.drop offB bs') <$> getDecoderBy decodeTerm sch
       return ((,) sch <$> body)

@@ -102,38 +102,60 @@ decodeVarInt = getWord8 >>= \case
 {-# INLINE decodeVarInt #-}
 
 word16be :: B.ByteString -> Word16
-word16be = \s ->
-  (fromIntegral (s `B.unsafeIndex` 0) `unsafeShiftL` 8) .|.
-  (fromIntegral (s `B.unsafeIndex` 1))
+word16be = \s -> if B.length s >= 2
+  then
+    (fromIntegral (s `B.unsafeIndex` 0) `unsafeShiftL` 8) .|.
+    (fromIntegral (s `B.unsafeIndex` 1))
+  else error "word16be"
 
 word32be :: B.ByteString -> Word32
-word32be = \s ->
-  (fromIntegral (s `B.unsafeIndex` 0) `unsafeShiftL` 24) .|.
-  (fromIntegral (s `B.unsafeIndex` 1) `unsafeShiftL` 16) .|.
-  (fromIntegral (s `B.unsafeIndex` 2) `unsafeShiftL`  8) .|.
-  (fromIntegral (s `B.unsafeIndex` 3) )
+word32be = \s -> if B.length s >= 4
+  then
+    (fromIntegral (s `B.unsafeIndex` 0) `unsafeShiftL` 24) .|.
+    (fromIntegral (s `B.unsafeIndex` 1) `unsafeShiftL` 16) .|.
+    (fromIntegral (s `B.unsafeIndex` 2) `unsafeShiftL`  8) .|.
+    (fromIntegral (s `B.unsafeIndex` 3) )
+  else error "word32be"
 
 word64be :: B.ByteString -> Word64
-word64be = \s ->
-  (fromIntegral (s `B.unsafeIndex` 0) `unsafeShiftL` 56) .|.
-  (fromIntegral (s `B.unsafeIndex` 1) `unsafeShiftL` 48) .|.
-  (fromIntegral (s `B.unsafeIndex` 2) `unsafeShiftL` 40) .|.
-  (fromIntegral (s `B.unsafeIndex` 3) `unsafeShiftL` 32) .|.
-  (fromIntegral (s `B.unsafeIndex` 4) `unsafeShiftL` 24) .|.
-  (fromIntegral (s `B.unsafeIndex` 5) `unsafeShiftL` 16) .|.
-  (fromIntegral (s `B.unsafeIndex` 6) `unsafeShiftL`  8) .|.
-  (fromIntegral (s `B.unsafeIndex` 7) )
+word64be = \s -> if B.length s >= 8
+  then
+    (fromIntegral (s `B.unsafeIndex` 0) `unsafeShiftL` 56) .|.
+    (fromIntegral (s `B.unsafeIndex` 1) `unsafeShiftL` 48) .|.
+    (fromIntegral (s `B.unsafeIndex` 2) `unsafeShiftL` 40) .|.
+    (fromIntegral (s `B.unsafeIndex` 3) `unsafeShiftL` 32) .|.
+    (fromIntegral (s `B.unsafeIndex` 4) `unsafeShiftL` 24) .|.
+    (fromIntegral (s `B.unsafeIndex` 5) `unsafeShiftL` 16) .|.
+    (fromIntegral (s `B.unsafeIndex` 6) `unsafeShiftL`  8) .|.
+    (fromIntegral (s `B.unsafeIndex` 7) )
+  else error $ "word64be" ++ show s
 
 encodeMulti :: [Encoding] -> Encoding
 encodeMulti xs = rebuildEncoding
-  $ foldMap (encodeVarInt . encodingLength) xs <> mconcat xs
+  $ foldMap (encodeVarInt . encodingLength) (safeInit xs) <> mconcat xs
+  where
+    safeInit [] = []
+    safeInit [_] = []
+    safeInit (y:ys) = y : safeInit ys
 {-# INLINE encodeMulti #-}
 
 type Offsets = U.Vector (Int, Int)
 
 decodeOffsets :: Int -> ContT r Decoder Offsets
-decodeOffsets n = mapAccumLV (\ofs s -> (s + ofs, (ofs, s))) 0
-  <$> U.replicateM n decodeVarInt
+decodeOffsets 0 = pure U.empty
+decodeOffsets n = accum <$> U.replicateM (n - 1) decodeVarInt where
+  accum xs = runST $ do
+    r <- UM.unsafeNew (U.length xs + 1)
+    let go s i
+          | i == U.length xs = do
+            UM.write r i (s, maxBound)
+            U.unsafeFreeze r
+          | otherwise = do
+            let x = U.unsafeIndex xs i
+            let s' = s + x
+            UM.write r i (s, x)
+            go s' (i + 1)
+    go 0 0
 
 unsafeIndexV :: U.Unbox a => String -> U.Vector a -> Int -> a
 unsafeIndexV err xs i
@@ -182,7 +204,7 @@ instance Functor (TransFusion f g) where
   {-# INLINE fmap #-}
 
 instance Applicative (TransFusion f g) where
-  pure a = TransFusion $ const $ pure a
+  pure a = TransFusion $ \_ -> pure a
   TransFusion a <*> TransFusion b = TransFusion $ \k -> a k <*> b k
   {-# INLINE (<*>) #-}
 
@@ -194,14 +216,3 @@ instance Applicative (TransList f g) where
   pure = Done
   Done f <*> a = fmap f a
   More i k <*> c = More i (flip <$> k <*> c)
-
-mapAccumLV :: (U.Unbox b, U.Unbox c) => (a -> b -> (a, c)) -> a -> U.Vector b -> U.Vector c
-mapAccumLV f s0 xs = runST $ do
-  r <- UM.unsafeNew (U.length xs)
-  let go s i
-        | i == U.length xs = U.unsafeFreeze r
-        | otherwise = do
-          let (s', y) = f s $ U.unsafeIndex xs i
-          UM.write r i y
-          go s' (i + 1)
-  go s0 0

@@ -226,7 +226,6 @@ deserialise bs_ = case B.uncons bs_ of
     m <- getDecoder $ SSchema ver
     ($bs) $ evalContT $ do
       sizA <- decodeVarInt
-      (_ :: Int) <- decodeVarInt
       sch <- lift $ m . B.take sizA
       asks $ \bs' -> ($ B.drop sizA bs') <$> getDecoderBy deserialiser sch
   Nothing -> Left "Unexpected empty string"
@@ -242,10 +241,10 @@ substSchema p ts
   | otherwise = schemaVia p ts
 
 currentSchemaVersion :: Word8
-currentSchemaVersion = 0
+currentSchemaVersion = 1
 
 bootstrapSchema :: Word8 -> Either StrategyError Schema
-bootstrapSchema 0 = Right $ SFix $ SVariant [("SSchema",[SWord8])
+bootstrapSchema 1 = Right $ SFix $ SVariant [("SSchema",[SWord8])
   ,("SUnit",[])
   ,("SBool",[])
   ,("SChar",[])
@@ -580,8 +579,7 @@ instance (Serialise a, Serialise b) => Serialise (a, b) where
       getB <- unwrapDeserialiser deserialiser sb
       return $ evalContT $ do
         offA <- decodeVarInt
-        offB <- decodeVarInt
-        asks $ \bs -> (decodeAt (0, offA) getA bs, decodeAt (offA, offB) getB bs)
+        asks $ \bs -> (decodeAt (0, offA) getA bs, decodeAt (offA, maxBound) getB bs)
     SProductFixed [(VarInt la, sa), (VarInt lb, sb)] -> do
       getA <- unwrapDeserialiser deserialiser sa
       getB <- unwrapDeserialiser deserialiser sb
@@ -609,8 +607,7 @@ instance (Serialise a, Serialise b, Serialise c) => Serialise (a, b, c) where
       return $ evalContT $ do
         offA <- decodeVarInt
         offB <- decodeVarInt
-        offC <- decodeVarInt
-        asks $ \bs -> (decodeAt (0, offA) getA bs, decodeAt (offA, offB) getB bs, decodeAt (offA + offB, offC) getC bs)
+        asks $ \bs -> (decodeAt (0, offA) getA bs, decodeAt (offA, offB) getB bs, decodeAt (offA + offB, maxBound) getC bs)
     SProductFixed [(VarInt la, sa), (VarInt lb, sb), (VarInt lc, sc)] -> do
       getA <- unwrapDeserialiser deserialiser sa
       getB <- unwrapDeserialiser deserialiser sb
@@ -642,8 +639,7 @@ instance (Serialise a, Serialise b, Serialise c, Serialise d) => Serialise (a, b
         offA <- decodeVarInt
         offB <- decodeVarInt
         offC <- decodeVarInt
-        offD <- decodeVarInt
-        asks $ \bs -> (decodeAt (0, offA) getA bs, decodeAt (offB, offA) getB bs, decodeAt (offA + offB, offC) getC bs, decodeAt (offA + offB + offC, offD) getD bs)
+        asks $ \bs -> (decodeAt (0, offA) getA bs, decodeAt (offB, offA) getB bs, decodeAt (offA + offB, offC) getC bs, decodeAt (offA + offB + offC, maxBound) getD bs)
     SProductFixed [(VarInt la, sa), (VarInt lb, sb), (VarInt lc, sc), (VarInt ld, sd)] -> do
       getA <- unwrapDeserialiser deserialiser sa
       getB <- unwrapDeserialiser deserialiser sb

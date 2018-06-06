@@ -12,6 +12,7 @@ import GHC.Generics (Generic)
 import Gauge.Main
 import qualified Codec.Serialise as CBOR
 import qualified Data.Csv as CSV
+import Data.Winery.Term
 
 data Gender = Male | Female deriving (Show, Generic)
 
