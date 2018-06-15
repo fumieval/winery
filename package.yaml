@@ -23,7 +23,8 @@ dependencies:
 - base >= 4.7 && < 5
 - bytestring
 - containers
-- fast-builder
+- cpu
+- fingertree
 - hashable
 - unordered-containers
 - transformers

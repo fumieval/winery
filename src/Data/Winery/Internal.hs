@@ -8,9 +8,10 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 module Data.Winery.Internal
-  ( Encoding(..)
+  ( Encoding
   , encodeMulti
   , encodeVarInt
+  , Elem(..)
   , Decoder
   , decodeAt
   , decodeVarInt
@@ -35,10 +36,9 @@ import Control.Monad
 import Control.Monad.Fix
 import Control.Monad.ST
 import Control.Monad.Trans.Cont
-import Data.ByteString.FastBuilder
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Unsafe as B
-import qualified Data.ByteString.FastBuilder as BB
+import Data.Winery.Internal.Builder
 import Data.Bits
 import Data.Dynamic
 import Data.Monoid
@@ -47,16 +47,6 @@ import Data.Text.Prettyprint.Doc.Render.Terminal (AnsiStyle)
 import qualified Data.Vector.Unboxed as U
 import qualified Data.Vector.Unboxed.Mutable as UM
 import Data.Word
-
-data Encoding = Encoding
-  { encodingLength :: !Int, encodingBuilder :: !Builder }
-
-instance Monoid Encoding where
-  mempty = Encoding 0 mempty
-  mappend (Encoding m a) (Encoding n b) = Encoding (m + n) (mappend a b)
-
-rebuildEncoding :: Encoding -> Encoding
-rebuildEncoding (Encoding l b) = Encoding l (BB.rebuild b)
 
 type Decoder = (->) B.ByteString
 
@@ -67,15 +57,14 @@ encodeVarInt :: (Bits a, Integral a) => a -> Encoding
 encodeVarInt n
   | n < 0 = case negate n of
     n'
-      | n' < 0x40 -> e1 (fromIntegral n' `setBit` 6)
-      | otherwise -> go (e1 (0xc0 .|. fromIntegral n')) (shiftR n' 6)
-  | n < 0x40 = e1 (fromIntegral n)
-  | otherwise = go (e1 (fromIntegral n `setBit` 7 `clearBit` 6)) (shiftR n 6)
+      | n' < 0x40 -> word8 (fromIntegral n' `setBit` 6)
+      | otherwise -> go (word8 (0xc0 .|. fromIntegral n')) (shiftR n' 6)
+  | n < 0x40 = word8 (fromIntegral n)
+  | otherwise = go (word8 (fromIntegral n `setBit` 7 `clearBit` 6)) (shiftR n 6)
   where
-  e1 = Encoding 1 . BB.word8
   go !acc m
-    | m < 0x80 = acc `mappend` e1 (fromIntegral m)
-    | otherwise = go (acc <> e1 (setBit (fromIntegral m) 7)) (shiftR m 7)
+    | m < 0x80 = acc `mappend` word8 (fromIntegral m)
+    | otherwise = go (acc <> word8 (setBit (fromIntegral m) 7)) (shiftR m 7)
 {-# INLINE encodeVarInt #-}
 
 getWord8 :: ContT r Decoder Word8
@@ -131,12 +120,11 @@ word64be = \s -> if B.length s >= 8
   else error $ "word64be" ++ show s
 
 encodeMulti :: [Encoding] -> Encoding
-encodeMulti xs = rebuildEncoding
-  $ foldMap (encodeVarInt . encodingLength) (safeInit xs) <> mconcat xs
+encodeMulti xs = go xs
   where
-    safeInit [] = []
-    safeInit [_] = []
-    safeInit (y:ys) = y : safeInit ys
+    go [] = mconcat xs
+    go [_] = mconcat xs
+    go (y:ys) = encodeVarInt (getSize y) `mappend` go ys
 {-# INLINE encodeMulti #-}
 
 type Offsets = U.Vector (Int, Int)
