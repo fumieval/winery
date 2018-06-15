@@ -59,14 +59,16 @@ encodeVarInt n
   | n < 0 = case negate n of
     n'
       | n' < 0x40 -> word8 (fromIntegral n' `setBit` 6)
-      | otherwise -> go (word8 (0xc0 .|. fromIntegral n')) (unsafeShiftR n' 6)
+      | otherwise -> encodesUVarInt (word8 (0xc0 .|. fromIntegral n')) (unsafeShiftR n' 6)
   | n < 0x40 = word8 (fromIntegral n)
-  | otherwise = go (word8 (fromIntegral n `setBit` 7 `clearBit` 6)) (unsafeShiftR n 6)
-  where
-  go !acc m
-    | m < 0x80 = acc `mappend` word8 (fromIntegral m)
-    | otherwise = go (acc <> word8 (setBit (fromIntegral m) 7)) (unsafeShiftR m 7)
-{-# INLINE encodeVarInt #-}
+  | otherwise = encodesUVarInt (word8 (fromIntegral n `setBit` 7 `clearBit` 6)) (unsafeShiftR n 6)
+{-# SPECIALISE encodeVarInt :: Int -> Encoding #-}
+
+encodesUVarInt :: (Bits a, Integral a) => Encoding -> a -> Encoding
+encodesUVarInt !acc m
+  | m < 0x80 = acc `mappend` word8 (fromIntegral m)
+  | otherwise = encodesUVarInt (acc <> word8 (setBit (fromIntegral m) 7)) (unsafeShiftR m 7)
+{-# SPECIALISE encodesUVarInt :: Encoding -> Int -> Encoding #-}
 
 getWord8 :: ContT r Decoder Word8
 getWord8 = ContT $ \k bs -> case B.uncons bs of

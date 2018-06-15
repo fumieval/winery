@@ -49,18 +49,22 @@ toByteString (Encoding len tree) = unsafeDupablePerformIO $ do
   withForeignPtr fp $ \ptr -> do
     let copyBS ofs (B.PS fp' sofs len') = withForeignPtr fp'
           $ \src -> B.memcpy (ptr `plusPtr` ofs) (src `plusPtr` sofs) len'
-    let go ofs (LWord8 w) = pokeByteOff ptr ofs w
-        go ofs (LWord16 w) = pokeByteOff ptr ofs $ toBE16 w
-        go ofs (LWord32 w) = pokeByteOff ptr ofs $ toBE32 w
-        go ofs (LWord64 w) = pokeByteOff ptr ofs $ toBE64 w
-        go ofs (LBytes bs) = copyBS ofs bs
-        go ofs (Bin a b) = rotate a b where
-          rotate (LWord8 w) t = pokeByteOff ptr ofs w >> go (ofs + 1) t
-          rotate (LWord16 w) t = pokeByteOff ptr ofs (toBE16 w) >> go (ofs + 2) t
-          rotate (LWord32 w) t = pokeByteOff ptr ofs (toBE32 w) >> go (ofs + 4) t
-          rotate (LWord64 w) t = pokeByteOff ptr ofs (toBE64 w) >> go (ofs + 8) t
-          rotate (LBytes bs) t = copyBS ofs bs >> go (ofs + B.length bs) t
-          rotate (Bin c d) t = rotate c (Bin d t)
+    let go :: Int -> Tree -> IO ()
+        go ofs l = case l of
+          LWord8 w -> pokeByteOff ptr ofs w
+          LWord16 w -> pokeByteOff ptr ofs $ toBE16 w
+          LWord32 w -> pokeByteOff ptr ofs $ toBE32 w
+          LWord64 w -> pokeByteOff ptr ofs $ toBE64 w
+          LBytes bs -> copyBS ofs bs
+          Bin a b -> rotate ofs a b
+
+        rotate :: Int -> Tree -> Tree -> IO ()
+        rotate ofs (LWord8 w) t = pokeByteOff ptr ofs w >> go (ofs + 1) t
+        rotate ofs (LWord16 w) t = pokeByteOff ptr ofs (toBE16 w) >> go (ofs + 2) t
+        rotate ofs (LWord32 w) t = pokeByteOff ptr ofs (toBE32 w) >> go (ofs + 4) t
+        rotate ofs (LWord64 w) t = pokeByteOff ptr ofs (toBE64 w) >> go (ofs + 8) t
+        rotate ofs (LBytes bs) t = copyBS ofs bs >> go (ofs + B.length bs) t
+        rotate ofs (Bin c d) t = rotate ofs c (Bin d t)
     go 0 tree
   return (B.PS fp 0 len)
 

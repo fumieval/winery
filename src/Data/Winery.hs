@@ -218,6 +218,7 @@ getDecoderBy (Deserialiser plan) sch = unPlan plan sch `unStrategy` []
 serialise :: Serialise a => a -> B.ByteString
 serialise a = BB.toByteString $ mappend (BB.word8 currentSchemaVersion)
   $ toEncoding (schema [a], a)
+{-# INLINE serialise #-}
 
 -- | Deserialise a 'serialise'd 'B.Bytestring'.
 deserialise :: Serialise a => B.ByteString -> Either StrategyError a
