@@ -1,5 +1,14 @@
 {-# LANGUAGE MultiParamTypeClasses, FlexibleInstances, BangPatterns #-}
-module Data.Winery.Internal.Builder where
+module Data.Winery.Internal.Builder
+  ( Encoding
+  , getSize
+  , toByteString
+  , word8
+  , word16
+  , word32
+  , word64
+  , bytes
+  ) where
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Internal as B
@@ -13,7 +22,12 @@ import System.Endian
 data Encoding = Encoding {-# UNPACK #-}!Int !Tree
   | Empty
 
-data Tree = Bin Tree Tree | Leaf Elem
+data Tree = Bin Tree Tree
+  | LWord8 {-# UNPACK #-} !Word8
+  | LWord16 {-# UNPACK #-} !Word16
+  | LWord32 {-# UNPACK #-} !Word32
+  | LWord64 {-# UNPACK #-} !Word64
+  | LBytes !B.ByteString
 
 instance Monoid Encoding where
   mempty = Empty
@@ -23,52 +37,49 @@ instance Monoid Encoding where
   mappend (Encoding s a) (Encoding t b) = Encoding (s + t) (Bin a b)
   {-# INLINE mappend #-}
 
-singleton :: Elem -> Encoding
-singleton e = Encoding (measureElem e) (Leaf e)
-{-# INLINE singleton #-}
-
 getSize :: Encoding -> Int
 getSize Empty = 0
 getSize (Encoding s _) = s
 {-# INLINE getSize #-}
-
-measureElem :: Elem -> Int
-measureElem (EWord8 _) = 1
-measureElem (EWord16 _) = 2
-measureElem (EWord32 _) = 4
-measureElem (EWord64 _) = 8
-measureElem (EBytes bs) = B.length bs
-
-data Elem = EWord8 {-# UNPACK #-} !Word8
-  | EWord16 {-# UNPACK #-} !Word16
-  | EWord32 {-# UNPACK #-} !Word32
-  | EWord64 {-# UNPACK #-} !Word64
-  | EBytes !B.ByteString
-
-uncons :: Tree -> (Elem, Maybe Tree)
-uncons (Leaf e) = (e, Nothing)
-uncons (Bin a b) = go a b where
-  go (Leaf k) t = (k, Just t)
-  go (Bin c d) t = go c (Bin d t)
 
 toByteString :: Encoding -> B.ByteString
 toByteString Empty = B.empty
 toByteString (Encoding len tree) = unsafeDupablePerformIO $ do
   fp <- B.mallocByteString len
   withForeignPtr fp $ \ptr -> do
-    let go ofs enc = case uncons enc of
-          (e, rest) -> do
-            case e of
-              EWord8 w -> pokeByteOff ptr ofs w
-              EWord16 w -> pokeByteOff ptr ofs $ toBE16 w
-              EWord32 w -> pokeByteOff ptr ofs $ toBE32 w
-              EWord64 w -> pokeByteOff ptr ofs $ toBE64 w
-              EBytes (B.PS fp' sofs len') -> withForeignPtr fp'
-                $ \src -> B.memcpy (ptr `plusPtr` ofs) (src `plusPtr` sofs) len'
-            mapM_ (go (ofs + measureElem e)) rest
+    let copyBS ofs (B.PS fp' sofs len') = withForeignPtr fp'
+          $ \src -> B.memcpy (ptr `plusPtr` ofs) (src `plusPtr` sofs) len'
+    let go ofs (LWord8 w) = pokeByteOff ptr ofs w
+        go ofs (LWord16 w) = pokeByteOff ptr ofs $ toBE16 w
+        go ofs (LWord32 w) = pokeByteOff ptr ofs $ toBE32 w
+        go ofs (LWord64 w) = pokeByteOff ptr ofs $ toBE64 w
+        go ofs (LBytes bs) = copyBS ofs bs
+        go ofs (Bin a b) = rotate a b where
+          rotate (LWord8 w) t = pokeByteOff ptr ofs w >> go (ofs + 1) t
+          rotate (LWord16 w) t = pokeByteOff ptr ofs (toBE16 w) >> go (ofs + 2) t
+          rotate (LWord32 w) t = pokeByteOff ptr ofs (toBE32 w) >> go (ofs + 4) t
+          rotate (LWord64 w) t = pokeByteOff ptr ofs (toBE64 w) >> go (ofs + 8) t
+          rotate (LBytes bs) t = copyBS ofs bs >> go (ofs + B.length bs) t
+          rotate (Bin c d) t = rotate c (Bin d t)
     go 0 tree
   return (B.PS fp 0 len)
 
 word8 :: Word8 -> Encoding
-word8 = singleton . EWord8
+word8 = Encoding 1 . LWord8
 {-# INLINE word8 #-}
+
+word16 :: Word16 -> Encoding
+word16 = Encoding 2 . LWord16
+{-# INLINE word16 #-}
+
+word32 :: Word32 -> Encoding
+word32 = Encoding 4 . LWord32
+{-# INLINE word32 #-}
+
+word64 :: Word64 -> Encoding
+word64 = Encoding 8 . LWord64
+{-# INLINE word64 #-}
+
+bytes :: B.ByteString -> Encoding
+bytes bs = Encoding (B.length bs) $ LBytes bs
+{-# INLINE bytes #-}

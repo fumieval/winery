@@ -315,7 +315,7 @@ instance Serialise Word8 where
 
 instance Serialise Word16 where
   schemaVia _ _ = SWord16
-  toEncoding = BB.singleton . BB.EWord16
+  toEncoding = BB.word16
   deserialiser = Deserialiser $ Plan $ \case
     SWord16 -> pure $ evalContT $ do
       a <- getWord8
@@ -326,7 +326,7 @@ instance Serialise Word16 where
 
 instance Serialise Word32 where
   schemaVia _ _ = SWord32
-  toEncoding = BB.singleton . BB.EWord32
+  toEncoding = BB.word32
   deserialiser = Deserialiser $ Plan $ \case
     SWord32 -> pure word32be
     s -> unexpectedSchema "Serialise Word32" s
@@ -334,7 +334,7 @@ instance Serialise Word32 where
 
 instance Serialise Word64 where
   schemaVia _ _ = SWord64
-  toEncoding = BB.singleton . BB.EWord64
+  toEncoding = BB.word64
   deserialiser = Deserialiser $ Plan $ \case
     SWord64 -> pure word64be
     s -> unexpectedSchema "Serialise Word64" s
@@ -342,7 +342,7 @@ instance Serialise Word64 where
 
 instance Serialise Word where
   schemaVia _ _ = SWord64
-  toEncoding = BB.singleton . BB.EWord64 . fromIntegral
+  toEncoding = BB.word64 . fromIntegral
   deserialiser = Deserialiser $ Plan $ \case
     SWord64 -> pure $ fromIntegral <$> word64be
     s -> unexpectedSchema "Serialise Word" s
@@ -350,7 +350,7 @@ instance Serialise Word where
 
 instance Serialise Int8 where
   schemaVia _ _ = SInt8
-  toEncoding = BB.singleton . BB.EWord8 . fromIntegral
+  toEncoding = BB.word8 . fromIntegral
   deserialiser = Deserialiser $ Plan $ \case
     SInt8 -> pure $ fromIntegral <$> evalContT getWord8
     s -> unexpectedSchema "Serialise Int8" s
@@ -358,7 +358,7 @@ instance Serialise Int8 where
 
 instance Serialise Int16 where
   schemaVia _ _ = SInt16
-  toEncoding = BB.singleton . BB.EWord16 . fromIntegral
+  toEncoding = BB.word16 . fromIntegral
   deserialiser = Deserialiser $ Plan $ \case
     SInt16 -> pure $ fromIntegral <$> word16be
     s -> unexpectedSchema "Serialise Int16" s
@@ -366,7 +366,7 @@ instance Serialise Int16 where
 
 instance Serialise Int32 where
   schemaVia _ _ = SInt32
-  toEncoding = BB.singleton . BB.EWord32 . fromIntegral
+  toEncoding = BB.word32 . fromIntegral
   deserialiser = Deserialiser $ Plan $ \case
     SInt32 -> pure $ fromIntegral <$> word32be
     s -> unexpectedSchema "Serialise Int32" s
@@ -374,7 +374,7 @@ instance Serialise Int32 where
 
 instance Serialise Int64 where
   schemaVia _ _ = SInt64
-  toEncoding = BB.singleton . BB.EWord64 . fromIntegral
+  toEncoding = BB.word64 . fromIntegral
   deserialiser = Deserialiser $ Plan $ \case
     SInt64 -> pure $ fromIntegral <$> word64be
     s -> unexpectedSchema "Serialise Int64" s
@@ -389,7 +389,7 @@ instance Serialise Int where
 
 instance Serialise Float where
   schemaVia _ _ = SFloat
-  toEncoding = BB.singleton . BB.EWord32 . unsafeCoerce
+  toEncoding = BB.word32 . unsafeCoerce
   deserialiser = Deserialiser $ Plan $ \case
     SFloat -> pure $ unsafeCoerce <$> word32be
     s -> unexpectedSchema "Serialise Float" s
@@ -397,7 +397,7 @@ instance Serialise Float where
 
 instance Serialise Double where
   schemaVia _ _ = SDouble
-  toEncoding = BB.singleton . BB.EWord64 . unsafeCoerce
+  toEncoding = BB.word64 . unsafeCoerce
   deserialiser = Deserialiser $ Plan $ \case
     SDouble -> pure $ unsafeCoerce <$> word64be
     s -> unexpectedSchema "Serialise Double" s
@@ -452,7 +452,7 @@ instance Serialise a => Serialise (Maybe a) where
 
 instance Serialise B.ByteString where
   schemaVia _ _ = SBytes
-  toEncoding = BB.singleton . BB.EBytes
+  toEncoding = BB.bytes
   deserialiser = Deserialiser $ Plan $ \case
     SBytes -> pure id
     s -> unexpectedSchema "Serialise ByteString" s

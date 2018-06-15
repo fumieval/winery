@@ -11,7 +11,6 @@ module Data.Winery.Internal
   ( Encoding
   , encodeMulti
   , encodeVarInt
-  , Elem(..)
   , Decoder
   , decodeAt
   , decodeVarInt
@@ -58,13 +57,13 @@ encodeVarInt n
   | n < 0 = case negate n of
     n'
       | n' < 0x40 -> word8 (fromIntegral n' `setBit` 6)
-      | otherwise -> go (word8 (0xc0 .|. fromIntegral n')) (shiftR n' 6)
+      | otherwise -> go (word8 (0xc0 .|. fromIntegral n')) (unsafeShiftR n' 6)
   | n < 0x40 = word8 (fromIntegral n)
-  | otherwise = go (word8 (fromIntegral n `setBit` 7 `clearBit` 6)) (shiftR n 6)
+  | otherwise = go (word8 (fromIntegral n `setBit` 7 `clearBit` 6)) (unsafeShiftR n 6)
   where
   go !acc m
     | m < 0x80 = acc `mappend` word8 (fromIntegral m)
-    | otherwise = go (acc <> word8 (setBit (fromIntegral m) 7)) (shiftR m 7)
+    | otherwise = go (acc <> word8 (setBit (fromIntegral m) 7)) (unsafeShiftR m 7)
 {-# INLINE encodeVarInt #-}
 
 getWord8 :: ContT r Decoder Word8
@@ -78,15 +77,15 @@ decodeVarInt = getWord8 >>= \case
   n | testBit n 7 -> do
       m <- getWord8 >>= go
       if testBit n 6
-        then return $! negate $ shiftL m 6 .|. fromIntegral n .&. 0x3f
-        else return $! shiftL m 6 .|. clearBit (fromIntegral n) 7
+        then return $! negate $ unsafeShiftL m 6 .|. fromIntegral n .&. 0x3f
+        else return $! unsafeShiftL m 6 .|. clearBit (fromIntegral n) 7
     | testBit n 6 -> return $ negate $ fromIntegral $ clearBit n 6
     | otherwise -> return $ fromIntegral n
   where
     go n
       | testBit n 7 = do
         m <- getWord8 >>= go
-        return $! shiftL m 7 .|. clearBit (fromIntegral n) 7
+        return $! unsafeShiftL m 7 .|. clearBit (fromIntegral n) 7
       | otherwise = return $ fromIntegral n
 {-# INLINE decodeVarInt #-}
 
