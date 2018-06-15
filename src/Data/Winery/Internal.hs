@@ -9,7 +9,9 @@
 {-# LANGUAGE TypeFamilies #-}
 module Data.Winery.Internal
   ( Encoding
+  , EncodingMulti
   , encodeMulti
+  , encodeItem
   , encodeVarInt
   , Decoder
   , decodeAt
@@ -118,13 +120,20 @@ word64be = \s -> if B.length s >= 8
     (fromIntegral (s `B.unsafeIndex` 7) )
   else error $ "word64be" ++ show s
 
-encodeMulti :: [Encoding] -> Encoding
-encodeMulti xs = go xs
-  where
-    go [] = mconcat xs
-    go [_] = mconcat xs
-    go (y:ys) = encodeVarInt (getSize y) `mappend` go ys
+data EncodingMulti = EncodingMulti0
+    | EncodingMulti !Encoding !Encoding
+
+encodeMulti :: (EncodingMulti -> EncodingMulti) -> Encoding
+encodeMulti f = case f EncodingMulti0 of
+  EncodingMulti0 -> mempty
+  EncodingMulti r s -> mappend r s
 {-# INLINE encodeMulti #-}
+
+encodeItem :: Encoding -> EncodingMulti -> EncodingMulti
+encodeItem e EncodingMulti0 = EncodingMulti mempty e
+encodeItem e (EncodingMulti a b) = EncodingMulti
+  (mappend (encodeVarInt (getSize e)) a) (mappend e b)
+{-# INLINE encodeItem #-}
 
 type Offsets = U.Vector (Int, Int)
 

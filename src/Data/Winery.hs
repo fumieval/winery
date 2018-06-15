@@ -463,7 +463,7 @@ instance Serialise a => Serialise [a] where
     Just s -> SArray (VarInt s) (substSchema (Proxy :: Proxy a) ts)
   toEncoding xs = case constantSize (Proxy :: Proxy a) of
     Nothing -> encodeVarInt (length xs)
-      <> encodeMulti (map toEncoding xs)
+      <> encodeMulti (\r -> foldr (encodeItem . toEncoding) r xs)
     Just _ -> encodeVarInt (length xs) <> foldMap toEncoding xs
   deserialiser = extractListWith deserialiser
 
@@ -571,7 +571,7 @@ instance (Serialise a, Serialise b) => Serialise (a, b) where
       sa = substSchema (Proxy :: Proxy a) ts
       sb = substSchema (Proxy :: Proxy b) ts
   toEncoding (a, b) = case constantSize (Proxy :: Proxy (a, b)) of
-    Nothing -> encodeMulti [toEncoding a, toEncoding b]
+    Nothing -> encodeMulti (encodeItem (toEncoding a) . encodeItem (toEncoding b))
     Just _ -> toEncoding a <> toEncoding b
   deserialiser = Deserialiser $ Plan $ \case
     SProduct [sa, sb] -> do
@@ -597,7 +597,7 @@ instance (Serialise a, Serialise b, Serialise c) => Serialise (a, b, c) where
       sb = substSchema (Proxy :: Proxy b) ts
       sc = substSchema (Proxy :: Proxy c) ts
   toEncoding (a, b, c) = case constantSize (Proxy :: Proxy (a, b, c)) of
-    Nothing -> encodeMulti [toEncoding a, toEncoding b, toEncoding c]
+    Nothing -> encodeMulti $ encodeItem (toEncoding a) . encodeItem (toEncoding b) . encodeItem (toEncoding c)
     Just _ -> toEncoding a <> toEncoding b <> toEncoding c
   deserialiser = Deserialiser $ Plan $ \case
     SProduct [sa, sb, sc] -> do
@@ -627,7 +627,7 @@ instance (Serialise a, Serialise b, Serialise c, Serialise d) => Serialise (a, b
       sc = substSchema (Proxy :: Proxy c) ts
       sd = substSchema (Proxy :: Proxy d) ts
   toEncoding (a, b, c, d) = case constantSize (Proxy :: Proxy (a, b, c)) of
-    Nothing -> encodeMulti [toEncoding a, toEncoding b, toEncoding c, toEncoding d]
+    Nothing -> encodeMulti $ encodeItem (toEncoding a) . encodeItem (toEncoding b) . encodeItem (toEncoding c) . encodeItem (toEncoding d)
     Just _ -> toEncoding a <> toEncoding b <> toEncoding c <> toEncoding d
   deserialiser = Deserialiser $ Plan $ \case
     SProduct [sa, sb, sc, sd] -> do
@@ -728,14 +728,14 @@ gdeserialiserRecord def = Deserialiser $ handleRecursion $ \case
       <> viaShow (typeRep (Proxy :: Proxy a))
 
 class GEncodeRecord f where
-  recordEncoder :: f x -> [Encoding]
+  recordEncoder :: f x -> EncodingMulti -> EncodingMulti
 
 instance (GEncodeRecord f, GEncodeRecord g) => GEncodeRecord (f :*: g) where
-  recordEncoder (f :*: g) = recordEncoder f ++ recordEncoder g
+  recordEncoder (f :*: g) = recordEncoder f . recordEncoder g
   {-# INLINE recordEncoder #-}
 
 instance Serialise a => GEncodeRecord (S1 c (K1 i a)) where
-  recordEncoder (M1 (K1 a)) = pure $! toEncoding a
+  recordEncoder (M1 (K1 a)) = encodeItem (toEncoding a)
   {-# INLINE recordEncoder #-}
 
 instance GEncodeRecord f => GEncodeRecord (C1 c f) where
@@ -774,17 +774,17 @@ instance (GSerialiseRecord f) => GSerialiseRecord (D1 c f) where
 
 class GSerialiseProduct f where
   productSchema :: proxy f -> [TypeRep] -> [Schema]
-  productEncoder :: f x -> [Encoding]
+  productEncoder :: f x -> EncodingMulti -> EncodingMulti
   productDecoder :: TransFusion (FieldDecoder ()) Decoder (Decoder (f x))
 
 instance GSerialiseProduct U1 where
   productSchema _ _ = []
-  productEncoder _ = []
+  productEncoder _ = id
   productDecoder = pure (pure U1)
 
 instance (Serialise a) => GSerialiseProduct (K1 i a) where
   productSchema _ ts = [substSchema (Proxy :: Proxy a) ts]
-  productEncoder (K1 a) = [toEncoding a]
+  productEncoder (K1 a) = encodeItem (toEncoding a)
   productDecoder = TransFusion $ \k -> fmap (fmap K1) $ k $ FieldDecoder () Nothing (getDeserialiser deserialiser)
 
 instance GSerialiseProduct f => GSerialiseProduct (M1 i c f) where
@@ -794,7 +794,7 @@ instance GSerialiseProduct f => GSerialiseProduct (M1 i c f) where
 
 instance (GSerialiseProduct f, GSerialiseProduct g) => GSerialiseProduct (f :*: g) where
   productSchema _ ts = productSchema (Proxy :: Proxy f) ts ++ productSchema (Proxy :: Proxy g) ts
-  productEncoder (f :*: g) = productEncoder f ++ productEncoder g
+  productEncoder (f :*: g) = productEncoder f . productEncoder g
   productDecoder = liftA2 (:*:) <$> productDecoder <*> productDecoder
 
 deserialiserProduct' :: GSerialiseProduct f => [Schema] -> Strategy (Decoder (f x))
