@@ -49,30 +49,32 @@ getSize Empty = 0
 getSize (Encoding s _) = s
 {-# INLINE getSize #-}
 
+pokeTree :: Ptr Word8 -> Tree -> IO ()
+pokeTree ptr l = case l of
+  LWord8 w -> poke ptr w
+  LWord16 w -> poke (castPtr ptr) $ toBE16 w
+  LWord32 w -> poke (castPtr ptr) $ toBE32 w
+  LWord64 w -> poke (castPtr ptr) $ toBE64 w
+  LBytes (B.PS fp ofs len) -> withForeignPtr fp
+    $ \src -> B.memcpy ptr (src `plusPtr` ofs) len
+  Bin a b -> rotate ptr a b
+
+rotate :: Ptr Word8 -> Tree -> Tree -> IO ()
+rotate ptr (LWord8 w) t = poke ptr w >> pokeTree (ptr `plusPtr` 1) t
+rotate ptr (LWord16 w) t = poke (castPtr ptr) (toBE16 w) >> pokeTree (ptr `plusPtr` 2) t
+rotate ptr (LWord32 w) t = poke (castPtr ptr) (toBE32 w) >> pokeTree (ptr `plusPtr` 4) t
+rotate ptr (LWord64 w) t = poke (castPtr ptr) (toBE64 w) >> pokeTree (ptr `plusPtr` 8) t
+rotate ptr (LBytes (B.PS fp ofs len)) t = do
+  withForeignPtr fp
+    $ \src -> B.memcpy ptr (src `plusPtr` ofs) len
+  pokeTree (ptr `plusPtr` len) t
+rotate ptr (Bin c d) t = rotate ptr c (Bin d t)
+
 toByteString :: Encoding -> B.ByteString
 toByteString Empty = B.empty
 toByteString (Encoding len tree) = unsafeDupablePerformIO $ do
   fp <- B.mallocByteString len
-  withForeignPtr fp $ \ptr -> do
-    let copyBS ofs (B.PS fp' sofs len') = withForeignPtr fp'
-          $ \src -> B.memcpy (ptr `plusPtr` ofs) (src `plusPtr` sofs) len'
-    let go :: Int -> Tree -> IO ()
-        go ofs l = case l of
-          LWord8 w -> pokeByteOff ptr ofs w
-          LWord16 w -> pokeByteOff ptr ofs $ toBE16 w
-          LWord32 w -> pokeByteOff ptr ofs $ toBE32 w
-          LWord64 w -> pokeByteOff ptr ofs $ toBE64 w
-          LBytes bs -> copyBS ofs bs
-          Bin a b -> rotate ofs a b
-
-        rotate :: Int -> Tree -> Tree -> IO ()
-        rotate ofs (LWord8 w) t = pokeByteOff ptr ofs w >> go (ofs + 1) t
-        rotate ofs (LWord16 w) t = pokeByteOff ptr ofs (toBE16 w) >> go (ofs + 2) t
-        rotate ofs (LWord32 w) t = pokeByteOff ptr ofs (toBE32 w) >> go (ofs + 4) t
-        rotate ofs (LWord64 w) t = pokeByteOff ptr ofs (toBE64 w) >> go (ofs + 8) t
-        rotate ofs (LBytes bs) t = copyBS ofs bs >> go (ofs + B.length bs) t
-        rotate ofs (Bin c d) t = rotate ofs c (Bin d t)
-    go 0 tree
+  withForeignPtr fp $ \ptr -> pokeTree ptr tree
   return (B.PS fp 0 len)
 
 word8 :: Word8 -> Encoding

@@ -52,7 +52,7 @@ import Data.Word
 type Decoder = (->) B.ByteString
 
 decodeAt :: (Int, Int) -> Decoder a -> Decoder a
-decodeAt (i, l) m bs = m $ B.take l $ B.drop i bs
+decodeAt (i, l) m = m . B.take l . B.drop i
 
 encodeVarInt :: (Bits a, Integral a) => a -> Encoding
 encodeVarInt n
