@@ -46,7 +46,7 @@ main = do
   winery <- B.readFile "benchmarks/data.winery"
   binary <- B.readFile "benchmarks/data.binary"
   cbor <- B.readFile "benchmarks/data.cbor"
-  Right (values :: [TestRec]) <- return $ deserialise winery
+  values :: [TestRec] <- return $ B.decode $ BL.fromStrict binary
   defaultMain
     [ bgroup "serialise"
       [ bench "winery" $ nf serialise values
