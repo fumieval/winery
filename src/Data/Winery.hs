@@ -727,6 +727,7 @@ gdeserialiserRecord def = Deserialiser $ handleRecursion $ \case
   where
     rep = "gdeserialiserRecord :: Deserialiser "
       <> viaShow (typeRep (Proxy :: Proxy a))
+{-# INLINE gdeserialiserRecord #-}
 
 class GEncodeRecord f where
   recordEncoder :: f x -> EncodingMulti -> EncodingMulti
