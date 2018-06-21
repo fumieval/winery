@@ -3,8 +3,7 @@
 winery is a serialisation library for Haskell. It tries to achieve two
 goals: compact representation and perpetual inspectability.
 
-The `binary` library provides a compact representation, but there is no way to
-inspect the serialised value without the original instance.
+The standard `binary` library has no way to inspect the serialised value without the original instance.
 
 There's `serialise`, which is an alternative library based on CBOR. Every value has to be accompanied with tags, so it tends to be redundant for arrays of small values. Encoding records with field names is also redudant.
 
@@ -114,3 +113,31 @@ You can also build a custom deserialiser using the Alternative instance and comb
 , foo: Just 42
 }
 ```
+
+## Benchmark
+
+```haskell
+data TestRec = TestRec
+  { id_ :: !Int
+  , first_name :: !Text
+  , last_name :: !Text
+  , email :: !Text
+  , gender :: !Gender
+  , num :: !Int
+  , latitude :: !Double
+  , longitude :: !Double
+  } deriving (Show, Generic)
+```
+
+(De)serialisation of the datatype above using generic instances:
+
+```
+serialise/winery                         mean 658.6 μs  ( +- 45.04 μs  )
+serialise/binary                         mean 1.056 ms  ( +- 58.95 μs  )
+serialise/serialise                      mean 258.8 μs  ( +- 5.654 μs  )
+deserialise/winery                       mean 706.4 μs  ( +- 52.41 μs  )
+deserialise/binary                       mean 1.393 ms  ( +- 56.71 μs  )
+deserialise/serialise                    mean 765.8 μs  ( +- 30.26 μs  )
+```
+
+Not bad, considering that binary and serialise don't encode field names.
