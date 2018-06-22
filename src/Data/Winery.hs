@@ -12,6 +12,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE DefaultSignatures #-}
+{-# LANGUAGE StandaloneDeriving #-}
 module Data.Winery
   ( Schema(..)
   , Serialise(..)
@@ -529,12 +530,6 @@ instance Serialise a => Serialise (Seq.Seq a) where
   toEncoding = toEncoding . toList
   deserialiser = Seq.fromList <$> deserialiser
 
-instance Serialise a => Serialise (Identity a) where
-  schemaVia _ = schemaVia (Proxy :: Proxy a)
-  toEncoding = toEncoding . runIdentity
-  deserialiser = Identity <$> deserialiser
-  constantSize _ = constantSize (Proxy :: Proxy a)
-
 -- | Extract a field of a record.
 extractField :: Serialise a => T.Text -> Deserialiser a
 extractField = extractFieldWith deserialiser
@@ -872,3 +867,7 @@ instance (GSerialiseVariant f) => GSerialiseVariant (D1 c f) where
   variantSchema _ ts = variantSchema (Proxy :: Proxy f) ts
   variantEncoder i (M1 a) = variantEncoder i a
   variantDecoder = fmap (fmap (fmap (fmap M1))) <$> variantDecoder
+
+instance Serialise Ordering
+deriving instance Serialise a => Serialise (Identity a)
+deriving instance (Serialise a, Typeable b) => Serialise (Const a (b :: *))
