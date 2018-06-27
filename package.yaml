@@ -24,7 +24,6 @@ dependencies:
 - bytestring
 - containers
 - cpu
-- fingertree
 - hashable
 - unordered-containers
 - transformers
