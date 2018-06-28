@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE MultiParamTypeClasses, FlexibleInstances, BangPatterns #-}
 module Data.Winery.Internal.Builder
   ( Encoding
@@ -13,6 +14,9 @@ module Data.Winery.Internal.Builder
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Internal as B
 import Data.Word
+#if !MIN_VERSION_base(4,11,0)
+import Data.Semigroup
+#endif
 import Foreign.Ptr
 import Foreign.ForeignPtr
 import Foreign.Storable
@@ -29,12 +33,15 @@ data Tree = Bin Tree Tree
   | LWord64 {-# UNPACK #-} !Word64
   | LBytes !B.ByteString
 
+instance Semigroup Encoding where
+  Empty <> a = a
+  a <> Empty = a
+  Encoding s a <> Encoding t b = Encoding (s + t) (Bin a b)
+
 instance Monoid Encoding where
   mempty = Empty
   {-# INLINE mempty #-}
-  mappend Empty a = a
-  mappend a Empty = a
-  mappend (Encoding s a) (Encoding t b) = Encoding (s + t) (Bin a b)
+  mappend = (<>)
   {-# INLINE mappend #-}
 
 getSize :: Encoding -> Int
