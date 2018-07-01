@@ -42,6 +42,8 @@ module Data.Winery
   , unwrapDeserialiser
   , Strategy
   , StrategyError
+  , unexpectedSchema
+  , unexpectedSchema'
   -- * Generics
   , GSerialiseRecord
   , gschemaViaRecord
