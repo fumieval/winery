@@ -31,6 +31,7 @@ module Data.Winery
   , encodeMulti
   -- * Decoding combinators
   , Plan(..)
+  , extractArrayWith
   , extractListWith
   , extractField
   , extractFieldWith
@@ -486,21 +487,25 @@ instance (UV.Unbox a, Serialise a) => Serialise (UV.Vector a) where
   toEncoding = toEncoding . UV.toList
   deserialiser = UV.fromList <$> deserialiser
 
--- | Extract a list or an array of values.
-extractListWith :: Deserialiser a -> Deserialiser [a]
-extractListWith (Deserialiser plan) = Deserialiser $ Plan $ \case
+extractArrayWith :: Deserialiser a -> Deserialiser (Int, Int -> a)
+extractArrayWith (Deserialiser plan) = Deserialiser $ Plan $ \case
   SArray (VarInt size) s -> do
     getItem <- unPlan plan s
     return $ evalContT $ do
       n <- decodeVarInt
-      asks $ \bs -> [decodeAt (size * i, size) getItem bs | i <- [0..n - 1]]
+      asks $ \bs -> (n, \i -> decodeAt (size * i, size) getItem bs)
   SList s -> do
     getItem <- unPlan plan s
     return $ evalContT $ do
       n <- decodeVarInt
       offsets <- decodeOffsets n
-      asks $ \bs -> [decodeAt ofs getItem bs | ofs <- UV.toList offsets]
+      asks $ \bs -> (n, \i -> decodeAt (offsets UV.! i) getItem bs)
   s -> unexpectedSchema' "extractListWith ..." "[a]" s
+
+-- | Extract a list or an array of values.
+extractListWith :: Deserialiser a -> Deserialiser [a]
+extractListWith d = (\(n, f) -> map f [0..n-1]) <$> extractArrayWith d
+{-# INLINE extractListWith #-}
 
 instance (Ord k, Serialise k, Serialise v) => Serialise (M.Map k v) where
   schemaVia _ = schemaVia (Proxy :: Proxy [(k, v)])
