@@ -20,6 +20,7 @@ module Data.Winery
   -- * Standalone serialisation
   , serialise
   , deserialise
+  , splitSchema
   -- * Separate serialisation
   , Deserialiser(..)
   , Decoder
@@ -224,16 +225,21 @@ serialise a = BB.toByteString $ mappend (BB.word8 currentSchemaVersion)
   $ toEncoding (schema [a], a)
 {-# INLINE serialise #-}
 
--- | Deserialise a 'serialise'd 'B.Bytestring'.
-deserialise :: Serialise a => B.ByteString -> Either StrategyError a
-deserialise bs_ = case B.uncons bs_ of
+splitSchema :: B.ByteString -> Either StrategyError (Schema, B.ByteString)
+splitSchema bs_ = case B.uncons bs_ of
   Just (ver, bs) -> do
     m <- getDecoder $ SSchema ver
-    ($bs) $ evalContT $ do
+    return $ ($bs) $ evalContT $ do
       sizA <- decodeVarInt
       sch <- lift $ m . B.take sizA
-      asks $ \bs' -> ($ B.drop sizA bs') <$> getDecoderBy deserialiser sch
+      asks $ \bs' -> (sch, B.drop sizA bs')
   Nothing -> Left "Unexpected empty string"
+
+-- | Deserialise a 'serialise'd 'B.Bytestring'.
+deserialise :: Serialise a => B.ByteString -> Either StrategyError a
+deserialise bs_ = do
+  (sch, bs) <- splitSchema bs_
+  ($bs) <$> getDecoderBy deserialiser sch
 
 -- | Serialise a value without its schema.
 serialiseOnly :: Serialise a => a -> B.ByteString

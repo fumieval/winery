@@ -1,7 +1,6 @@
 {-# LANGUAGE OverloadedStrings, LambdaCase, ScopedTypeVariables #-}
 module Data.Winery.Term where
 
-import Control.Monad.Trans
 import Control.Monad.Trans.Cont
 import Control.Monad.Reader
 import qualified Data.ByteString as B
@@ -90,15 +89,10 @@ decodeTerm = go [] where
 
 -- | Deserialise a 'serialise'd 'B.Bytestring'.
 deserialiseTerm :: B.ByteString -> Either (Doc AnsiStyle) (Schema, Term)
-deserialiseTerm bs_ = case B.uncons bs_ of
-  Just (ver, bs) -> do
-    getSchema <- getDecoder $ SSchema ver
-    ($bs) $ evalContT $ do
-      offB <- decodeVarInt
-      sch <- lift getSchema
-      body <- asks $ \bs' -> ($ B.drop offB bs') <$> getDecoderBy decodeTerm sch
-      return ((,) sch <$> body)
-  Nothing -> Left "Unexpected empty string"
+deserialiseTerm bs_ = do
+  (sch, bs) <- splitSchema bs_
+  dec <- getDecoderBy decodeTerm sch
+  return (sch, dec bs)
 
 instance Pretty Term where
   pretty TUnit = "()"
