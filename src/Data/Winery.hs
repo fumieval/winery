@@ -38,6 +38,7 @@ module Data.Winery
   , extractFieldWith
   , extractConstructor
   , extractConstructorWith
+  , extractScientific
   -- * Variable-length quantity
   , VarInt(..)
   -- * Internal
@@ -71,6 +72,7 @@ import Data.Functor.Compose
 import Data.Functor.Identity
 import Data.Foldable
 import Data.Proxy
+import Data.Scientific (Scientific)
 import Data.Hashable (Hashable)
 import qualified Data.HashMap.Strict as HM
 import Data.Int
@@ -542,6 +544,23 @@ instance Serialise a => Serialise (Seq.Seq a) where
   schemaVia _ = schemaVia (Proxy :: Proxy [a])
   toEncoding = toEncoding . toList
   deserialiser = Seq.fromList <$> deserialiser
+
+extractScientific :: Deserialiser Scientific
+extractScientific = Deserialiser $ Plan $ \s -> case s of
+  SWord8 -> f (fromIntegral :: Word8 -> Scientific) s
+  SWord16 -> f (fromIntegral :: Word16 -> Scientific) s
+  SWord32 -> f (fromIntegral :: Word32 -> Scientific) s
+  SWord64 -> f (fromIntegral :: Word64 -> Scientific) s
+  SInt8 -> f (fromIntegral :: Int8 -> Scientific) s
+  SInt16 -> f (fromIntegral :: Int16 -> Scientific) s
+  SInt32 -> f (fromIntegral :: Int32 -> Scientific) s
+  SInt64 -> f (fromIntegral :: Int64 -> Scientific) s
+  SInteger -> f fromInteger s
+  SFloat -> f (realToFrac :: Float -> Scientific) s
+  SDouble -> f (realToFrac :: Double -> Scientific) s
+  _ -> unexpectedSchema s
+  where
+    f c = unwrapDeserialiser (c <$> deserialiser)
 
 -- | Extract a field of a record.
 extractField :: Serialise a => T.Text -> Deserialiser a

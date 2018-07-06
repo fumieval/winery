@@ -114,6 +114,23 @@ You can also build a custom deserialiser using the Alternative instance and comb
 }
 ```
 
+You can use the `winery` command-line tool to inspect values.
+
+```
+$ winery '.[:10] | .first_name .last_name' benchmarks/data.winery
+Shane Plett
+Mata Snead
+Levon Sammes
+Irina Gourlay
+Brooks Titlow
+Antons Culleton
+Regine Emerton
+Starlin Laying
+Orv Kempshall
+Elizabeth Joseff
+Cathee Eberz
+```
+
 ## Benchmark
 
 ```haskell
