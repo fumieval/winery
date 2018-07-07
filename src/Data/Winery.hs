@@ -20,6 +20,7 @@ module Data.Winery
   -- * Standalone serialisation
   , serialise
   , deserialise
+  , deserialiseBy
   , splitSchema
   -- * Separate serialisation
   , Deserialiser(..)
