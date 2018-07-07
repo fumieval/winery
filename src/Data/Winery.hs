@@ -239,9 +239,14 @@ splitSchema bs_ = case B.uncons bs_ of
 
 -- | Deserialise a 'serialise'd 'B.Bytestring'.
 deserialise :: Serialise a => B.ByteString -> Either StrategyError a
-deserialise bs_ = do
+deserialise = deserialiseBy deserialiser
+{-# INLINE deserialise #-}
+
+-- | Deserialise a 'serialise'd 'B.Bytestring'.
+deserialiseBy :: Serialise a => Deserialiser a -> B.ByteString -> Either StrategyError a
+deserialiseBy d bs_ = do
   (sch, bs) <- splitSchema bs_
-  ($bs) <$> getDecoderBy deserialiser sch
+  ($bs) <$> getDecoderBy d sch
 
 -- | Serialise a value without its schema.
 serialiseOnly :: Serialise a => a -> B.ByteString
