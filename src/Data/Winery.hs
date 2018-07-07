@@ -558,7 +558,7 @@ extractScientific = Deserialiser $ Plan $ \s -> case s of
   SInteger -> f fromInteger s
   SFloat -> f (realToFrac :: Float -> Scientific) s
   SDouble -> f (realToFrac :: Double -> Scientific) s
-  _ -> unexpectedSchema s
+  _ -> unexpectedSchema' "extractScientific" "numeric" s
   where
     f c = unwrapDeserialiser (c <$> deserialiser)
 
