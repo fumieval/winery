@@ -244,7 +244,7 @@ deserialise = deserialiseBy deserialiser
 {-# INLINE deserialise #-}
 
 -- | Deserialise a 'serialise'd 'B.Bytestring'.
-deserialiseBy :: Serialise a => Deserialiser a -> B.ByteString -> Either StrategyError a
+deserialiseBy :: Deserialiser a -> B.ByteString -> Either StrategyError a
 deserialiseBy d bs_ = do
   (sch, bs) <- splitSchema bs_
   ($bs) <$> getDecoderBy d sch
