@@ -42,6 +42,7 @@ library:
     - Data.Winery
     - Data.Winery.Term
     - Data.Winery.Internal
+    - Data.Winery.Internal.Builder
     - Data.Winery.Query
     - Data.Winery.Query.Parser
 
