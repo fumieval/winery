@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings, LambdaCase, ScopedTypeVariables #-}
 module Data.Winery.Term where
 
+import Data.Aeson
 import Control.Monad.Trans.Cont
 import Control.Monad.Reader
 import qualified Data.ByteString as B
@@ -12,6 +13,7 @@ import Data.Winery
 import Data.Winery.Internal
 import Data.Word
 import qualified Data.Vector.Unboxed as V
+import qualified Data.HashMap.Strict as HM
 
 -- | Common representation for any winery data.
 -- Handy for prettyprinting winery-serialised data.
@@ -36,6 +38,33 @@ data Term = TUnit
   | TRecord [(T.Text, Term)]
   | TVariant !T.Text [Term]
   deriving Show
+
+instance ToJSON Term where
+  toJSON TUnit = toJSON ()
+  toJSON (TBool b) = toJSON b
+  toJSON (TChar c) = toJSON c
+  toJSON (TWord8 w) = toJSON w
+  toJSON (TWord16 w) = toJSON w
+  toJSON (TWord32 w) = toJSON w
+  toJSON (TWord64 w) = toJSON w
+  toJSON (TInt8 w) = toJSON w
+  toJSON (TInt16 w) = toJSON w
+  toJSON (TInt32 w) = toJSON w
+  toJSON (TInt64 w) = toJSON w
+  toJSON (TInteger w) = toJSON w
+  toJSON (TFloat x) = toJSON x
+  toJSON (TDouble x) = toJSON x
+  toJSON (TBytes bs) = toJSON (B.unpack bs)
+  toJSON (TText t) = toJSON t
+  toJSON (TList xs) = toJSON xs
+  toJSON (TProduct xs) = toJSON xs
+  toJSON (TRecord xs) = toJSON $ HM.fromList xs
+  toJSON (TVariant "Just" [x]) = toJSON x
+  toJSON (TVariant "Nothing" []) = Null
+  toJSON (TVariant t []) = toJSON t
+  toJSON (TVariant t [x]) = object ["tag" .= toJSON t, "contents" .= toJSON x]
+  toJSON (TVariant t xs) = object ["tag" .= toJSON t, "contents" .= toJSON xs]
+
 
 -- | Deserialiser for a 'Term'.
 decodeTerm :: Deserialiser Term
