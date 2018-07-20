@@ -47,11 +47,17 @@ main = do
   binary <- B.readFile "benchmarks/data.binary"
   cbor <- B.readFile "benchmarks/data.cbor"
   values :: [TestRec] <- return $ B.decode $ BL.fromStrict binary
+  let aValue = head values
   defaultMain
-    [ bgroup "serialise"
-      [ bench "winery" $ nf serialise values
+    [ bgroup "serialise/list"
+      [ bench "winery" $ nf serialiseOnly values
       , bench "binary" $ nf (BL.toStrict . B.encode) values
       , bench "serialise" $ nf (BL.toStrict . CBOR.serialise) values
+      ]
+    , bgroup "serialise/item"
+      [ bench "winery" $ nf serialiseOnly aValue
+      , bench "binary" $ nf (BL.toStrict . B.encode) aValue
+      , bench "serialise" $ nf (BL.toStrict . CBOR.serialise) aValue
       ]
     , bgroup "deserialise"
       [ bench "winery" $ nf (fromRight undefined . deserialise :: B.ByteString -> [TestRec]) winery
