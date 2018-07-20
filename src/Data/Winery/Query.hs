@@ -36,16 +36,17 @@ invalid :: StrategyError -> Query a b
 invalid = Query . const . Deserialiser . Plan . const . errorStrategy
 
 list :: Query a a
-list = Query $ \d -> concat <$> extractListWith d
+list = Query $ \d -> concat <$> extractListBy d
 
 range :: Int -> Int -> Query a a
-range i j = Query $ \d -> (\(n, f) -> concatMap f [mod i n..mod j n]) <$> extractArrayWith d
+range i j = Query $ \d -> (\(n, f) -> concatMap f [mod i n..mod j n])
+  <$> extractArrayBy d
 
 field :: Typeable a => T.Text -> Query a a
-field name = Query $ \d -> extractFieldWith d name
+field name = Query $ \d -> extractFieldBy d name
 
 con :: Typeable a => T.Text -> Query a a
-con name = Query $ \d -> maybe [] id <$> extractConstructorWith d name
+con name = Query $ \d -> maybe [] id <$> extractConstructorBy d name
 
 select :: Query a Bool -> Query a a
 select qp = Query $ \d -> Deserialiser $ Plan $ \sch -> do

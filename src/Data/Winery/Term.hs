@@ -87,8 +87,8 @@ decodeTerm = go [] where
     SDouble -> p s TDouble
     SBytes -> p s TBytes
     Data.Winery.SText -> p s TText
-    SArray siz sch -> fmap TList <$> extractListWith (go points) `unwrapDeserialiser` SArray siz sch
-    SList sch -> fmap TList <$> extractListWith (go points) `unwrapDeserialiser` SList sch
+    SArray siz sch -> fmap TList <$> extractListBy (go points) `unwrapDeserialiser` SArray siz sch
+    SList sch -> fmap TList <$> extractListBy (go points) `unwrapDeserialiser` SList sch
     SProduct schs -> do
       decoders <- traverse (unwrapDeserialiser $ go points) schs
       return $ evalContT $ do
