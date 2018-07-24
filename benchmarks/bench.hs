@@ -13,6 +13,7 @@ import Gauge.Main
 import qualified Codec.Serialise as CBOR
 import qualified Data.Csv as CSV
 import Data.Winery.Term
+import System.Directory
 
 data Gender = Male | Female deriving (Show, Generic)
 
@@ -47,11 +48,17 @@ main = do
   binary <- B.readFile "benchmarks/data.binary"
   cbor <- B.readFile "benchmarks/data.cbor"
   values :: [TestRec] <- return $ B.decode $ BL.fromStrict binary
+  temp <- getTemporaryDirectory
   defaultMain
     [ bgroup "serialise"
       [ bench "winery" $ nf serialise values
       , bench "binary" $ nf (BL.toStrict . B.encode) values
       , bench "serialise" $ nf (BL.toStrict . CBOR.serialise) values
+      ]
+    , bgroup "serialise/file"
+      [ bench "winery" $ whnfIO $ writeFileSerialise (temp ++ "/data.winery") values
+      , bench "binary" $ whnfIO $ B.encodeFile (temp ++ "/data.binary") values
+      , bench "serialise" $ whnfIO $ CBOR.writeFileSerialise (temp ++ "/data.cbor") values
       ]
     , bgroup "deserialise"
       [ bench "winery" $ nf (fromRight undefined . deserialise :: B.ByteString -> [TestRec]) winery

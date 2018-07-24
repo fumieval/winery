@@ -1,9 +1,11 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE MultiParamTypeClasses, FlexibleInstances, BangPatterns #-}
+{-# LANGUAGE RecordWildCards #-}
 module Data.Winery.Internal.Builder
   ( Encoding
   , getSize
   , toByteString
+  , hPut
   , word8
   , word16
   , word32
@@ -17,9 +19,14 @@ import Data.Word
 #if !MIN_VERSION_base(4,11,0)
 import Data.Semigroup
 #endif
+import Data.IORef
 import Foreign.Ptr
 import Foreign.ForeignPtr
 import Foreign.Storable
+import GHC.IO.Buffer
+import GHC.IO.Handle.Internals
+import GHC.IO.Handle.Types
+import qualified GHC.IO.BufferedIO as Buffered
 import System.IO.Unsafe
 import System.Endian
 
@@ -96,3 +103,50 @@ word64 = Encoding 8 . LWord64
 bytes :: B.ByteString -> Encoding
 bytes bs = Encoding (B.length bs) $ LBytes bs
 {-# INLINE bytes #-}
+
+hPut :: Handle -> Encoding -> IO ()
+hPut _ Empty = return ()
+hPut h (Encoding _ t0) = wantWritableHandle "Data.Winery.Intenal.Builder.hPut" h
+  $ \Handle__{..} -> do
+    buf0 <- readIORef haByteBuffer
+
+    let pokeBuffer :: Storable a => Buffer Word8 -> a -> IO (Buffer Word8)
+        pokeBuffer buf x
+          | bufferAvailable buf >= sizeOf x = bufferAdd (sizeOf x) buf
+            <$ withBuffer buf (\ptr -> pokeByteOff ptr (bufR buf) x)
+          | otherwise = Buffered.flushWriteBuffer haDevice buf
+            >>= \buf' -> pokeBuffer buf' x
+
+    let go (LWord8 w) buf = pokeBuffer buf w
+        go (LWord16 w) buf = pokeBuffer buf (toBE16 w)
+        go (LWord32 w) buf = pokeBuffer buf (toBE32 w)
+        go (LWord64 w) buf = pokeBuffer buf (toBE64 w)
+        go t@(LBytes (B.PS fp ofs len)) buf
+          | bufferAvailable buf >= len = (bufferAdd len buf<$) $ withBuffer buf
+            $ \ptr -> withForeignPtr fp
+            $ \src -> B.memcpy (ptr `plusPtr` bufR buf) (src `plusPtr` ofs) len
+          | bufSize buf >= len = Buffered.flushWriteBuffer haDevice buf
+            >>= go t
+          | otherwise = newByteBuffer len WriteBuffer >>= go t
+        go (Bin c d) buf = rot c d buf
+
+        rot (LWord8 w) t buf = pokeBuffer buf w >>= go t
+        rot (LWord16 w) t buf = pokeBuffer buf (toBE16 w) >>= go t
+        rot (LWord32 w) t buf = pokeBuffer buf (toBE32 w) >>= go t
+        rot (LWord64 w) t buf = pokeBuffer buf (toBE64 w) >>= go t
+        rot t@(LBytes (B.PS fp ofs len)) t' buf
+          | bufferAvailable buf >= len = do
+            withBuffer buf
+              $ \ptr -> withForeignPtr fp
+              $ \src -> B.memcpy (ptr `plusPtr` bufR buf) (src `plusPtr` ofs) len
+            go t' $ bufferAdd len buf
+          | bufSize buf >= len = Buffered.flushWriteBuffer haDevice buf
+            >>= rot t t'
+          | otherwise = do
+            _ <- Buffered.flushWriteBuffer haDevice buf
+            putStrLn "extending the buffer"
+            newByteBuffer len WriteBuffer >>= rot t t'
+        rot (Bin c d) t buf = rot c (Bin d t) buf
+
+    buf' <- go t0 buf0
+    writeIORef haByteBuffer buf'

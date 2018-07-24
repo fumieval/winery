@@ -72,3 +72,4 @@ benchmarks:
     - binary
     - serialise
     - winery
+    - directory

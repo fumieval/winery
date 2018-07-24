@@ -22,6 +22,7 @@ module Data.Winery
   , deserialise
   , deserialiseBy
   , splitSchema
+  , writeFileSerialise
   -- * Separate serialisation
   , Deserialiser(..)
   , Decoder
@@ -95,6 +96,7 @@ import Data.Text.Prettyprint.Doc hiding ((<>), SText, SChar)
 import Data.Text.Prettyprint.Doc.Render.Terminal
 import Data.Typeable
 import GHC.Generics
+import System.IO
 import Unsafe.Coerce
 
 data Schema = SSchema !Word8
@@ -227,6 +229,13 @@ serialise :: Serialise a => a -> B.ByteString
 serialise a = BB.toByteString $ mappend (BB.word8 currentSchemaVersion)
   $ toEncoding (schema [a], a)
 {-# INLINE serialise #-}
+
+-- | Serialise a value along with its schema.
+writeFileSerialise :: Serialise a => FilePath -> a -> IO ()
+writeFileSerialise path a = withFile path WriteMode
+  $ \h -> BB.hPut h $ mappend (BB.word8 currentSchemaVersion)
+  $ toEncoding (schema [a], a)
+{-# INLINE writeFileSerialise #-}
 
 splitSchema :: B.ByteString -> Either StrategyError (Schema, B.ByteString)
 splitSchema bs_ = case B.uncons bs_ of
@@ -844,7 +853,7 @@ deserialiserProduct' schs0 = Strategy $ \recs -> do
   m <- go 0 schs0 $ runTransFusion productDecoder
   return $ evalContT $ do
     offsets <- decodeOffsets (length schs0)
-    asks $ \bs -> m offsets bs
+    lift $ m offsets
 
 -- | Generic implementation of 'schemaVia' for an ADT.
 gschemaViaVariant :: forall proxy a. (GSerialiseVariant (Rep a), Typeable a, Generic a) => proxy a -> [TypeRep] -> Schema
