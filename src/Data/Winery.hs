@@ -485,6 +485,13 @@ instance Serialise B.ByteString where
     SBytes -> pure id
     s -> unexpectedSchema "Serialise ByteString" s
 
+instance Serialise Encoding where
+  schemaVia _ _ = SBytes
+  toEncoding = id
+  deserialiser = Deserialiser $ Plan $ \case
+    SBytes -> pure BB.bytes
+    s -> unexpectedSchema "Serialise Encoding" s
+
 instance Serialise a => Serialise [a] where
   schemaVia _ ts = case constantSize (Proxy :: Proxy a) of
     Nothing -> SList (substSchema (Proxy :: Proxy a) ts)
