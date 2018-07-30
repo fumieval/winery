@@ -11,8 +11,10 @@ module Data.Winery.Internal.Builder
   , word32
   , word64
   , bytes
+  , varInt
   ) where
 
+import Data.Bits hiding (rotate)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Internal as B
 import Data.Word
@@ -103,6 +105,21 @@ word64 = Encoding 8 . LWord64
 bytes :: B.ByteString -> Encoding
 bytes bs = Encoding (B.length bs) $ LBytes bs
 {-# INLINE bytes #-}
+
+varInt :: (Bits a, Integral a) => a -> Encoding
+varInt n
+  | n < 0 = case negate n of
+    n'
+      | n' < 0x40 -> word8 (fromIntegral n' `setBit` 6)
+      | otherwise -> uvarInt 1 (LWord8 (0xc0 .|. fromIntegral n')) (unsafeShiftR n' 6)
+  | n < 0x40 = word8 (fromIntegral n)
+  | otherwise = uvarInt 1 (LWord8 (fromIntegral n `setBit` 7 `clearBit` 6)) (unsafeShiftR n 6)
+{-# SPECIALISE varInt :: Int -> Encoding #-}
+
+uvarInt :: (Bits a, Integral a) => Int -> Tree -> a -> Encoding
+uvarInt siz acc m
+  | m < 0x80 = Encoding (siz + 1) (acc `Bin` LWord8 (fromIntegral m))
+  | otherwise = uvarInt (siz + 1) (acc `Bin` LWord8 (setBit (fromIntegral m) 7)) (unsafeShiftR m 7)
 
 pokeBuffer :: (Buffered.BufferedIO dev, Storable a) => dev -> Buffer Word8 -> a -> IO (Buffer Word8)
 pokeBuffer dev buf x

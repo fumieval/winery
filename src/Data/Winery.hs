@@ -444,7 +444,7 @@ newtype VarInt a = VarInt { getVarInt :: a } deriving (Show, Read, Eq, Ord, Enum
 
 instance (Typeable a, Bits a, Integral a) => Serialise (VarInt a) where
   schemaVia _ _ = SInteger
-  toEncoding = encodeVarInt . getVarInt
+  toEncoding = BB.varInt . getVarInt
   {-# INLINE toEncoding #-}
   deserialiser = Deserialiser $ Plan $ \case
     SInteger -> pure $ evalContT decodeVarInt
@@ -465,8 +465,8 @@ instance Serialise Char where
 instance Serialise a => Serialise (Maybe a) where
   schemaVia _ ts = SVariant [("Nothing", [])
     , ("Just", [substSchema (Proxy :: Proxy a) ts])]
-  toEncoding Nothing = encodeVarInt (0 :: Word8)
-  toEncoding (Just a) = encodeVarInt (1 :: Word8) <> toEncoding a
+  toEncoding Nothing = BB.varInt (0 :: Word8)
+  toEncoding (Just a) = BB.varInt (1 :: Word8) <> toEncoding a
   deserialiser = Deserialiser $ Plan $ \case
     SVariant [_, (_, [sch])] -> do
       dec <- unwrapDeserialiser deserialiser sch
@@ -490,9 +490,9 @@ instance Serialise a => Serialise [a] where
     Nothing -> SList (substSchema (Proxy :: Proxy a) ts)
     Just s -> SArray (VarInt s) (substSchema (Proxy :: Proxy a) ts)
   toEncoding xs = case constantSize (Proxy :: Proxy a) of
-    Nothing -> encodeVarInt (length xs)
+    Nothing -> BB.varInt (length xs)
       <> encodeMulti (\r -> foldr (encodeItem . toEncoding) r xs)
-    Just _ -> encodeVarInt (length xs) <> foldMap toEncoding xs
+    Just _ -> BB.varInt (length xs) <> foldMap toEncoding xs
   deserialiser = extractListWith deserialiser
 
 instance Serialise a => Serialise (V.Vector a) where
@@ -899,7 +899,7 @@ instance (GSerialiseVariant f, GSerialiseVariant g) => GSerialiseVariant (f :+: 
 instance (GSerialiseProduct f, Constructor c) => GSerialiseVariant (C1 c f) where
   variantCount _ = 1
   variantSchema _ ts = [(T.pack $ conName (M1 undefined :: M1 i c f x), productSchema (Proxy :: Proxy f) ts)]
-  variantEncoder i (M1 a) = encodeVarInt i <> encodeMulti (productEncoder a)
+  variantEncoder i (M1 a) = BB.varInt i <> encodeMulti (productEncoder a)
   variantDecoder = [(T.pack $ conName (M1 undefined :: M1 i c f x)
     , fmap (fmap M1) . deserialiserProduct') ]
 

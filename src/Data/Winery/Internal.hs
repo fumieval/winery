@@ -12,7 +12,6 @@ module Data.Winery.Internal
   , EncodingMulti
   , encodeMulti
   , encodeItem
-  , encodeVarInt
   , Decoder
   , decodeAt
   , decodeVarInt
@@ -53,22 +52,6 @@ type Decoder = (->) B.ByteString
 
 decodeAt :: (Int, Int) -> Decoder a -> Decoder a
 decodeAt (i, l) m = m . B.take l . B.drop i
-
-encodeVarInt :: (Bits a, Integral a) => a -> Encoding
-encodeVarInt n
-  | n < 0 = case negate n of
-    n'
-      | n' < 0x40 -> word8 (fromIntegral n' `setBit` 6)
-      | otherwise -> encodesUVarInt (word8 (0xc0 .|. fromIntegral n')) (unsafeShiftR n' 6)
-  | n < 0x40 = word8 (fromIntegral n)
-  | otherwise = encodesUVarInt (word8 (fromIntegral n `setBit` 7 `clearBit` 6)) (unsafeShiftR n 6)
-{-# SPECIALISE encodeVarInt :: Int -> Encoding #-}
-
-encodesUVarInt :: (Bits a, Integral a) => Encoding -> a -> Encoding
-encodesUVarInt !acc m
-  | m < 0x80 = acc `mappend` word8 (fromIntegral m)
-  | otherwise = encodesUVarInt (acc <> word8 (setBit (fromIntegral m) 7)) (unsafeShiftR m 7)
-{-# SPECIALISE encodesUVarInt :: Encoding -> Int -> Encoding #-}
 
 getWord8 :: ContT r Decoder Word8
 getWord8 = ContT $ \k bs -> case B.uncons bs of
@@ -134,7 +117,7 @@ encodeMulti f = case f EncodingMulti0 of
 encodeItem :: Encoding -> EncodingMulti -> EncodingMulti
 encodeItem e EncodingMulti0 = EncodingMulti mempty e
 encodeItem e (EncodingMulti a b) = EncodingMulti
-  (mappend (encodeVarInt (getSize e)) a) (mappend e b)
+  (mappend (varInt (getSize e)) a) (mappend e b)
 {-# INLINE encodeItem #-}
 
 type Offsets = U.Vector (Int, Int)
