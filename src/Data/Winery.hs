@@ -16,6 +16,7 @@
 module Data.Winery
   ( Schema(..)
   , Serialise(..)
+  , DecodeException(..)
   , schema
   -- * Standalone serialisation
   , serialise
@@ -64,6 +65,7 @@ module Data.Winery
   )where
 
 import Control.Applicative
+import Control.Exception
 import Control.Monad.Trans.Cont
 import Control.Monad.Reader
 import qualified Data.ByteString as B
@@ -601,7 +603,7 @@ extractFieldBy (Deserialiser g) name = Deserialiser $ handleRecursion $ \case
 
 handleRecursion :: Typeable a => (Schema -> Strategy (Decoder a)) -> Plan (Decoder a)
 handleRecursion k = Plan $ \sch -> Strategy $ \decs -> case sch of
-  SSelf i -> return $ fmap (`fromDyn` error "Invalid recursion")
+  SSelf i -> return $ fmap (`fromDyn` throw InvalidTag)
     $ unsafeIndex "Data.Winery.handleRecursion: unbound fixpoint" decs (fromIntegral i)
   SFix s -> mfix $ \a -> unPlan (handleRecursion k) s `unStrategy` (fmap toDyn a : decs)
   s -> k s `unStrategy` decs
@@ -876,7 +878,7 @@ gdeserialiserVariant = Deserialiser $ handleRecursion $ \case
       | (name, sch) <- schs0]
     return $ evalContT $ do
       i <- decodeVarInt
-      lift $ fmap to $ ds' V.! i
+      lift $ fmap to $ maybe (throw InvalidTag) id $ ds' V.!? i
   s -> unexpectedSchema' rep "a variant" s
   where
     rep = "gdeserialiserVariant :: Deserialiser "

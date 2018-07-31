@@ -18,6 +18,7 @@ module Data.Winery.Internal
   , Offsets
   , decodeOffsets
   , getWord8
+  , DecodeException(..)
   , word16be
   , word32be
   , word64be
@@ -32,6 +33,7 @@ module Data.Winery.Internal
   )where
 
 import Control.Applicative
+import Control.Exception
 import Control.Monad
 import Control.Monad.Fix
 import Control.Monad.ST
@@ -63,6 +65,10 @@ getWord8 = ContT $ \k bs -> case B.uncons bs of
   Just (x, bs') -> k x $! bs'
 {-# INLINE getWord8 #-}
 
+data DecodeException = InsufficientInput
+  | InvalidTag deriving (Eq, Show)
+instance Exception DecodeException
+
 decodeVarInt :: (Num a, Bits a) => ContT r Decoder a
 decodeVarInt = getWord8 >>= \case
   n | testBit n 7 -> do
@@ -85,7 +91,7 @@ word16be = \s -> if B.length s >= 2
   then
     (fromIntegral (s `B.unsafeIndex` 0) `unsafeShiftL` 8) .|.
     (fromIntegral (s `B.unsafeIndex` 1))
-  else error "word16be"
+  else throw InsufficientInput
 
 word32be :: B.ByteString -> Word32
 word32be = \s -> if B.length s >= 4
@@ -94,13 +100,13 @@ word32be = \s -> if B.length s >= 4
     (fromIntegral (s `B.unsafeIndex` 1) `unsafeShiftL` 16) .|.
     (fromIntegral (s `B.unsafeIndex` 2) `unsafeShiftL`  8) .|.
     (fromIntegral (s `B.unsafeIndex` 3) )
-  else error "word32be"
+  else throw InsufficientInput
 
 word64be :: B.ByteString -> Word64
-word64be bs@(B.PS fp ofs len)
+word64be (B.PS fp ofs len)
   | len >= 8 = B.accursedUnutterablePerformIO $ withForeignPtr fp
     $ \ptr -> fromBE64 <$> peekByteOff ptr ofs
-  | otherwise = error $ "word64be" ++ show bs
+  | otherwise = throw InsufficientInput
 
 data EncodingMulti = EncodingMulti0
     | EncodingMulti !Encoding !Encoding
