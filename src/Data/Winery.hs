@@ -22,6 +22,7 @@ module Data.Winery
   , deserialise
   , deserialiseBy
   , splitSchema
+  , writeFileSerialise
   -- * Separate serialisation
   , Deserialiser(..)
   , Decoder
@@ -95,6 +96,7 @@ import Data.Text.Prettyprint.Doc hiding ((<>), SText, SChar)
 import Data.Text.Prettyprint.Doc.Render.Terminal
 import Data.Typeable
 import GHC.Generics
+import System.IO
 import Unsafe.Coerce
 
 data Schema = SSchema !Word8
@@ -227,6 +229,13 @@ serialise :: Serialise a => a -> B.ByteString
 serialise a = BB.toByteString $ mappend (BB.word8 currentSchemaVersion)
   $ toEncoding (schema [a], a)
 {-# INLINE serialise #-}
+
+-- | Serialise a value along with its schema.
+writeFileSerialise :: Serialise a => FilePath -> a -> IO ()
+writeFileSerialise path a = withFile path WriteMode
+  $ \h -> BB.hPut h $ mappend (BB.word8 currentSchemaVersion)
+  $ toEncoding (schema [a], a)
+{-# INLINE writeFileSerialise #-}
 
 splitSchema :: B.ByteString -> Either StrategyError (Schema, B.ByteString)
 splitSchema bs_ = case B.uncons bs_ of
@@ -435,7 +444,7 @@ newtype VarInt a = VarInt { getVarInt :: a } deriving (Show, Read, Eq, Ord, Enum
 
 instance (Typeable a, Bits a, Integral a) => Serialise (VarInt a) where
   schemaVia _ _ = SInteger
-  toEncoding = encodeVarInt . getVarInt
+  toEncoding = BB.varInt . getVarInt
   {-# INLINE toEncoding #-}
   deserialiser = Deserialiser $ Plan $ \case
     SInteger -> pure $ evalContT decodeVarInt
@@ -456,8 +465,8 @@ instance Serialise Char where
 instance Serialise a => Serialise (Maybe a) where
   schemaVia _ ts = SVariant [("Nothing", [])
     , ("Just", [substSchema (Proxy :: Proxy a) ts])]
-  toEncoding Nothing = encodeVarInt (0 :: Word8)
-  toEncoding (Just a) = encodeVarInt (1 :: Word8) <> toEncoding a
+  toEncoding Nothing = BB.varInt (0 :: Word8)
+  toEncoding (Just a) = BB.varInt (1 :: Word8) <> toEncoding a
   deserialiser = Deserialiser $ Plan $ \case
     SVariant [_, (_, [sch])] -> do
       dec <- unwrapDeserialiser deserialiser sch
@@ -481,9 +490,9 @@ instance Serialise a => Serialise [a] where
     Nothing -> SList (substSchema (Proxy :: Proxy a) ts)
     Just s -> SArray (VarInt s) (substSchema (Proxy :: Proxy a) ts)
   toEncoding xs = case constantSize (Proxy :: Proxy a) of
-    Nothing -> encodeVarInt (length xs)
+    Nothing -> BB.varInt (length xs)
       <> encodeMulti (\r -> foldr (encodeItem . toEncoding) r xs)
-    Just _ -> encodeVarInt (length xs) <> foldMap toEncoding xs
+    Just _ -> BB.varInt (length xs) <> foldMap toEncoding xs
   deserialiser = extractListBy deserialiser
 
 instance Serialise a => Serialise (V.Vector a) where
@@ -844,7 +853,7 @@ deserialiserProduct' schs0 = Strategy $ \recs -> do
   m <- go 0 schs0 $ runTransFusion productDecoder
   return $ evalContT $ do
     offsets <- decodeOffsets (length schs0)
-    asks $ \bs -> m offsets bs
+    lift $ m offsets
 
 -- | Generic implementation of 'schemaVia' for an ADT.
 gschemaViaVariant :: forall proxy a. (GSerialiseVariant (Rep a), Typeable a, Generic a) => proxy a -> [TypeRep] -> Schema
@@ -890,7 +899,7 @@ instance (GSerialiseVariant f, GSerialiseVariant g) => GSerialiseVariant (f :+: 
 instance (GSerialiseProduct f, Constructor c) => GSerialiseVariant (C1 c f) where
   variantCount _ = 1
   variantSchema _ ts = [(T.pack $ conName (M1 undefined :: M1 i c f x), productSchema (Proxy :: Proxy f) ts)]
-  variantEncoder i (M1 a) = encodeVarInt i <> encodeMulti (productEncoder a)
+  variantEncoder i (M1 a) = BB.varInt i <> encodeMulti (productEncoder a)
   variantDecoder = [(T.pack $ conName (M1 undefined :: M1 i c f x)
     , fmap (fmap M1) . deserialiserProduct') ]
 

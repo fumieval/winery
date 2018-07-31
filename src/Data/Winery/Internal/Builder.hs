@@ -1,25 +1,34 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE MultiParamTypeClasses, FlexibleInstances, BangPatterns #-}
+{-# LANGUAGE RecordWildCards #-}
 module Data.Winery.Internal.Builder
   ( Encoding
   , getSize
   , toByteString
+  , hPut
   , word8
   , word16
   , word32
   , word64
   , bytes
+  , varInt
   ) where
 
+import Data.Bits hiding (rotate)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Internal as B
 import Data.Word
 #if !MIN_VERSION_base(4,11,0)
 import Data.Semigroup
 #endif
+import Data.IORef
 import Foreign.Ptr
 import Foreign.ForeignPtr
 import Foreign.Storable
+import GHC.IO.Buffer
+import GHC.IO.Handle.Internals
+import GHC.IO.Handle.Types
+import qualified GHC.IO.BufferedIO as Buffered
 import System.IO.Unsafe
 import System.Endian
 
@@ -96,3 +105,66 @@ word64 = Encoding 8 . LWord64
 bytes :: B.ByteString -> Encoding
 bytes bs = Encoding (B.length bs) $ LBytes bs
 {-# INLINE bytes #-}
+
+varInt :: (Bits a, Integral a) => a -> Encoding
+varInt n
+  | n < 0 = case negate n of
+    n'
+      | n' < 0x40 -> word8 (fromIntegral n' `setBit` 6)
+      | otherwise -> uvarInt 1 (LWord8 (0xc0 .|. fromIntegral n')) (unsafeShiftR n' 6)
+  | n < 0x40 = word8 (fromIntegral n)
+  | otherwise = uvarInt 1 (LWord8 (fromIntegral n `setBit` 7 `clearBit` 6)) (unsafeShiftR n 6)
+{-# SPECIALISE varInt :: Int -> Encoding #-}
+
+uvarInt :: (Bits a, Integral a) => Int -> Tree -> a -> Encoding
+uvarInt siz acc m
+  | m < 0x80 = Encoding (siz + 1) (acc `Bin` LWord8 (fromIntegral m))
+  | otherwise = uvarInt (siz + 1) (acc `Bin` LWord8 (setBit (fromIntegral m) 7)) (unsafeShiftR m 7)
+
+pokeBuffer :: (Buffered.BufferedIO dev, Storable a) => dev -> Buffer Word8 -> a -> IO (Buffer Word8)
+pokeBuffer dev buf x
+    | bufferAvailable buf >= sizeOf x = bufferAdd (sizeOf x) buf
+      <$ withBuffer buf (\ptr -> pokeByteOff ptr (bufR buf) x)
+    | otherwise = Buffered.flushWriteBuffer dev buf
+      >>= \buf' -> bufferAdd (sizeOf x) buf'
+        <$ withBuffer buf' (\ptr -> pokeByteOff ptr (bufR buf') x)
+{-# INLINE pokeBuffer #-}
+
+hPut :: Handle -> Encoding -> IO ()
+hPut _ Empty = return ()
+hPut h (Encoding _ t0) = wantWritableHandle "Data.Winery.Intenal.Builder.hPut" h
+  $ \Handle__{..} -> do
+    buf0 <- readIORef haByteBuffer
+
+    let go (LWord8 w) !buf = pokeBuffer haDevice buf w
+        go (LWord16 w) buf = pokeBuffer haDevice buf (toBE16 w)
+        go (LWord32 w) buf = pokeBuffer haDevice buf (toBE32 w)
+        go (LWord64 w) buf = pokeBuffer haDevice buf (toBE64 w)
+        go t@(LBytes (B.PS fp ofs len)) !buf
+          | bufferAvailable buf >= len = (bufferAdd len buf<$) $ withBuffer buf
+            $ \ptr -> withForeignPtr fp
+            $ \src -> B.memcpy (ptr `plusPtr` bufR buf) (src `plusPtr` ofs) len
+          | bufSize buf >= len = Buffered.flushWriteBuffer haDevice buf
+            >>= go t
+          | otherwise = newByteBuffer len WriteBuffer >>= go t
+        go (Bin c d) buf = rot c d buf
+
+        rot (LWord8 w) t !buf = pokeBuffer haDevice buf w >>= go t
+        rot (LWord16 w) t buf = pokeBuffer haDevice buf (toBE16 w) >>= go t
+        rot (LWord32 w) t buf = pokeBuffer haDevice buf (toBE32 w) >>= go t
+        rot (LWord64 w) t buf = pokeBuffer haDevice buf (toBE64 w) >>= go t
+        rot t@(LBytes (B.PS fp ofs len)) t' buf
+          | bufferAvailable buf >= len = do
+            withBuffer buf
+              $ \ptr -> withForeignPtr fp
+              $ \src -> B.memcpy (ptr `plusPtr` bufR buf) (src `plusPtr` ofs) len
+            go t' $ bufferAdd len buf
+          | bufSize buf >= len = Buffered.flushWriteBuffer haDevice buf
+            >>= rot t t'
+          | otherwise = do
+            _ <- Buffered.flushWriteBuffer haDevice buf
+            newByteBuffer len WriteBuffer >>= rot t t'
+        rot (Bin c d) t buf = rot c (Bin d t) buf
+
+    buf' <- go t0 buf0
+    writeIORef haByteBuffer buf'
