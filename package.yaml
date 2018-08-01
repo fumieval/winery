@@ -1,10 +1,10 @@
 name:                winery
-version:             "0.1.2"
+version:             "0.2"
 github:              "fumieval/winery"
 license:             BSD3
 author:              "Fumiaki Kinoshita"
 maintainer:          "fumiexcel@gmail.com"
-copyright:           "Copyright (c) 2017 Fumiaki Kinoshita"
+copyright:           "Copyright (c) 2018 Fumiaki Kinoshita"
 
 extra-source-files:
 - README.md
@@ -20,6 +20,7 @@ category:            Data
 description:         Please see the README on Github at <https://github.com/fumieval/winery#readme>
 
 dependencies:
+- aeson
 - base >= 4.7 && < 5
 - bytestring
 - containers

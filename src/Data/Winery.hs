@@ -16,6 +16,7 @@
 module Data.Winery
   ( Schema(..)
   , Serialise(..)
+  , DecodeException(..)
   , schema
   -- * Standalone serialisation
   , serialise
@@ -34,12 +35,12 @@ module Data.Winery
   , encodeMulti
   -- * Decoding combinators
   , Plan(..)
-  , extractArrayWith
-  , extractListWith
+  , extractArrayBy
+  , extractListBy
   , extractField
-  , extractFieldWith
+  , extractFieldBy
   , extractConstructor
-  , extractConstructorWith
+  , extractConstructorBy
   , extractScientific
   -- * Variable-length quantity
   , VarInt(..)
@@ -64,6 +65,7 @@ module Data.Winery
   )where
 
 import Control.Applicative
+import Control.Exception
 import Control.Monad.Trans.Cont
 import Control.Monad.Reader
 import qualified Data.ByteString as B
@@ -500,7 +502,7 @@ instance Serialise a => Serialise [a] where
     Nothing -> BB.varInt (length xs)
       <> encodeMulti (\r -> foldr (encodeItem . toEncoding) r xs)
     Just _ -> BB.varInt (length xs) <> foldMap toEncoding xs
-  deserialiser = extractListWith deserialiser
+  deserialiser = extractListBy deserialiser
 
 instance Serialise a => Serialise (V.Vector a) where
   schemaVia _ = schemaVia (Proxy :: Proxy [a])
@@ -517,8 +519,8 @@ instance (UV.Unbox a, Serialise a) => Serialise (UV.Vector a) where
   toEncoding = toEncoding . UV.toList
   deserialiser = UV.fromList <$> deserialiser
 
-extractArrayWith :: Deserialiser a -> Deserialiser (Int, Int -> a)
-extractArrayWith (Deserialiser plan) = Deserialiser $ Plan $ \case
+extractArrayBy :: Deserialiser a -> Deserialiser (Int, Int -> a)
+extractArrayBy (Deserialiser plan) = Deserialiser $ Plan $ \case
   SArray (VarInt size) s -> do
     getItem <- unPlan plan s
     return $ evalContT $ do
@@ -530,12 +532,12 @@ extractArrayWith (Deserialiser plan) = Deserialiser $ Plan $ \case
       n <- decodeVarInt
       offsets <- decodeOffsets n
       asks $ \bs -> (n, \i -> decodeAt (offsets UV.! i) getItem bs)
-  s -> unexpectedSchema' "extractListWith ..." "[a]" s
+  s -> unexpectedSchema' "extractListBy ..." "[a]" s
 
 -- | Extract a list or an array of values.
-extractListWith :: Deserialiser a -> Deserialiser [a]
-extractListWith d = (\(n, f) -> map f [0..n-1]) <$> extractArrayWith d
-{-# INLINE extractListWith #-}
+extractListBy :: Deserialiser a -> Deserialiser [a]
+extractListBy d = (\(n, f) -> map f [0..n-1]) <$> extractArrayBy d
+{-# INLINE extractListBy #-}
 
 instance (Ord k, Serialise k, Serialise v) => Serialise (M.Map k v) where
   schemaVia _ = schemaVia (Proxy :: Proxy [(k, v)])
@@ -586,12 +588,12 @@ extractScientific = Deserialiser $ Plan $ \s -> case s of
 
 -- | Extract a field of a record.
 extractField :: Serialise a => T.Text -> Deserialiser a
-extractField = extractFieldWith deserialiser
+extractField = extractFieldBy deserialiser
 {-# INLINE extractField #-}
 
 -- | Extract a field using the supplied 'Deserialiser'.
-extractFieldWith :: Typeable a => Deserialiser a -> T.Text -> Deserialiser a
-extractFieldWith (Deserialiser g) name = Deserialiser $ handleRecursion $ \case
+extractFieldBy :: Typeable a => Deserialiser a -> T.Text -> Deserialiser a
+extractFieldBy (Deserialiser g) name = Deserialiser $ handleRecursion $ \case
   SRecord schs -> do
     let schs' = [(k, (i, s)) | (i, (k, s)) <- zip [0..] schs]
     case lookup name schs' of
@@ -603,12 +605,12 @@ extractFieldWith (Deserialiser g) name = Deserialiser $ handleRecursion $ \case
       Nothing -> errorStrategy $ rep <> ": Schema not found in " <> pretty (map fst schs)
   s -> unexpectedSchema' rep "a record" s
   where
-    rep = "extractFieldWith ... " <> dquotes (pretty name)
-    msg = "Data.Winery.extractFieldWith ... " <> show name <> ": impossible"
+    rep = "extractFieldBy ... " <> dquotes (pretty name)
+    msg = "Data.Winery.extractFieldBy ... " <> show name <> ": impossible"
 
 handleRecursion :: Typeable a => (Schema -> Strategy (Decoder a)) -> Plan (Decoder a)
 handleRecursion k = Plan $ \sch -> Strategy $ \decs -> case sch of
-  SSelf i -> return $ fmap (`fromDyn` error "Invalid recursion")
+  SSelf i -> return $ fmap (`fromDyn` throw InvalidTag)
     $ unsafeIndex "Data.Winery.handleRecursion: unbound fixpoint" decs (fromIntegral i)
   SFix s -> mfix $ \a -> unPlan (handleRecursion k) s `unStrategy` (fmap toDyn a : decs)
   s -> k s `unStrategy` decs
@@ -721,8 +723,8 @@ instance (Serialise a, Serialise b) => Serialise (Either a b) where
 
 -- | Tries to extract a specific constructor of a variant. Useful for
 -- implementing backward-compatible deserialisers.
-extractConstructorWith :: Typeable a => Deserialiser a -> T.Text -> Deserialiser (Maybe a)
-extractConstructorWith d name = Deserialiser $ handleRecursion $ \case
+extractConstructorBy :: Typeable a => Deserialiser a -> T.Text -> Deserialiser (Maybe a)
+extractConstructorBy d name = Deserialiser $ handleRecursion $ \case
   SVariant schs0 -> Strategy $ \decs -> do
     (j, dec) <- case [(i :: Int, ss) | (i, (k, ss)) <- zip [0..] schs0, name == k] of
       [(i, [s])] -> fmap ((,) i) $ unwrapDeserialiser d s `unStrategy` decs
@@ -736,10 +738,10 @@ extractConstructorWith d name = Deserialiser $ handleRecursion $ \case
         else pure Nothing
   s -> unexpectedSchema' rep "a variant" s
   where
-    rep = "extractConstructorWith ... " <> dquotes (pretty name)
+    rep = "extractConstructorBy ... " <> dquotes (pretty name)
 
 extractConstructor :: (Serialise a) => T.Text -> Deserialiser (Maybe a)
-extractConstructor = extractConstructorWith deserialiser
+extractConstructor = extractConstructorBy deserialiser
 {-# INLINE extractConstructor #-}
 
 -- | Generic implementation of 'schemaVia' for a record.
@@ -883,7 +885,7 @@ gdeserialiserVariant = Deserialiser $ handleRecursion $ \case
       | (name, sch) <- schs0]
     return $ evalContT $ do
       i <- decodeVarInt
-      lift $ fmap to $ ds' V.! i
+      lift $ fmap to $ maybe (throw InvalidTag) id $ ds' V.!? i
   s -> unexpectedSchema' rep "a variant" s
   where
     rep = "gdeserialiserVariant :: Deserialiser "

@@ -18,6 +18,7 @@ module Data.Winery.Internal
   , Offsets
   , decodeOffsets
   , getWord8
+  , DecodeException(..)
   , word16be
   , word32be
   , word64be
@@ -32,12 +33,14 @@ module Data.Winery.Internal
   )where
 
 import Control.Applicative
+import Control.Exception
 import Control.Monad
 import Control.Monad.Fix
 import Control.Monad.ST
 import Control.Monad.Trans.Cont
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Unsafe as B
+import qualified Data.ByteString.Internal as B
 import Data.Winery.Internal.Builder
 import Data.Bits
 import Data.Dynamic
@@ -47,6 +50,9 @@ import Data.Text.Prettyprint.Doc.Render.Terminal (AnsiStyle)
 import qualified Data.Vector.Unboxed as U
 import qualified Data.Vector.Unboxed.Mutable as UM
 import Data.Word
+import Foreign.ForeignPtr
+import Foreign.Storable
+import System.Endian
 
 type Decoder = (->) B.ByteString
 
@@ -58,6 +64,10 @@ getWord8 = ContT $ \k bs -> case B.uncons bs of
   Nothing -> k 0 bs
   Just (x, bs') -> k x $! bs'
 {-# INLINE getWord8 #-}
+
+data DecodeException = InsufficientInput
+  | InvalidTag deriving (Eq, Show)
+instance Exception DecodeException
 
 decodeVarInt :: (Num a, Bits a) => ContT r Decoder a
 decodeVarInt = getWord8 >>= \case
@@ -81,7 +91,7 @@ word16be = \s -> if B.length s >= 2
   then
     (fromIntegral (s `B.unsafeIndex` 0) `unsafeShiftL` 8) .|.
     (fromIntegral (s `B.unsafeIndex` 1))
-  else error "word16be"
+  else throw InsufficientInput
 
 word32be :: B.ByteString -> Word32
 word32be = \s -> if B.length s >= 4
@@ -90,20 +100,13 @@ word32be = \s -> if B.length s >= 4
     (fromIntegral (s `B.unsafeIndex` 1) `unsafeShiftL` 16) .|.
     (fromIntegral (s `B.unsafeIndex` 2) `unsafeShiftL`  8) .|.
     (fromIntegral (s `B.unsafeIndex` 3) )
-  else error "word32be"
+  else throw InsufficientInput
 
 word64be :: B.ByteString -> Word64
-word64be = \s -> if B.length s >= 8
-  then
-    (fromIntegral (s `B.unsafeIndex` 0) `unsafeShiftL` 56) .|.
-    (fromIntegral (s `B.unsafeIndex` 1) `unsafeShiftL` 48) .|.
-    (fromIntegral (s `B.unsafeIndex` 2) `unsafeShiftL` 40) .|.
-    (fromIntegral (s `B.unsafeIndex` 3) `unsafeShiftL` 32) .|.
-    (fromIntegral (s `B.unsafeIndex` 4) `unsafeShiftL` 24) .|.
-    (fromIntegral (s `B.unsafeIndex` 5) `unsafeShiftL` 16) .|.
-    (fromIntegral (s `B.unsafeIndex` 6) `unsafeShiftL`  8) .|.
-    (fromIntegral (s `B.unsafeIndex` 7) )
-  else error $ "word64be" ++ show s
+word64be (B.PS fp ofs len)
+  | len >= 8 = B.accursedUnutterablePerformIO $ withForeignPtr fp
+    $ \ptr -> fromBE64 <$> peekByteOff ptr ofs
+  | otherwise = throw InsufficientInput
 
 data EncodingMulti = EncodingMulti0
     | EncodingMulti !Encoding !Encoding
@@ -129,12 +132,12 @@ decodeOffsets n = accum <$> U.replicateM (n - 1) decodeVarInt where
     r <- UM.unsafeNew (U.length xs + 1)
     let go s i
           | i == U.length xs = do
-            UM.write r i (s, maxBound)
+            UM.unsafeWrite r i (s, maxBound)
             U.unsafeFreeze r
           | otherwise = do
             let x = U.unsafeIndex xs i
             let s' = s + x
-            UM.write r i (s, x)
+            UM.unsafeWrite r i (s, x)
             go s' (i + 1)
     go 0 0
 

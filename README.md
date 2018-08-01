@@ -149,12 +149,15 @@ data TestRec = TestRec
 (De)serialisation of the datatype above using generic instances:
 
 ```
-serialise/winery                         mean 658.6 μs  ( +- 45.04 μs  )
-serialise/binary                         mean 1.056 ms  ( +- 58.95 μs  )
-serialise/serialise                      mean 258.8 μs  ( +- 5.654 μs  )
-deserialise/winery                       mean 706.4 μs  ( +- 52.41 μs  )
-deserialise/binary                       mean 1.393 ms  ( +- 56.71 μs  )
-deserialise/serialise                    mean 765.8 μs  ( +- 30.26 μs  )
+serialise/list/winery                    mean 830.4 μs  ( +- 126.1 μs  )
+serialise/list/binary                    mean 1.268 ms  ( +- 126.3 μs  )
+serialise/list/serialise                 mean 309.5 μs  ( +- 22.33 μs  )
+serialise/item/winery                    mean 248.9 ns  ( +- 22.84 ns  )
+serialise/item/binary                    mean 1.222 μs  ( +- 77.28 ns  )
+serialise/item/serialise                 mean 384.6 ns  ( +- 15.63 ns  )
+deserialise/winery                       mean 972.5 μs  ( +- 150.6 μs  )
+deserialise/binary                       mean 1.721 ms  ( +- 99.67 μs  )
+deserialise/serialise                    mean 957.3 μs  ( +- 80.95 μs  )
 ```
 
 Not bad, considering that binary and serialise don't encode field names.

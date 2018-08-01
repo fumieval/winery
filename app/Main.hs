@@ -2,7 +2,9 @@
 module Main where
 
 import Control.Monad
+import qualified Data.Aeson as JSON
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Lazy as BL
 import Data.Text.Prettyprint.Doc
 import Data.Text.Prettyprint.Doc.Render.Terminal
 import Data.Void
@@ -15,6 +17,7 @@ import System.Environment
 import System.Exit
 import System.IO
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import Text.Megaparsec
 import Text.Megaparsec.Char
 
@@ -22,6 +25,7 @@ data Options = Options
   { streamInput :: Bool
   , separateSchema :: Maybe (Maybe FilePath)
   , printSchema :: Bool
+  , outputJSON :: Bool
   }
 
 defaultOptions :: Options
@@ -29,6 +33,7 @@ defaultOptions = Options
   { streamInput = False
   , printSchema = False
   , separateSchema = Nothing
+  , outputJSON = False
   }
 
 options :: [OptDescr (Options -> Options)]
@@ -36,6 +41,7 @@ options =
   [ Option "s" ["stream"] (NoArg $ \o -> o { streamInput = True }) "stream input"
   , Option "S" ["separate-schema"] (OptArg (\s o -> o { separateSchema = Just s }) "PATH") "the schema is separated"
   , Option "" ["print-schema"] (NoArg $ \o -> o { printSchema = True }) "print the schema"
+  , Option "J" ["JSON"] (NoArg $ \o -> o { outputJSON = True }) "print as JSON"
   ]
 
 getRight :: Either StrategyError a -> IO a
@@ -49,7 +55,11 @@ putTerm t = putDoc $ t <> hardline
 
 app :: Options -> Q.Query (Doc AnsiStyle) (Doc AnsiStyle) -> Handle -> IO ()
 app o q h = do
-  let getDec = getRight . getDecoderBy (Q.runQuery q (pure . pretty <$> decodeTerm))
+  let p
+        | outputJSON o = pretty . T.decodeUtf8 . BL.toStrict . JSON.encode
+        | otherwise = pretty
+  let getDec = getRight . getDecoderBy (Q.runQuery q (pure . p <$> decodeTerm))
+
   printer <- case separateSchema o of
     Just mpath -> do
       bs <- maybe (readLn >>= B.hGet h) B.readFile mpath

@@ -1,11 +1,11 @@
-# 0.1.2
+# 0.2
 
-* Added `Data.Winery.Query`
-* The winery tool now supports a simple jq-like query language
+* Renamed `extract*With` to `extract*By` for consistency
 
 # 0.1.1
 
-* Optimised the code
+* Add `Data.Winery.Query`
+* The command line tool supports a simple query language
 
 # 0.1
 
