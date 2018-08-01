@@ -32,7 +32,7 @@ import qualified GHC.IO.BufferedIO as Buffered
 import System.IO.Unsafe
 import System.Endian
 
-data Encoding = Encoding {-# UNPACK #-}!Int !Tree
+data Encoding = Encoding {-# UNPACK #-}!Int Tree
   | Empty
 
 data Tree = Bin Tree Tree
