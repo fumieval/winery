@@ -7,7 +7,6 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import Data.Text.Prettyprint.Doc
 import Data.Text.Prettyprint.Doc.Render.Terminal
-import Data.Void
 import qualified Data.Winery.Query as Q
 import Data.Winery.Query.Parser
 import Data.Winery.Term
@@ -19,7 +18,6 @@ import System.IO
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Text.Megaparsec
-import Text.Megaparsec.Char
 
 data Options = Options
   { streamInput :: Bool
