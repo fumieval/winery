@@ -21,6 +21,7 @@ import Data.Word
 #if !MIN_VERSION_base(4,11,0)
 import Data.Semigroup
 #endif
+import Data.String
 import Data.IORef
 import Foreign.Ptr
 import Foreign.ForeignPtr
@@ -35,6 +36,9 @@ import System.Endian
 data Encoding = Encoding {-# UNPACK #-}!Int Tree
   | Empty
   deriving Eq
+
+instance IsString Encoding where
+  fromString = bytes . fromString
 
 data Tree = Bin Tree Tree
   | LWord8 {-# UNPACK #-} !Word8
@@ -83,6 +87,7 @@ rotateTree ptr (Bin c d) t = rotateTree ptr c (Bin d t)
 
 toByteString :: Encoding -> B.ByteString
 toByteString Empty = B.empty
+toByteString (Encoding _ (LBytes bs)) = bs
 toByteString (Encoding len tree) = unsafeDupablePerformIO $ do
   fp <- B.mallocByteString len
   withForeignPtr fp $ \ptr -> pokeTree ptr tree
