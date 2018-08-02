@@ -14,7 +14,7 @@ module Data.Winery.Internal.Builder
   , varInt
   ) where
 
-import Data.Bits hiding (rotate)
+import Data.Bits
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Internal as B
 import Data.Word
@@ -34,6 +34,7 @@ import System.Endian
 
 data Encoding = Encoding {-# UNPACK #-}!Int Tree
   | Empty
+  deriving Eq
 
 data Tree = Bin Tree Tree
   | LWord8 {-# UNPACK #-} !Word8
@@ -41,6 +42,7 @@ data Tree = Bin Tree Tree
   | LWord32 {-# UNPACK #-} !Word32
   | LWord64 {-# UNPACK #-} !Word64
   | LBytes !B.ByteString
+  deriving Eq
 
 instance Semigroup Encoding where
   Empty <> a = a
@@ -66,18 +68,18 @@ pokeTree ptr l = case l of
   LWord64 w -> poke (castPtr ptr) $ toBE64 w
   LBytes (B.PS fp ofs len) -> withForeignPtr fp
     $ \src -> B.memcpy ptr (src `plusPtr` ofs) len
-  Bin a b -> rotate ptr a b
+  Bin a b -> rotateTree ptr a b
 
-rotate :: Ptr Word8 -> Tree -> Tree -> IO ()
-rotate ptr (LWord8 w) t = poke ptr w >> pokeTree (ptr `plusPtr` 1) t
-rotate ptr (LWord16 w) t = poke (castPtr ptr) (toBE16 w) >> pokeTree (ptr `plusPtr` 2) t
-rotate ptr (LWord32 w) t = poke (castPtr ptr) (toBE32 w) >> pokeTree (ptr `plusPtr` 4) t
-rotate ptr (LWord64 w) t = poke (castPtr ptr) (toBE64 w) >> pokeTree (ptr `plusPtr` 8) t
-rotate ptr (LBytes (B.PS fp ofs len)) t = do
+rotateTree :: Ptr Word8 -> Tree -> Tree -> IO ()
+rotateTree ptr (LWord8 w) t = poke ptr w >> pokeTree (ptr `plusPtr` 1) t
+rotateTree ptr (LWord16 w) t = poke (castPtr ptr) (toBE16 w) >> pokeTree (ptr `plusPtr` 2) t
+rotateTree ptr (LWord32 w) t = poke (castPtr ptr) (toBE32 w) >> pokeTree (ptr `plusPtr` 4) t
+rotateTree ptr (LWord64 w) t = poke (castPtr ptr) (toBE64 w) >> pokeTree (ptr `plusPtr` 8) t
+rotateTree ptr (LBytes (B.PS fp ofs len)) t = do
   withForeignPtr fp
     $ \src -> B.memcpy ptr (src `plusPtr` ofs) len
   pokeTree (ptr `plusPtr` len) t
-rotate ptr (Bin c d) t = rotate ptr c (Bin d t)
+rotateTree ptr (Bin c d) t = rotateTree ptr c (Bin d t)
 
 toByteString :: Encoding -> B.ByteString
 toByteString Empty = B.empty
