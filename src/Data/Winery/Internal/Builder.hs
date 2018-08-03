@@ -37,6 +37,9 @@ data Encoding = Encoding {-# UNPACK #-}!Int Tree
   | Empty
   deriving Eq
 
+instance Show Encoding where
+  show = show . toByteString
+
 instance IsString Encoding where
   fromString = bytes . fromString
 

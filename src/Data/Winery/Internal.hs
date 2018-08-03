@@ -61,12 +61,12 @@ decodeAt (i, l) m = m . B.take l . B.drop i
 
 getWord8 :: ContT r Decoder Word8
 getWord8 = ContT $ \k bs -> case B.uncons bs of
-  Nothing -> k 0 bs
+  Nothing -> throw InsufficientInput
   Just (x, bs') -> k x $! bs'
 {-# INLINE getWord8 #-}
 
 data DecodeException = InsufficientInput
-  | InvalidTag deriving (Eq, Show)
+  | InvalidTag deriving (Eq, Show, Read)
 instance Exception DecodeException
 
 decodeVarInt :: (Num a, Bits a) => ContT r Decoder a
