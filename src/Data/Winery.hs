@@ -30,6 +30,7 @@ module Data.Winery
   , serialiseOnly
   , getDecoder
   , getDecoderBy
+  , decodeCurrent
   -- * Encoding combinators
   , Encoding
   , encodeMulti
@@ -224,6 +225,13 @@ getDecoder = getDecoderBy deserialiser
 getDecoderBy :: Deserialiser a -> Schema -> Either StrategyError (Decoder a)
 getDecoderBy (Deserialiser plan) sch = unPlan plan sch `unStrategy` []
 {-# INLINE getDecoderBy #-}
+
+-- | Decode a value with the current schema.
+decodeCurrent :: forall a. Serialise a => Decoder a
+decodeCurrent = case getDecoder (schema (Proxy :: Proxy a)) of
+  Left err -> error $ show $ "decodeCurrent: failed to get a decoder from the current schema"
+    <+> parens err
+  Right a -> a
 
 -- | Serialise a value along with its schema.
 serialise :: Serialise a => a -> B.ByteString
