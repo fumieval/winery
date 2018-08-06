@@ -619,7 +619,7 @@ extractFieldBy (Deserialiser g) name = Deserialiser $ handleRecursion $ \case
 
 handleRecursion :: Typeable a => (Schema -> Strategy (Decoder a)) -> Plan (Decoder a)
 handleRecursion k = Plan $ \sch -> Strategy $ \decs -> case sch of
-  SSelf i -> return $ fmap (`fromDyn` throw InvalidTag)
+  SSelf i -> return $ fmap (`fromDyn` throw (InvalidTag ""))
     $ unsafeIndex "Data.Winery.handleRecursion: unbound fixpoint" decs (fromIntegral i)
   SFix s -> mfix $ \a -> unPlan (handleRecursion k) s `unStrategy` (fmap toDyn a : decs)
   s -> k s `unStrategy` decs
@@ -894,7 +894,7 @@ gdeserialiserVariant = Deserialiser $ handleRecursion $ \case
       | (name, sch) <- schs0]
     return $ evalContT $ do
       i <- decodeVarInt
-      lift $ fmap to $ maybe (throw InvalidTag) id $ ds' V.!? i
+      lift $ \bs -> to $ maybe (throw $ InvalidTag bs) ($ bs) $ ds' V.!? i
   s -> unexpectedSchema' rep "a variant" s
   where
     rep = "gdeserialiserVariant :: Deserialiser "

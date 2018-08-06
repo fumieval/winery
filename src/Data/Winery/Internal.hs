@@ -66,7 +66,7 @@ getWord8 = ContT $ \k bs -> case B.uncons bs of
 {-# INLINE getWord8 #-}
 
 data DecodeException = InsufficientInput
-  | InvalidTag deriving (Eq, Show, Read)
+  | InvalidTag B.ByteString deriving (Eq, Show, Read)
 instance Exception DecodeException
 
 decodeVarInt :: (Num a, Bits a) => ContT r Decoder a
