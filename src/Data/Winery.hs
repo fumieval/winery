@@ -67,6 +67,7 @@ module Data.Winery
 import Control.Applicative
 import Control.Exception
 import Control.Monad.Trans.Cont
+import Control.Monad.Trans.State
 import Control.Monad.Reader
 import qualified Data.ByteString as B
 import qualified Data.Winery.Internal.Builder as BB
@@ -619,7 +620,7 @@ extractFieldBy (Deserialiser g) name = Deserialiser $ handleRecursion $ \case
 
 handleRecursion :: Typeable a => (Schema -> Strategy (Decoder a)) -> Plan (Decoder a)
 handleRecursion k = Plan $ \sch -> Strategy $ \decs -> case sch of
-  SSelf i -> return $ fmap (`fromDyn` throw (InvalidTag ""))
+  SSelf i -> return $ fmap (`fromDyn` throw InvalidTag)
     $ unsafeIndex "Data.Winery.handleRecursion: unbound fixpoint" decs (fromIntegral i)
   SFix s -> mfix $ \a -> unPlan (handleRecursion k) s `unStrategy` (fmap toDyn a : decs)
   s -> k s `unStrategy` decs
@@ -837,7 +838,7 @@ instance (GSerialiseRecord f) => GSerialiseRecord (D1 c f) where
 class GSerialiseProduct f where
   productSchema :: proxy f -> [TypeRep] -> [Schema]
   productEncoder :: f x -> EncodingMulti -> EncodingMulti
-  productDecoder :: TransFusion (FieldDecoder ()) Decoder (Decoder (f x))
+  productDecoder :: Compose (State Int) (TransFusion (FieldDecoder Int) Decoder) (Decoder (f x))
 
 instance GSerialiseProduct U1 where
   productSchema _ _ = []
@@ -847,7 +848,9 @@ instance GSerialiseProduct U1 where
 instance (Serialise a) => GSerialiseProduct (K1 i a) where
   productSchema _ ts = [substSchema (Proxy :: Proxy a) ts]
   productEncoder (K1 a) = encodeItem (toEncoding a)
-  productDecoder = TransFusion $ \k -> fmap (fmap K1) $ k $ FieldDecoder () Nothing (getDeserialiser deserialiser)
+  productDecoder = Compose $ state $ \i ->
+    ( TransFusion $ \k -> fmap (fmap K1) $ k $ FieldDecoder i Nothing (getDeserialiser deserialiser)
+    , i + 1)
 
 instance GSerialiseProduct f => GSerialiseProduct (M1 i c f) where
   productSchema _ ts = productSchema (Proxy :: Proxy f) ts
@@ -860,17 +863,16 @@ instance (GSerialiseProduct f, GSerialiseProduct g) => GSerialiseProduct (f :*: 
   productDecoder = liftA2 (:*:) <$> productDecoder <*> productDecoder
 
 deserialiserProduct' :: GSerialiseProduct f => [Schema] -> Strategy (Decoder (f x))
-deserialiserProduct' schs0 = Strategy $ \recs -> do
-  let go :: Int -> [Schema] -> TransList (FieldDecoder ()) Decoder x -> Either StrategyError (Offsets -> x)
-      go _ _ (Done a) = Right $ const a
-      go _ [] _ = Left "deserialiserProduct': Mismatching number of fields"
-      go i (sch : schs) (More (FieldDecoder () _ p) k) = do
-        getItem <- unPlan p sch `unStrategy` recs
-        r <- go (i + 1) schs k
-        return $ \offsets -> r offsets $ decodeAt (unsafeIndexV "Data.Winery.gdeserialiserProduct: impossible" offsets i) getItem
-  m <- go 0 schs0 $ runTransFusion productDecoder
+deserialiserProduct' schs = Strategy $ \recs -> do
+  let go :: FieldDecoder Int x -> Compose (Either StrategyError) ((->) Offsets) (Decoder x)
+      go (FieldDecoder i _ p) = Compose $ do
+        getItem <- if i < length schs
+          then unPlan p (schs !! i) `unStrategy` recs
+          else Left "Data.Winery.gdeserialiserProduct: insufficient fields"
+        return $ \offsets -> decodeAt (unsafeIndexV "Data.Winery.gdeserialiserProduct: impossible" offsets i) getItem
+  m <- getCompose $ unTransFusion (getCompose productDecoder `evalState` 0) go
   return $ evalContT $ do
-    offsets <- decodeOffsets (length schs0)
+    offsets <- decodeOffsets (length schs)
     lift $ m offsets
 
 -- | Generic implementation of 'schemaVia' for an ADT.
@@ -894,7 +896,7 @@ gdeserialiserVariant = Deserialiser $ handleRecursion $ \case
       | (name, sch) <- schs0]
     return $ evalContT $ do
       i <- decodeVarInt
-      lift $ \bs -> to $ maybe (throw $ InvalidTag bs) ($ bs) $ ds' V.!? i
+      lift $ fmap to $ maybe (throw InvalidTag) id $ ds' V.!? i
   s -> unexpectedSchema' rep "a variant" s
   where
     rep = "gdeserialiserVariant :: Deserialiser "

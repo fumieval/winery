@@ -27,9 +27,7 @@ module Data.Winery.Internal
   , Strategy(..)
   , StrategyError
   , errorStrategy
-  , TransList(..)
   , TransFusion(..)
-  , runTransFusion
   )where
 
 import Control.Applicative
@@ -58,6 +56,7 @@ type Decoder = (->) B.ByteString
 
 decodeAt :: (Int, Int) -> Decoder a -> Decoder a
 decodeAt (i, l) m = m . B.take l . B.drop i
+{-# INLINE decodeAt #-}
 
 getWord8 :: ContT r Decoder Word8
 getWord8 = ContT $ \k bs -> case B.uncons bs of
@@ -66,7 +65,7 @@ getWord8 = ContT $ \k bs -> case B.uncons bs of
 {-# INLINE getWord8 #-}
 
 data DecodeException = InsufficientInput
-  | InvalidTag B.ByteString deriving (Eq, Show, Read)
+  | InvalidTag deriving (Eq, Show, Read)
 instance Exception DecodeException
 
 decodeVarInt :: (Num a, Bits a) => ContT r Decoder a
@@ -180,9 +179,6 @@ errorStrategy = Strategy . const . Left
 
 newtype TransFusion f g a = TransFusion { unTransFusion :: forall h. Applicative h => (forall x. f x -> h (g x)) -> h a }
 
-runTransFusion :: TransFusion f g a -> TransList f g a
-runTransFusion (TransFusion k) = k (\f -> More f (Done id))
-
 instance Functor (TransFusion f g) where
   fmap f (TransFusion m) = TransFusion $ \k -> fmap f (m k)
   {-# INLINE fmap #-}
@@ -191,12 +187,3 @@ instance Applicative (TransFusion f g) where
   pure a = TransFusion $ \_ -> pure a
   TransFusion a <*> TransFusion b = TransFusion $ \k -> a k <*> b k
   {-# INLINE (<*>) #-}
-
-data TransList f g a = Done a | forall x. More (f x) (TransList f g (g x -> a))
-
-deriving instance Functor (TransList f g)
-
-instance Applicative (TransList f g) where
-  pure = Done
-  Done f <*> a = fmap f a
-  More i k <*> c = More i (flip <$> k <*> c)
