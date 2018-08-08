@@ -60,6 +60,7 @@ tests:
     main: Spec.hs
     dependencies:
       - winery
+      - QuickCheck
 
 benchmarks:
   bench-winery:
