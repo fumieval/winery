@@ -171,6 +171,10 @@ instance Applicative Deserialiser where
   pure = Deserialiser . pure . pure
   Deserialiser f <*> Deserialiser x = Deserialiser $ (<*>) <$> f <*> x
 
+instance Alternative Deserialiser where
+  empty = Deserialiser empty
+  Deserialiser f <|> Deserialiser g = Deserialiser $ f <|> g
+
 newtype Plan a = Plan { unPlan :: Schema -> Strategy a }
   deriving Functor
 

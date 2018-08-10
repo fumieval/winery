@@ -42,7 +42,6 @@ import qualified Data.ByteString.Internal as B
 import Data.Winery.Internal.Builder
 import Data.Bits
 import Data.Dynamic
-import Data.Monoid
 import Data.Text.Prettyprint.Doc (Doc)
 import Data.Text.Prettyprint.Doc.Render.Terminal (AnsiStyle)
 import qualified Data.Vector.Unboxed as U
