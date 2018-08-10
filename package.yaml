@@ -1,5 +1,5 @@
 name:                winery
-version:             "0.2"
+version:             "0.2.1"
 github:              "fumieval/winery"
 license:             BSD3
 author:              "Fumiaki Kinoshita"
@@ -12,7 +12,7 @@ extra-source-files:
 
 # Metadata used when publishing your package
 synopsis:            Sustainable serialisation library
-category:            Data
+category:            Data, Codec, Parsing, Serialization
 
 # To avoid duplicated efforts in documentation and dealing with the
 # complications of embedding Haddock markup inside cabal files, it is
