@@ -5,7 +5,7 @@ module Data.Winery.Internal.Builder
   ( Encoding
   , getSize
   , toByteString
-  , hPut
+  , hPutEncoding
   , word8
   , word16
   , word32
@@ -140,9 +140,9 @@ pokeBuffer dev buf x
         <$ withBuffer buf' (\ptr -> pokeByteOff ptr (bufR buf') x)
 {-# INLINE pokeBuffer #-}
 
-hPut :: Handle -> Encoding -> IO ()
-hPut _ Empty = return ()
-hPut h (Encoding _ t0) = wantWritableHandle "Data.Winery.Intenal.Builder.hPut" h
+hPutEncoding :: Handle -> Encoding -> IO ()
+hPutEncoding _ Empty = return ()
+hPutEncoding h (Encoding _ t0) = wantWritableHandle "Data.Winery.Intenal.Builder.hPutEncoding" h
   $ \Handle__{..} -> do
     buf0 <- readIORef haByteBuffer
 

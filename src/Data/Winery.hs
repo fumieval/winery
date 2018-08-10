@@ -36,6 +36,7 @@ module Data.Winery
   , encodeMulti
   , BB.getSize
   , BB.toByteString
+  , BB.hPutEncoding
   -- * Decoding combinators
   , Plan(..)
   , extractArrayBy
@@ -245,7 +246,7 @@ serialise a = BB.toByteString $ mappend (BB.word8 currentSchemaVersion)
 -- | Serialise a value along with its schema.
 writeFileSerialise :: Serialise a => FilePath -> a -> IO ()
 writeFileSerialise path a = withFile path WriteMode
-  $ \h -> BB.hPut h $ mappend (BB.word8 currentSchemaVersion)
+  $ \h -> BB.hPutEncoding h $ mappend (BB.word8 currentSchemaVersion)
   $ toEncoding (schema [a], a)
 {-# INLINE writeFileSerialise #-}
 
