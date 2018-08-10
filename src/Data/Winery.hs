@@ -34,6 +34,8 @@ module Data.Winery
   -- * Encoding combinators
   , Encoding
   , encodeMulti
+  , BB.getSize
+  , BB.toByteString
   -- * Decoding combinators
   , Plan(..)
   , extractArrayBy
