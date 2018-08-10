@@ -1,11 +1,11 @@
 # winery
 
-winery is a serialisation library for Haskell. It tries to achieve two
-goals: compact representation and perpetual inspectability.
+winery is a serialisation library for Haskell.
 
-The standard `binary` library has no way to inspect the serialised value without the original instance.
-
-There's `serialise`, which is an alternative library based on CBOR. Every value has to be accompanied with tags, so it tends to be redundant for arrays of small values. Encoding records with field names is also redudant.
+* __Fast encoding__: can create a bytestring or write to a handle efficiently
+* __Compact representation__: uses VLQ by default. Separates schemata and contents
+* __Stateless decoding__: you can decode a value without reading all the leading bytes
+* __Inspectable__: data can be read without the original instance
 
 ## Interface
 
@@ -50,6 +50,17 @@ instance Serialise Foo
 
 for any ADT. The former explicitly describes field names in the schema, and the
 latter does constructor names.
+
+## Streaming output
+
+You can write data to a handle without allocating a ByteString. You can see the
+length before serialisation.
+
+```haskell
+toEncoding :: Serialise a => a -> Encoding
+hPutEncoding :: Handle -> Encoding -> IO ()
+getSize :: Encoding -> Int
+```
 
 ## The schema
 
@@ -131,6 +142,15 @@ Elizabeth Joseff
 Cathee Eberz
 ```
 
+At the moment, the following queries are supported:
+
+* `.` return itself
+* `.[]` enumerate all the elements in a list
+* `.[i]` get the i-th element
+* `.[i:j]` enumerate i-th to j-th items
+* `.foo` Get a field named `foo`
+* `F | G` compose queries (left to right)
+
 ## Benchmark
 
 ```haskell
@@ -149,15 +169,19 @@ data TestRec = TestRec
 (De)serialisation of the datatype above using generic instances:
 
 ```
-serialise/list/winery                    mean 830.4 μs  ( +- 126.1 μs  )
-serialise/list/binary                    mean 1.268 ms  ( +- 126.3 μs  )
-serialise/list/serialise                 mean 309.5 μs  ( +- 22.33 μs  )
-serialise/item/winery                    mean 248.9 ns  ( +- 22.84 ns  )
-serialise/item/binary                    mean 1.222 μs  ( +- 77.28 ns  )
-serialise/item/serialise                 mean 384.6 ns  ( +- 15.63 ns  )
-deserialise/winery                       mean 972.5 μs  ( +- 150.6 μs  )
-deserialise/binary                       mean 1.721 ms  ( +- 99.67 μs  )
-deserialise/serialise                    mean 957.3 μs  ( +- 80.95 μs  )
+serialise/list/winery                    mean 847.4 μs  ( +- 122.7 μs  )
+serialise/list/binary                    mean 1.221 ms  ( +- 169.0 μs  )
+serialise/list/serialise                 mean 290.4 μs  ( +- 34.98 μs  )
+serialise/item/winery                    mean 243.1 ns  ( +- 27.50 ns  )
+serialise/item/binary                    mean 1.080 μs  ( +- 75.82 ns  )
+serialise/item/serialise                 mean 322.4 ns  ( +- 21.09 ns  )
+serialise/file/winery                    mean 681.9 μs  ( +- 247.0 μs  )
+serialise/file/binary                    mean 1.731 ms  ( +- 611.6 μs  )
+serialise/file/serialise                 mean 652.9 μs  ( +- 185.8 μs  )
+deserialise/winery                       mean 733.2 μs  ( +- 11.70 μs  )
+deserialise/binary                       mean 1.582 ms  ( +- 122.3 μs  )
+deserialise/serialise                    mean 823.3 μs  ( +- 38.08 μs  )
+
 ```
 
 Not bad, considering that binary and serialise don't encode field names.
