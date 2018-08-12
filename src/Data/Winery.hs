@@ -100,12 +100,22 @@ import qualified Data.Vector.Storable as SV
 import qualified Data.Vector.Unboxed as UV
 import Data.Text.Prettyprint.Doc hiding ((<>), SText, SChar)
 import Data.Text.Prettyprint.Doc.Render.Terminal
+import Data.Time.Clock
+import Data.Time.Clock.POSIX
 import Data.Typeable
 import GHC.Generics
 import System.IO
 import Unsafe.Coerce
 
-data Schema = SSchema !Word8
+data Schema = SFix Schema -- ^ binds a fixpoint
+  | SSelf !Word8 -- ^ @SSelf n@ refers to the n-th innermost fixpoint
+  | SList !Schema
+  | SArray !(VarInt Int) !Schema -- fixed size
+  | SProduct [Schema]
+  | SProductFixed [(VarInt Int, Schema)] -- fixed size
+  | SRecord [(T.Text, Schema)]
+  | SVariant [(T.Text, [Schema])]
+  | SSchema !Word8
   | SUnit
   | SBool
   | SChar
@@ -122,14 +132,7 @@ data Schema = SSchema !Word8
   | SDouble
   | SBytes
   | SText
-  | SList !Schema
-  | SArray !(VarInt Int) !Schema -- fixed size
-  | SProduct [Schema]
-  | SProductFixed [(VarInt Int, Schema)] -- fixed size
-  | SRecord [(T.Text, Schema)]
-  | SVariant [(T.Text, [Schema])]
-  | SFix Schema -- ^ binds a fixpoint
-  | SSelf !Word8 -- ^ @SSelf n@ refers to the n-th innermost fixpoint
+  | SUTCTime
   deriving (Show, Read, Eq, Generic)
 
 instance Pretty Schema where
@@ -151,6 +154,7 @@ instance Pretty Schema where
     SDouble -> "Double"
     SBytes -> "ByteString"
     SText -> "Text"
+    SUTCTime -> "UTCTime"
     SList s -> "[" <> pretty s <> "]"
     SArray _ s -> "[" <> pretty s <> "]"
     SProduct ss -> tupled $ map pretty ss
@@ -286,7 +290,7 @@ substSchema p ts
   | otherwise = schemaVia p ts
 
 currentSchemaVersion :: Word8
-currentSchemaVersion = 1
+currentSchemaVersion = 2
 
 bootstrapSchema :: Word8 -> Either StrategyError Schema
 bootstrapSchema 1 = Right $ SFix $ SVariant [("SSchema",[SWord8])
@@ -315,6 +319,20 @@ bootstrapSchema 1 = Right $ SFix $ SVariant [("SSchema",[SWord8])
   ,("SFix",[SSelf 0])
   ,("SSelf",[SWord8])
   ]
+bootstrapSchema 2 = Right $ SFix $ SVariant [
+  ("SFix",[SSelf 0])
+  ,("SSelf",[SWord8])
+  ,("SList",[SSelf 0])
+  ,("SArray",[SInteger,SSelf 0])
+  ,("SProduct",[SList (SSelf 0)])
+  ,("SProductFixed",[SList (SProduct [SInteger,SSelf 0])])
+  ,("SRecord",[SList (SProduct [SText,SSelf 0])])
+  ,("SVariant",[SList (SProduct [SText,SList (SSelf 0)])])
+  ,("SSchema",[SWord8])
+  ,("SUnit",[]),("SBool",[]),("SChar",[]),("SWord8",[]),("SWord16",[])
+  ,("SWord32",[]),("SWord64",[]),("SInt8",[]),("SInt16",[]),("SInt32",[])
+  ,("SInt64",[]),("SInteger",[]),("SFloat",[]),("SDouble",[]),("SBytes",[])
+  ,("SText",[]),("SUTCTime",[])]
 bootstrapSchema n = Left $ "Unsupported version: " <> pretty n
 
 unexpectedSchema :: forall a. Serialise a => Doc AnsiStyle -> Schema -> Strategy (Decoder a)
@@ -508,6 +526,20 @@ instance Serialise Encoding where
   deserialiser = Deserialiser $ Plan $ \case
     SBytes -> pure BB.bytes
     s -> unexpectedSchema "Serialise Encoding" s
+
+instance Serialise UTCTime where
+  schemaVia _ _ = SUTCTime
+  toEncoding = toEncoding . utcTimeToPOSIXSeconds
+  deserialiser = Deserialiser $ Plan $ \case
+    SUTCTime -> unwrapDeserialiser
+      (posixSecondsToUTCTime <$> deserialiser)
+      (schema (Proxy :: Proxy Double))
+    s -> unexpectedSchema "Serialise UTCTime" s
+
+instance Serialise NominalDiffTime where
+  schemaVia _ = schemaVia (Proxy :: Proxy Double)
+  toEncoding = toEncoding . (realToFrac :: NominalDiffTime -> Double)
+  deserialiser = (realToFrac :: Double -> NominalDiffTime) <$> deserialiser
 
 instance Serialise a => Serialise [a] where
   schemaVia _ ts = case constantSize (Proxy :: Proxy a) of

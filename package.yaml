@@ -34,6 +34,7 @@ dependencies:
 - prettyprinter
 - prettyprinter-ansi-terminal
 - text
+- time
 - vector
 
 library:
