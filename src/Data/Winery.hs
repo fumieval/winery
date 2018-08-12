@@ -19,6 +19,7 @@ module Data.Winery
   , DecodeException(..)
   , schema
   -- * Standalone serialisation
+  , toEncodingWithSchema
   , serialise
   , deserialise
   , deserialiseBy
@@ -247,16 +248,19 @@ decodeCurrent = case getDecoder (schema (Proxy :: Proxy a)) of
 
 -- | Serialise a value along with its schema.
 serialise :: Serialise a => a -> B.ByteString
-serialise a = BB.toByteString $ mappend (BB.word8 currentSchemaVersion)
-  $ toEncoding (schema [a], a)
+serialise a = BB.toByteString $ toEncodingWithSchema a
 {-# INLINE serialise #-}
 
 -- | Serialise a value along with its schema.
 writeFileSerialise :: Serialise a => FilePath -> a -> IO ()
 writeFileSerialise path a = withFile path WriteMode
-  $ \h -> BB.hPutEncoding h $ mappend (BB.word8 currentSchemaVersion)
-  $ toEncoding (schema [a], a)
+  $ \h -> BB.hPutEncoding h $ toEncodingWithSchema a
 {-# INLINE writeFileSerialise #-}
+
+toEncodingWithSchema :: Serialise a => a -> Encoding
+toEncodingWithSchema a = mappend (BB.word8 currentSchemaVersion)
+  $ toEncoding (schema [a], a)
+{-# INLINE toEncodingWithSchema #-}
 
 splitSchema :: B.ByteString -> Either StrategyError (Schema, B.ByteString)
 splitSchema bs_ = case B.uncons bs_ of
