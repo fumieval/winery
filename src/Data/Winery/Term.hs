@@ -14,6 +14,7 @@ import Data.Winery.Internal
 import Data.Word
 import qualified Data.Vector.Unboxed as V
 import qualified Data.HashMap.Strict as HM
+import Data.Time.Clock
 
 -- | Common representation for any winery data.
 -- Handy for prettyprinting winery-serialised data.
@@ -33,6 +34,7 @@ data Term = TUnit
   | TDouble !Double
   | TBytes !B.ByteString
   | TText !T.Text
+  | TUTCTime !UTCTime
   | TList [Term]
   | TProduct [Term]
   | TRecord [(T.Text, Term)]
@@ -56,6 +58,7 @@ instance ToJSON Term where
   toJSON (TDouble x) = toJSON x
   toJSON (TBytes bs) = toJSON (B.unpack bs)
   toJSON (TText t) = toJSON t
+  toJSON (TUTCTime t) = toJSON t
   toJSON (TList xs) = toJSON xs
   toJSON (TProduct xs) = toJSON xs
   toJSON (TRecord xs) = toJSON $ HM.fromList xs
@@ -87,6 +90,7 @@ decodeTerm = go [] where
     SDouble -> p s TDouble
     SBytes -> p s TBytes
     Data.Winery.SText -> p s TText
+    SUTCTime -> p s TUTCTime
     SArray siz sch -> fmap TList <$> extractListBy (go points) `unwrapDeserialiser` SArray siz sch
     SList sch -> fmap TList <$> extractListBy (go points) `unwrapDeserialiser` SList sch
     SProduct schs -> do
@@ -145,3 +149,4 @@ instance Pretty Term where
   pretty (TRecord xs) = align $ encloseSep "{ " " }" ", " [group $ nest 2 $ vsep [pretty k <+> "=", pretty v] | (k, v) <- xs]
   pretty (TVariant tag []) = pretty tag
   pretty (TVariant tag xs) = group $ nest 2 $ vsep $ pretty tag : map pretty xs
+  pretty (TUTCTime t) = pretty (show t)
