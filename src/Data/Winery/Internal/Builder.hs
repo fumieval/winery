@@ -138,50 +138,56 @@ uvarInt siz acc m
   | m < 0x80 = Encoding (siz + 1) (acc `Bin` LWord8 (fromIntegral m))
   | otherwise = uvarInt (siz + 1) (acc `Bin` LWord8 (setBit (fromIntegral m) 7)) (unsafeShiftR m 7)
 
-pokeBuffer :: (Buffered.BufferedIO dev, Storable a) => dev -> Buffer Word8 -> a -> IO (Buffer Word8)
-pokeBuffer dev buf x
-    | bufferAvailable buf >= sizeOf x = bufferAdd (sizeOf x) buf
-      <$ withBuffer buf (\ptr -> pokeByteOff ptr (bufR buf) x)
-    | otherwise = Buffered.flushWriteBuffer dev buf
-      >>= \buf' -> bufferAdd (sizeOf x) buf'
-        <$ withBuffer buf' (\ptr -> pokeByteOff ptr (bufR buf') x)
+
+pokeBuffer :: (Buffered.BufferedIO dev, Storable a) => dev -> Buffer Word8
+  -> Int -> a
+  -> (Int -> IO (Buffer Word8))
+  -> (Buffer Word8 -> IO (Buffer Word8))
+  -> IO (Buffer Word8)
+pokeBuffer dev buf i x cont cont'
+  | i + sizeOf x < bufSize buf = do
+    withBuffer buf $ \ptr -> pokeByteOff ptr i x
+    cont (i + sizeOf x)
+  | otherwise = do
+    buf' <- Buffered.flushWriteBuffer dev buf { bufR = i }
+    withBuffer buf' $ \ptr -> pokeByteOff ptr (bufR buf') x
+    cont' $ bufferAdd (sizeOf x) buf'
 {-# INLINE pokeBuffer #-}
 
 hPutEncoding :: Handle -> Encoding -> IO ()
 hPutEncoding _ Empty = return ()
 hPutEncoding h (Encoding _ t0) = wantWritableHandle "Data.Winery.Intenal.Builder.hPutEncoding" h
   $ \Handle__{..} -> do
-    buf0 <- readIORef haByteBuffer
-
-    let go (LWord8 w) !buf = pokeBuffer haDevice buf w
-        go (LWord16 w) buf = pokeBuffer haDevice buf (toBE16 w)
-        go (LWord32 w) buf = pokeBuffer haDevice buf (toBE32 w)
-        go (LWord64 w) buf = pokeBuffer haDevice buf (toBE64 w)
-        go t@(LBytes (B.PS fp ofs len)) !buf
-          | bufferAvailable buf >= len = (bufferAdd len buf<$) $ withBuffer buf
-            $ \ptr -> withForeignPtr fp
-            $ \src -> B.memcpy (ptr `plusPtr` bufR buf) (src `plusPtr` ofs) len
-          | bufSize buf >= len = Buffered.flushWriteBuffer haDevice buf
-            >>= go t
-          | otherwise = newByteBuffer len WriteBuffer >>= go t
-        go (Bin c d) buf = rot c d buf
-
-        rot (LWord8 w) t !buf = pokeBuffer haDevice buf w >>= go t
-        rot (LWord16 w) t buf = pokeBuffer haDevice buf (toBE16 w) >>= go t
-        rot (LWord32 w) t buf = pokeBuffer haDevice buf (toBE32 w) >>= go t
-        rot (LWord64 w) t buf = pokeBuffer haDevice buf (toBE64 w) >>= go t
-        rot t@(LBytes (B.PS fp ofs len)) t' buf
-          | bufferAvailable buf >= len = do
-            withBuffer buf
+    let loop tree buf = go tree (bufR buf) where
+          go (LWord8 w) i = pokeBuffer haDevice buf i w (\j -> pure buf { bufR = j }) pure
+          go (LWord16 w) i = pokeBuffer haDevice buf i (toBE16 w) (\j -> pure buf { bufR = j }) pure
+          go (LWord32 w) i = pokeBuffer haDevice buf i (toBE32 w) (\j -> pure buf { bufR = j }) pure
+          go (LWord64 w) i = pokeBuffer haDevice buf i (toBE64 w) (\j -> pure buf { bufR = j }) pure
+          go t@(LBytes (B.PS fp ofs len)) i
+            | i + len < bufSize buf = (buf { bufR = i + len } <$) $ withBuffer buf
               $ \ptr -> withForeignPtr fp
-              $ \src -> B.memcpy (ptr `plusPtr` bufR buf) (src `plusPtr` ofs) len
-            go t' $ bufferAdd len buf
-          | bufSize buf >= len = Buffered.flushWriteBuffer haDevice buf
-            >>= rot t t'
-          | otherwise = do
-            _ <- Buffered.flushWriteBuffer haDevice buf
-            newByteBuffer len WriteBuffer >>= rot t t'
-        rot (Bin c d) t buf = rot c (Bin d t) buf
+              $ \src -> B.memcpy (ptr `plusPtr` i) (src `plusPtr` ofs) len
+            | bufSize buf >= len = Buffered.flushWriteBuffer haDevice buf { bufR = i }
+              >>= loop t
+            | otherwise = newByteBuffer len WriteBuffer >>= loop t
+          go (Bin c d) i = rot c d i
 
-    buf' <- go t0 buf0
+          rot (LWord8 w) t i = pokeBuffer haDevice buf i w (go t) (loop t)
+          rot (LWord16 w) t i = pokeBuffer haDevice buf i (toBE16 w) (go t) (loop t)
+          rot (LWord32 w) t i = pokeBuffer haDevice buf i (toBE32 w) (go t) (loop t)
+          rot (LWord64 w) t i = pokeBuffer haDevice buf i (toBE64 w) (go t) (loop t)
+          rot t@(LBytes (B.PS fp ofs len)) t' i
+            | i + len < bufSize buf = do
+              withBuffer buf
+                $ \ptr -> withForeignPtr fp
+                $ \src -> B.memcpy (ptr `plusPtr` i) (src `plusPtr` ofs) len
+              go t' (i + len)
+            | bufSize buf >= len = Buffered.flushWriteBuffer haDevice buf { bufR = i }
+              >>= loop (Bin t t')
+            | otherwise = do
+              _ <- Buffered.flushWriteBuffer haDevice buf { bufR = i }
+              newByteBuffer len WriteBuffer >>= loop (Bin t t')
+          rot (Bin c d) t i = rot c (Bin d t) i
+    buf0 <- readIORef haByteBuffer
+    buf' <- loop t0 buf0
     writeIORef haByteBuffer buf'
