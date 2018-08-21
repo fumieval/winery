@@ -12,6 +12,7 @@ module Data.Winery.Internal.Builder
   , word64
   , bytes
   , varInt
+  , unsignedVarInt
   ) where
 
 import Data.Bits
@@ -115,6 +116,12 @@ word64 = Encoding 8 . LWord64
 bytes :: B.ByteString -> Encoding
 bytes bs = Encoding (B.length bs) $ LBytes bs
 {-# INLINE bytes #-}
+
+unsignedVarInt :: (Bits a, Integral a) => a -> Encoding
+unsignedVarInt n
+  | n < 0x80 = word8 (fromIntegral n)
+  | otherwise = uvarInt 1 (LWord8 (fromIntegral n `setBit` 7)) (unsafeShiftR n 7)
+{-# SPECIALISE unsignedVarInt :: Int -> Encoding #-}
 
 varInt :: (Bits a, Integral a) => a -> Encoding
 varInt n
