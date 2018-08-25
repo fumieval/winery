@@ -74,6 +74,7 @@ import Control.Monad.Trans.Cont
 import Control.Monad.Trans.State
 import Control.Monad.Reader
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Lazy as BL
 import qualified Data.Winery.Internal.Builder as BB
 import Data.Bits
 import Data.Dynamic
@@ -522,6 +523,13 @@ instance Serialise B.ByteString where
   toEncoding = BB.bytes
   deserialiser = Deserialiser $ Plan $ \case
     SBytes -> pure id
+    s -> unexpectedSchema "Serialise ByteString" s
+
+instance Serialise BL.ByteString where
+  schemaVia _ _ = SBytes
+  toEncoding = foldMap BB.bytes . BL.toChunks
+  deserialiser = Deserialiser $ Plan $ \case
+    SBytes -> pure BL.fromStrict
     s -> unexpectedSchema "Serialise ByteString" s
 
 instance Serialise Encoding where
