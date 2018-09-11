@@ -1,4 +1,4 @@
-{-# LANGUAGE LambdaCase, OverloadedStrings #-}
+{-# LANGUAGE LambdaCase, OverloadedStrings, CPP #-}
 module Main where
 
 import Control.Monad
@@ -83,7 +83,11 @@ main = getOpt Permute options <$> getArgs >>= \case
     let o = foldl (flip id) defaultOptions fs
     q <- case parse (parseQuery <* eof) "argument" $ T.pack qs of
       Left e -> do
+#if MIN_VERSION_megaparsec(7,0,0)
+        hPutStrLn stderr $ errorBundlePretty e
+#else
         hPutStrLn stderr $ parseErrorPretty e
+#endif
         exitWith (ExitFailure 2)
       Right a -> pure a
     forM_ paths $ \case
