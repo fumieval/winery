@@ -1,3 +1,9 @@
+# 0.3
+
+* Supported `UTCTime`
+* Added an instance for lazy `ByteString`
+* Added `toEncodingWithSchema`
+
 # 0.2
 
 * Renamed `extract*With` to `extract*By` for consistency
