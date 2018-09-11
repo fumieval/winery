@@ -28,8 +28,9 @@ dependencies:
 - hashable
 - unordered-containers
 - scientific
+- semigroups
 - transformers
-- megaparsec
+- megaparsec >= 6.0.0
 - mtl
 - prettyprinter
 - prettyprinter-ansi-terminal
