@@ -19,6 +19,8 @@ category:            Data, Codec, Parsing, Serialization
 # common to point users to the README.md file.
 description:         Please see the README on Github at <https://github.com/fumieval/winery#readme>
 
+tested-with: GHC == 7.10.1, GHC == 8.4.1, GHC == 8.6.1
+
 dependencies:
 - aeson
 - base >= 4.7 && < 5
