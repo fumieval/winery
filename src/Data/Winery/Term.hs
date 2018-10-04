@@ -38,7 +38,7 @@ data Term = TUnit
   | TList [Term]
   | TProduct [Term]
   | TRecord [(T.Text, Term)]
-  | TVariant !T.Text [Term]
+  | TVariant !T.Text Term
   deriving Show
 
 instance ToJSON Term where
@@ -62,11 +62,9 @@ instance ToJSON Term where
   toJSON (TList xs) = toJSON xs
   toJSON (TProduct xs) = toJSON xs
   toJSON (TRecord xs) = toJSON $ HM.fromList xs
-  toJSON (TVariant "Just" [x]) = toJSON x
-  toJSON (TVariant "Nothing" []) = Null
-  toJSON (TVariant t []) = toJSON t
-  toJSON (TVariant t [x]) = object ["tag" .= toJSON t, "contents" .= toJSON x]
-  toJSON (TVariant t xs) = object ["tag" .= toJSON t, "contents" .= toJSON xs]
+  toJSON (TVariant "Just" x) = toJSON x
+  toJSON (TVariant "Nothing" _) = Null
+  toJSON (TVariant t x) = object ["tag" .= toJSON t, "contents" .= toJSON x]
 
 
 -- | Deserialiser for a 'Term'.
@@ -109,12 +107,11 @@ decodeTerm = go [] where
         offsets <- V.toList <$> decodeOffsets (length decoders)
         asks $ \bs -> TRecord [(name, decodeAt ofs dec bs) | ((name, dec), ofs) <- zip decoders offsets]
     SVariant schs -> do
-      decoders <- traverse (\(name, sch) -> (,) name <$> traverse (unwrapDeserialiser (go points)) sch) schs
+      decoders <- traverse (\(name, sch) -> (,) name <$> unwrapDeserialiser (go points) sch) schs
       return $ evalContT $ do
         tag <- decodeVarInt
-        let (name, decs) = unsafeIndex ("decodeTerm/SVariant") decoders tag
-        offsets <- V.toList <$> decodeOffsets (length decs)
-        asks $ \bs -> TVariant name [decodeAt ofs dec bs | (dec, ofs) <- zip decs offsets]
+        let (name, dec) = unsafeIndex ("decodeTerm/SVariant") decoders tag
+        asks $ TVariant name . dec
     SSelf i -> return $ unsafeIndex "decodeTerm/SSelf" points $ fromIntegral i
     SFix s' -> mfix $ \a -> go (a : points) `unwrapDeserialiser` s'
 
@@ -147,6 +144,5 @@ instance Pretty Term where
   pretty (TDouble x) = pretty x
   pretty (TProduct xs) = tupled $ map pretty xs
   pretty (TRecord xs) = align $ encloseSep "{ " " }" ", " [group $ nest 2 $ vsep [pretty k <+> "=", pretty v] | (k, v) <- xs]
-  pretty (TVariant tag []) = pretty tag
-  pretty (TVariant tag xs) = group $ nest 2 $ vsep $ pretty tag : map pretty xs
+  pretty (TVariant tag x) = group $ nest 2 $ sep [pretty tag, pretty x]
   pretty (TUTCTime t) = pretty (show t)

@@ -116,7 +116,7 @@ data Schema = SFix Schema -- ^ binds a fixpoint
   | SProduct [Schema]
   | SProductFixed [(VarInt Int, Schema)] -- fixed size
   | SRecord [(T.Text, Schema)]
-  | SVariant [(T.Text, [Schema])]
+  | SVariant [(T.Text, Schema)]
   | SSchema !Word8
   | SUnit
   | SBool
@@ -163,9 +163,7 @@ instance Pretty Schema where
     SProductFixed ss -> tupled $ map (pretty . snd) ss
     SRecord ss -> align $ encloseSep "{ " " }" ", " [pretty k <+> "::" <+> pretty v | (k, v) <- ss]
     SVariant ss -> align $ encloseSep "( " " )" (flatAlt "| " " | ")
-      [ if null vs
-          then pretty k
-          else nest 2 $ sep $ pretty k : map pretty vs | (k, vs) <- ss]
+      [ nest 2 $ sep [pretty k, pretty vs] | (k, vs) <- ss]
     SFix sch -> group $ nest 2 $ sep ["μ", pretty sch]
     SSelf i -> "Self" <+> pretty i
 
@@ -298,46 +296,6 @@ currentSchemaVersion :: Word8
 currentSchemaVersion = 2
 
 bootstrapSchema :: Word8 -> Either StrategyError Schema
-bootstrapSchema 1 = Right $ SFix $ SVariant [("SSchema",[SWord8])
-  ,("SUnit",[])
-  ,("SBool",[])
-  ,("SChar",[])
-  ,("SWord8",[])
-  ,("SWord16",[])
-  ,("SWord32",[])
-  ,("SWord64",[])
-  ,("SInt8",[])
-  ,("SInt16",[])
-  ,("SInt32",[])
-  ,("SInt64",[])
-  ,("SInteger",[])
-  ,("SFloat",[])
-  ,("SDouble",[])
-  ,("SBytes",[])
-  ,("SText",[])
-  ,("SList",[SSelf 0])
-  ,("SArray",[SInteger, SSelf 0])
-  ,("SProduct",[SList (SSelf 0)])
-  ,("SProductFixed",[SList $ SProduct [SInteger, SSelf 0]])
-  ,("SRecord",[SList (SProduct [SText,SSelf 0])])
-  ,("SVariant",[SList (SProduct [SText,SList (SSelf 0)])])
-  ,("SFix",[SSelf 0])
-  ,("SSelf",[SWord8])
-  ]
-bootstrapSchema 2 = Right $ SFix $ SVariant [
-  ("SFix",[SSelf 0])
-  ,("SSelf",[SWord8])
-  ,("SList",[SSelf 0])
-  ,("SArray",[SInteger,SSelf 0])
-  ,("SProduct",[SList (SSelf 0)])
-  ,("SProductFixed",[SList (SProduct [SInteger,SSelf 0])])
-  ,("SRecord",[SList (SProduct [SText,SSelf 0])])
-  ,("SVariant",[SList (SProduct [SText,SList (SSelf 0)])])
-  ,("SSchema",[SWord8])
-  ,("SUnit",[]),("SBool",[]),("SChar",[]),("SWord8",[]),("SWord16",[])
-  ,("SWord32",[]),("SWord64",[]),("SInt8",[]),("SInt16",[]),("SInt32",[])
-  ,("SInt64",[]),("SInteger",[]),("SFloat",[]),("SDouble",[]),("SBytes",[])
-  ,("SText",[]),("SUTCTime",[])]
 bootstrapSchema n = Left $ "Unsupported version: " <> pretty n
 
 unexpectedSchema :: forall a. Serialise a => Doc AnsiStyle -> Schema -> Strategy (Decoder a)
@@ -503,12 +461,12 @@ instance Serialise Char where
     s -> unexpectedSchema "Serialise Char" s
 
 instance Serialise a => Serialise (Maybe a) where
-  schemaVia _ ts = SVariant [("Nothing", [])
-    , ("Just", [substSchema (Proxy :: Proxy a) ts])]
+  schemaVia _ ts = SVariant [("Nothing", SUnit)
+    , ("Just", substSchema (Proxy :: Proxy a) ts)]
   toEncoding Nothing = BB.varInt (0 :: Word8)
   toEncoding (Just a) = BB.varInt (1 :: Word8) <> toEncoding a
   deserialiser = Deserialiser $ Plan $ \case
-    SVariant [_, (_, [sch])] -> do
+    SVariant [_, (_, sch)] -> do
       dec <- unwrapDeserialiser deserialiser sch
       return $ evalContT $ do
         t <- decodeVarInt
@@ -764,12 +722,12 @@ instance (Serialise a, Serialise b, Serialise c, Serialise d) => Serialise (a, b
   constantSize _ = fmap sum $ sequence [constantSize (Proxy :: Proxy a), constantSize (Proxy :: Proxy b), constantSize (Proxy :: Proxy c), constantSize (Proxy :: Proxy d)]
 
 instance (Serialise a, Serialise b) => Serialise (Either a b) where
-  schemaVia _ ts = SVariant [("Left", [substSchema (Proxy :: Proxy a) ts])
-    , ("Right", [substSchema (Proxy :: Proxy b) ts])]
+  schemaVia _ ts = SVariant [("Left", substSchema (Proxy :: Proxy a) ts)
+    , ("Right", substSchema (Proxy :: Proxy b) ts)]
   toEncoding (Left a) = BB.word8 0 <> toEncoding a
   toEncoding (Right b) = BB.word8 1 <> toEncoding b
   deserialiser = Deserialiser $ Plan $ \case
-    SVariant [(_, [sa]), (_, [sb])] -> do
+    SVariant [(_, sa), (_, sb)] -> do
       getA <- unwrapDeserialiser deserialiser sa
       getB <- unwrapDeserialiser deserialiser sb
       return $ evalContT $ do
@@ -788,8 +746,7 @@ extractConstructorBy :: Typeable a => Deserialiser a -> T.Text -> Deserialiser (
 extractConstructorBy d name = Deserialiser $ handleRecursion $ \case
   SVariant schs0 -> Strategy $ \decs -> do
     (j, dec) <- case [(i :: Int, ss) | (i, (k, ss)) <- zip [0..] schs0, name == k] of
-      [(i, [s])] -> fmap ((,) i) $ unwrapDeserialiser d s `unStrategy` decs
-      [(i, ss)] -> fmap ((,) i) $ unwrapDeserialiser d (SProduct ss) `unStrategy` decs
+      [(i, s)] -> fmap ((,) i) $ unwrapDeserialiser d s `unStrategy` decs
       _ -> Left $ rep <> ": Schema not found in " <> pretty (map fst schs0)
 
     return $ evalContT $ do
@@ -913,8 +870,8 @@ instance (GSerialiseProduct f, GSerialiseProduct g) => GSerialiseProduct (f :*: 
   productEncoder (f :*: g) = productEncoder f . productEncoder g
   productDecoder = liftA2 (:*:) <$> productDecoder <*> productDecoder
 
-deserialiserProduct' :: GSerialiseProduct f => [Schema] -> Strategy (Decoder (f x))
-deserialiserProduct' schs = Strategy $ \recs -> do
+deserialiserProduct' :: GSerialiseProduct f => Schema -> Strategy (Decoder (f x))
+deserialiserProduct' (SProduct schs) = Strategy $ \recs -> do
   let go :: FieldDecoder Int x -> Compose (Either StrategyError) ((->) Offsets) (Decoder x)
       go (FieldDecoder i _ p) = Compose $ do
         getItem <- if i < length schs
@@ -955,9 +912,9 @@ gdeserialiserVariant = Deserialiser $ handleRecursion $ \case
 
 class GSerialiseVariant f where
   variantCount :: proxy f -> Int
-  variantSchema :: proxy f -> [TypeRep] -> [(T.Text, [Schema])]
+  variantSchema :: proxy f -> [TypeRep] -> [(T.Text, Schema)]
   variantEncoder :: Int -> f x -> Encoding
-  variantDecoder :: [(T.Text, [Schema] -> Strategy (Decoder (f x)))]
+  variantDecoder :: [(T.Text, Schema -> Strategy (Decoder (f x)))]
 
 instance (GSerialiseVariant f, GSerialiseVariant g) => GSerialiseVariant (f :+: g) where
   variantCount _ = variantCount (Proxy :: Proxy f) + variantCount (Proxy :: Proxy g)
@@ -969,7 +926,7 @@ instance (GSerialiseVariant f, GSerialiseVariant g) => GSerialiseVariant (f :+: 
 
 instance (GSerialiseProduct f, Constructor c) => GSerialiseVariant (C1 c f) where
   variantCount _ = 1
-  variantSchema _ ts = [(T.pack $ conName (M1 undefined :: M1 i c f x), productSchema (Proxy :: Proxy f) ts)]
+  variantSchema _ ts = [(T.pack $ conName (M1 undefined :: M1 i c f x), SProduct $ productSchema (Proxy :: Proxy f) ts)]
   variantEncoder i (M1 a) = BB.varInt i <> encodeMulti (productEncoder a)
   variantDecoder = [(T.pack $ conName (M1 undefined :: M1 i c f x)
     , fmap (fmap M1) . deserialiserProduct') ]
