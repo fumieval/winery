@@ -112,9 +112,7 @@ import Unsafe.Coerce
 data Schema = SFix Schema -- ^ binds a fixpoint
   | SSelf !Word8 -- ^ @SSelf n@ refers to the n-th innermost fixpoint
   | SList !Schema
-  | SArray !(VarInt Int) !Schema -- fixed size
   | SProduct [Schema]
-  | SProductFixed [(VarInt Int, Schema)] -- fixed size
   | SRecord [(T.Text, Schema)]
   | SVariant [(T.Text, Schema)]
   | SSchema !Word8
@@ -158,9 +156,7 @@ instance Pretty Schema where
     SText -> "Text"
     SUTCTime -> "UTCTime"
     SList s -> "[" <> pretty s <> "]"
-    SArray _ s -> "[" <> pretty s <> "]"
     SProduct ss -> tupled $ map pretty ss
-    SProductFixed ss -> tupled $ map (pretty . snd) ss
     SRecord ss -> align $ encloseSep "{ " " }" ", " [pretty k <+> "::" <+> pretty v | (k, v) <- ss]
     SVariant ss -> align $ encloseSep "( " " )" (flatAlt "| " " | ")
       [ nest 2 $ sep [pretty k, pretty vs] | (k, vs) <- ss]
@@ -210,11 +206,6 @@ class Typeable a => Serialise a where
 
   -- | The 'Deserialiser'
   deserialiser :: Deserialiser a
-
-  -- | If this is @'Just' x@, the size of `toEncoding` must be @x@.
-  -- `deserialiser` must not depend on this value.
-  constantSize :: Proxy a -> Maybe Int
-  constantSize _ = Nothing
 
   default schemaVia :: (Generic a, GSerialiseVariant (Rep a)) => Proxy a -> [TypeRep] -> Schema
   schemaVia = gschemaViaVariant
@@ -320,7 +311,6 @@ instance Serialise () where
   schemaVia _ _ = SUnit
   toEncoding = mempty
   deserialiser = pure ()
-  constantSize _ = Just 0
 
 instance Serialise Bool where
   schemaVia _ _ = SBool
@@ -329,7 +319,6 @@ instance Serialise Bool where
   deserialiser = Deserialiser $ Plan $ \case
     SBool -> pure $ (/=0) <$> evalContT getWord8
     s -> unexpectedSchema "Serialise Bool" s
-  constantSize _ = Just 1
 
 instance Serialise Word8 where
   schemaVia _ _ = SWord8
@@ -337,7 +326,6 @@ instance Serialise Word8 where
   deserialiser = Deserialiser $ Plan $ \case
     SWord8 -> pure $ evalContT getWord8
     s -> unexpectedSchema "Serialise Word8" s
-  constantSize _ = Just 1
 
 instance Serialise Word16 where
   schemaVia _ _ = SWord16
@@ -348,7 +336,6 @@ instance Serialise Word16 where
       b <- getWord8
       return $! fromIntegral a `unsafeShiftL` 8 .|. fromIntegral b
     s -> unexpectedSchema "Serialise Word16" s
-  constantSize _ = Just 2
 
 instance Serialise Word32 where
   schemaVia _ _ = SWord32
@@ -356,7 +343,6 @@ instance Serialise Word32 where
   deserialiser = Deserialiser $ Plan $ \case
     SWord32 -> pure word32be
     s -> unexpectedSchema "Serialise Word32" s
-  constantSize _ = Just 4
 
 instance Serialise Word64 where
   schemaVia _ _ = SWord64
@@ -364,7 +350,6 @@ instance Serialise Word64 where
   deserialiser = Deserialiser $ Plan $ \case
     SWord64 -> pure word64be
     s -> unexpectedSchema "Serialise Word64" s
-  constantSize _ = Just 8
 
 instance Serialise Word where
   schemaVia _ _ = SWord64
@@ -372,7 +357,6 @@ instance Serialise Word where
   deserialiser = Deserialiser $ Plan $ \case
     SWord64 -> pure $ fromIntegral <$> word64be
     s -> unexpectedSchema "Serialise Word" s
-  constantSize _ = Just 8
 
 instance Serialise Int8 where
   schemaVia _ _ = SInt8
@@ -380,7 +364,6 @@ instance Serialise Int8 where
   deserialiser = Deserialiser $ Plan $ \case
     SInt8 -> pure $ fromIntegral <$> evalContT getWord8
     s -> unexpectedSchema "Serialise Int8" s
-  constantSize _ = Just 1
 
 instance Serialise Int16 where
   schemaVia _ _ = SInt16
@@ -388,7 +371,6 @@ instance Serialise Int16 where
   deserialiser = Deserialiser $ Plan $ \case
     SInt16 -> pure $ fromIntegral <$> word16be
     s -> unexpectedSchema "Serialise Int16" s
-  constantSize _ = Just 2
 
 instance Serialise Int32 where
   schemaVia _ _ = SInt32
@@ -396,7 +378,6 @@ instance Serialise Int32 where
   deserialiser = Deserialiser $ Plan $ \case
     SInt32 -> pure $ fromIntegral <$> word32be
     s -> unexpectedSchema "Serialise Int32" s
-  constantSize _ = Just 4
 
 instance Serialise Int64 where
   schemaVia _ _ = SInt64
@@ -404,7 +385,6 @@ instance Serialise Int64 where
   deserialiser = Deserialiser $ Plan $ \case
     SInt64 -> pure $ fromIntegral <$> word64be
     s -> unexpectedSchema "Serialise Int64" s
-  constantSize _ = Just 8
 
 instance Serialise Int where
   schemaVia _ _ = SInteger
@@ -419,7 +399,6 @@ instance Serialise Float where
   deserialiser = Deserialiser $ Plan $ \case
     SFloat -> pure $ unsafeCoerce <$> word32be
     s -> unexpectedSchema "Serialise Float" s
-  constantSize _ = Just 4
 
 instance Serialise Double where
   schemaVia _ _ = SDouble
@@ -427,7 +406,6 @@ instance Serialise Double where
   deserialiser = Deserialiser $ Plan $ \case
     SDouble -> pure $ unsafeCoerce <$> word64be
     s -> unexpectedSchema "Serialise Double" s
-  constantSize _ = Just 8
 
 instance Serialise T.Text where
   schemaVia _ _ = SText
@@ -474,7 +452,6 @@ instance Serialise a => Serialise (Maybe a) where
           0 -> pure Nothing
           _ -> Just <$> lift dec
     s -> unexpectedSchema "Serialise (Maybe a)" s
-  constantSize _ = (1+) <$> constantSize (Proxy :: Proxy a)
 
 instance Serialise B.ByteString where
   schemaVia _ _ = SBytes
@@ -512,13 +489,9 @@ instance Serialise NominalDiffTime where
   deserialiser = (realToFrac :: Double -> NominalDiffTime) <$> deserialiser
 
 instance Serialise a => Serialise [a] where
-  schemaVia _ ts = case constantSize (Proxy :: Proxy a) of
-    Nothing -> SList (substSchema (Proxy :: Proxy a) ts)
-    Just s -> SArray (VarInt s) (substSchema (Proxy :: Proxy a) ts)
-  toEncoding xs = case constantSize (Proxy :: Proxy a) of
-    Nothing -> BB.varInt (length xs)
+  schemaVia _ ts = SList (substSchema (Proxy :: Proxy a) ts)
+  toEncoding xs = BB.varInt (length xs)
       <> encodeMulti (\r -> foldr (encodeItem . toEncoding) r xs)
-    Just _ -> BB.varInt (length xs) <> foldMap toEncoding xs
   deserialiser = extractListBy deserialiser
 
 instance Serialise a => Serialise (V.Vector a) where
@@ -538,11 +511,6 @@ instance (UV.Unbox a, Serialise a) => Serialise (UV.Vector a) where
 
 extractArrayBy :: Deserialiser a -> Deserialiser (Int, Int -> a)
 extractArrayBy (Deserialiser plan) = Deserialiser $ Plan $ \case
-  SArray (VarInt size) s -> do
-    getItem <- unPlan plan s
-    return $ evalContT $ do
-      n <- decodeVarInt
-      asks $ \bs -> (n, \i -> decodeAt (size * i, size) getItem bs)
   SList s -> do
     getItem <- unPlan plan s
     return $ evalContT $ do
@@ -635,15 +603,8 @@ handleRecursion k = Plan $ \sch -> Strategy $ \decs -> case sch of
   s -> k s `unStrategy` decs
 
 instance (Serialise a, Serialise b) => Serialise (a, b) where
-  schemaVia _ ts = case (constantSize (Proxy :: Proxy a), constantSize (Proxy :: Proxy b)) of
-    (Just a, Just b) -> SProductFixed [(VarInt a, sa), (VarInt b, sb)]
-    _ -> SProduct [sa, sb]
-    where
-      sa = substSchema (Proxy :: Proxy a) ts
-      sb = substSchema (Proxy :: Proxy b) ts
-  toEncoding (a, b) = case constantSize (Proxy :: Proxy (a, b)) of
-    Nothing -> encodeMulti (encodeItem (toEncoding a) . encodeItem (toEncoding b))
-    Just _ -> toEncoding a <> toEncoding b
+  schemaVia _ ts = SProduct [substSchema (Proxy :: Proxy a) ts, substSchema (Proxy :: Proxy b) ts]
+  toEncoding (a, b) = encodeMulti (encodeItem (toEncoding a) . encodeItem (toEncoding b))
   deserialiser = Deserialiser $ Plan $ \case
     SProduct [sa, sb] -> do
       getA <- unwrapDeserialiser deserialiser sa
@@ -651,25 +612,15 @@ instance (Serialise a, Serialise b) => Serialise (a, b) where
       return $ evalContT $ do
         offA <- decodeVarInt
         asks $ \bs -> (decodeAt (0, offA) getA bs, decodeAt (offA, maxBound) getB bs)
-    SProductFixed [(VarInt la, sa), (VarInt lb, sb)] -> do
-      getA <- unwrapDeserialiser deserialiser sa
-      getB <- unwrapDeserialiser deserialiser sb
-      return $ \bs -> (decodeAt (0, la) getA bs, decodeAt (la, lb) getB bs)
     s -> unexpectedSchema "Serialise (a, b)" s
 
-  constantSize _ = (+) <$> constantSize (Proxy :: Proxy a) <*> constantSize (Proxy :: Proxy b)
-
 instance (Serialise a, Serialise b, Serialise c) => Serialise (a, b, c) where
-  schemaVia _ ts = case (constantSize (Proxy :: Proxy a), constantSize (Proxy :: Proxy b), constantSize (Proxy :: Proxy c)) of
-    (Just a, Just b, Just c) -> SProductFixed [(VarInt a, sa), (VarInt b, sb), (VarInt c, sc)]
-    _ -> SProduct [sa, sb, sc]
+  schemaVia _ ts = SProduct [sa, sb, sc]
     where
       sa = substSchema (Proxy :: Proxy a) ts
       sb = substSchema (Proxy :: Proxy b) ts
       sc = substSchema (Proxy :: Proxy c) ts
-  toEncoding (a, b, c) = case constantSize (Proxy :: Proxy (a, b, c)) of
-    Nothing -> encodeMulti $ encodeItem (toEncoding a) . encodeItem (toEncoding b) . encodeItem (toEncoding c)
-    Just _ -> toEncoding a <> toEncoding b <> toEncoding c
+  toEncoding (a, b, c) = encodeMulti $ encodeItem (toEncoding a) . encodeItem (toEncoding b) . encodeItem (toEncoding c)
   deserialiser = Deserialiser $ Plan $ \case
     SProduct [sa, sb, sc] -> do
       getA <- unwrapDeserialiser deserialiser sa
@@ -679,27 +630,16 @@ instance (Serialise a, Serialise b, Serialise c) => Serialise (a, b, c) where
         offA <- decodeVarInt
         offB <- decodeVarInt
         asks $ \bs -> (decodeAt (0, offA) getA bs, decodeAt (offA, offB) getB bs, decodeAt (offA + offB, maxBound) getC bs)
-    SProductFixed [(VarInt la, sa), (VarInt lb, sb), (VarInt lc, sc)] -> do
-      getA <- unwrapDeserialiser deserialiser sa
-      getB <- unwrapDeserialiser deserialiser sb
-      getC <- unwrapDeserialiser deserialiser sc
-      return $ \bs -> (decodeAt (0, la) getA bs, decodeAt (la, lb) getB bs, decodeAt (la + lb, lc) getC bs)
     s -> unexpectedSchema "Serialise (a, b, c)" s
 
-  constantSize _ = fmap sum $ sequence [constantSize (Proxy :: Proxy a), constantSize (Proxy :: Proxy b), constantSize (Proxy :: Proxy c)]
-
 instance (Serialise a, Serialise b, Serialise c, Serialise d) => Serialise (a, b, c, d) where
-  schemaVia _ ts = case (constantSize (Proxy :: Proxy a), constantSize (Proxy :: Proxy b), constantSize (Proxy :: Proxy c), constantSize (Proxy :: Proxy d)) of
-    (Just a, Just b, Just c, Just d) -> SProductFixed [(VarInt a, sa), (VarInt b, sb), (VarInt c, sc), (VarInt d, sd)]
-    _ -> SProduct [sa, sb, sc, sd]
+  schemaVia _ ts = SProduct [sa, sb, sc, sd]
     where
       sa = substSchema (Proxy :: Proxy a) ts
       sb = substSchema (Proxy :: Proxy b) ts
       sc = substSchema (Proxy :: Proxy c) ts
       sd = substSchema (Proxy :: Proxy d) ts
-  toEncoding (a, b, c, d) = case constantSize (Proxy :: Proxy (a, b, c)) of
-    Nothing -> encodeMulti $ encodeItem (toEncoding a) . encodeItem (toEncoding b) . encodeItem (toEncoding c) . encodeItem (toEncoding d)
-    Just _ -> toEncoding a <> toEncoding b <> toEncoding c <> toEncoding d
+  toEncoding (a, b, c, d) = encodeMulti $ encodeItem (toEncoding a) . encodeItem (toEncoding b) . encodeItem (toEncoding c) . encodeItem (toEncoding d)
   deserialiser = Deserialiser $ Plan $ \case
     SProduct [sa, sb, sc, sd] -> do
       getA <- unwrapDeserialiser deserialiser sa
@@ -711,15 +651,7 @@ instance (Serialise a, Serialise b, Serialise c, Serialise d) => Serialise (a, b
         offB <- decodeVarInt
         offC <- decodeVarInt
         asks $ \bs -> (decodeAt (0, offA) getA bs, decodeAt (offB, offA) getB bs, decodeAt (offA + offB, offC) getC bs, decodeAt (offA + offB + offC, maxBound) getD bs)
-    SProductFixed [(VarInt la, sa), (VarInt lb, sb), (VarInt lc, sc), (VarInt ld, sd)] -> do
-      getA <- unwrapDeserialiser deserialiser sa
-      getB <- unwrapDeserialiser deserialiser sb
-      getC <- unwrapDeserialiser deserialiser sc
-      getD <- unwrapDeserialiser deserialiser sd
-      return $ \bs -> (decodeAt (0, la) getA bs, decodeAt (la, lb) getB bs, decodeAt (la + lb, lc) getC bs, decodeAt (la + lb + lc, ld) getD bs)
     s -> unexpectedSchema "Serialise (a, b, c, d)" s
-
-  constantSize _ = fmap sum $ sequence [constantSize (Proxy :: Proxy a), constantSize (Proxy :: Proxy b), constantSize (Proxy :: Proxy c), constantSize (Proxy :: Proxy d)]
 
 instance (Serialise a, Serialise b) => Serialise (Either a b) where
   schemaVia _ ts = SVariant [("Left", substSchema (Proxy :: Proxy a) ts)
@@ -736,9 +668,6 @@ instance (Serialise a, Serialise b) => Serialise (Either a b) where
           0 -> Left <$> lift getA
           _ -> Right <$> lift getB
     s -> unexpectedSchema "Either (a, b)" s
-  constantSize _ = fmap (1+) $ max
-    <$> constantSize (Proxy :: Proxy a)
-    <*> constantSize (Proxy :: Proxy b)
 
 -- | Tries to extract a specific constructor of a variant. Useful for
 -- implementing backward-compatible deserialisers.

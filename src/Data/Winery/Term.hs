@@ -89,18 +89,12 @@ decodeTerm = go [] where
     SBytes -> p s TBytes
     Data.Winery.SText -> p s TText
     SUTCTime -> p s TUTCTime
-    SArray siz sch -> fmap TList <$> extractListBy (go points) `unwrapDeserialiser` SArray siz sch
     SList sch -> fmap TList <$> extractListBy (go points) `unwrapDeserialiser` SList sch
     SProduct schs -> do
       decoders <- traverse (unwrapDeserialiser $ go points) schs
       return $ evalContT $ do
         offsets <- V.toList <$> decodeOffsets (length decoders)
         asks $ \bs -> TProduct [decodeAt ofs dec bs | (dec, ofs) <- zip decoders offsets]
-    SProductFixed schs -> do
-      decoders <- traverse (\(VarInt n, sch) -> (,) n <$> unwrapDeserialiser (go points) sch) schs
-      let f bs ((n, dec) : decs) = dec bs : f (B.drop n bs) decs
-          f _ [] = []
-      return $ \bs -> TProduct $ f bs decoders
     SRecord schs -> do
       decoders <- traverse (\(name, sch) -> (,) name <$> unwrapDeserialiser (go points) sch) schs
       return $ evalContT $ do
