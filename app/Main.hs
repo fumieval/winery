@@ -2,6 +2,7 @@
 module Main where
 
 import Control.Monad
+import Control.Monad.State.Strict
 import qualified Data.Aeson as JSON
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
@@ -9,7 +10,6 @@ import Data.Text.Prettyprint.Doc
 import Data.Text.Prettyprint.Doc.Render.Terminal
 import qualified Data.Winery.Query as Q
 import Data.Winery.Query.Parser
-import Data.Winery.Term
 import Data.Winery
 import System.Console.GetOpt
 import System.Environment
@@ -56,7 +56,7 @@ app o q h = do
   let p
         | outputJSON o = pretty . T.decodeUtf8 . BL.toStrict . JSON.encode
         | otherwise = pretty
-  let getDec = getRight . getDecoderBy (Q.runQuery q (pure . p <$> decodeTerm))
+  let getDec = getRight . getDecoderBy (Q.runQuery q (Extractor (pure (pure . p))))
 
   printer <- case separateSchema o of
     Just mpath -> do
@@ -64,12 +64,12 @@ app o q h = do
       sch <- getRight $ deserialise bs
       when (printSchema o) $ putDoc $ pretty sch <> hardline
       dec <- getDec sch
-      return $ mapM_ putTerm . dec
+      return $ mapM_ putTerm . evalState dec
     Nothing -> return $ \bs_ -> do
       (s, bs) <- getRight $ splitSchema bs_
       dec <- getDec s
       when (printSchema o) $ putDoc $ pretty s <> hardline
-      mapM_ putTerm $ dec bs
+      mapM_ putTerm $ evalState dec bs
 
   case streamInput o of
     False -> B.hGetContents h >>= printer

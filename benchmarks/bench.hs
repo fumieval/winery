@@ -12,7 +12,6 @@ import GHC.Generics (Generic)
 import Gauge.Main
 import qualified Codec.Serialise as CBOR
 import qualified Data.Csv as CSV
-import Data.Winery.Term
 import System.Directory
 
 data Gender = Male | Female deriving (Show, Generic)
@@ -38,7 +37,7 @@ instance NFData TestRec where
 instance Serialise TestRec where
   schemaVia = gschemaViaRecord
   toEncoding = gtoEncodingRecord
-  deserialiser = gdeserialiserRecord Nothing
+  extractor = gextractorRecord Nothing
 
 instance B.Binary TestRec
 instance CBOR.Serialise TestRec

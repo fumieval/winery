@@ -43,7 +43,6 @@ library:
   ghc-options: -Wall -O2
   exposed-modules:
     - Data.Winery
-    - Data.Winery.Term
     - Data.Winery.Internal
     - Data.Winery.Internal.Builder
     - Data.Winery.Query
