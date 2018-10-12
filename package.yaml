@@ -44,7 +44,6 @@ library:
   exposed-modules:
     - Data.Winery
     - Data.Winery.Internal
-    - Data.Winery.Internal.Builder
     - Data.Winery.Query
     - Data.Winery.Query.Parser
 

@@ -8,7 +8,8 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 module Data.Winery.Internal
-  ( Encoding
+  ( unsignedVarInt
+  , varInt
   , Decoder
   , decodeVarInt
   , getWord8
@@ -30,9 +31,10 @@ import Control.Monad
 import Control.Monad.Fix
 import Control.Monad.State.Strict
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Internal as B
-import Data.Winery.Internal.Builder
 import Data.Bits
+import Data.Monoid ((<>))
 import Data.Text.Prettyprint.Doc (Doc)
 import Data.Text.Prettyprint.Doc.Render.Terminal (AnsiStyle)
 import qualified Data.Vector.Unboxed as U
@@ -40,6 +42,29 @@ import Data.Word
 import Foreign.ForeignPtr
 import Foreign.Storable
 import System.Endian
+
+unsignedVarInt :: (Bits a, Integral a) => a -> BB.Builder
+unsignedVarInt n
+  | n < 0x80 = BB.word8 (fromIntegral n)
+  | otherwise = BB.word8 (fromIntegral n `setBit` 7) <> uvarInt (unsafeShiftR n 7)
+{-# INLINE unsignedVarInt #-}
+
+varInt :: (Bits a, Integral a) => a -> BB.Builder
+varInt n
+  | n < 0 = case negate n of
+    n'
+      | n' < 0x40 -> BB.word8 (fromIntegral n' `setBit` 6)
+      | otherwise -> BB.word8 (0xc0 .|. fromIntegral n') <> uvarInt (unsafeShiftR n' 6)
+  | n < 0x40 = BB.word8 (fromIntegral n)
+  | otherwise = BB.word8 (fromIntegral n `setBit` 7 `clearBit` 6) <> uvarInt (unsafeShiftR n 6)
+{-# SPECIALISE varInt :: Int -> BB.Builder #-}
+
+uvarInt :: (Bits a, Integral a) => a -> BB.Builder
+uvarInt = go where
+  go m
+    | m < 0x80 = BB.word8 (fromIntegral m)
+    | otherwise = BB.word8 (setBit (fromIntegral m) 7) <> go (unsafeShiftR m 7)
+{-# INLINE uvarInt #-}
 
 type Decoder = State B.ByteString
 

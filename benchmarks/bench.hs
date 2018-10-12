@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveGeneric, OverloadedStrings, ScopedTypeVariables #-}
+{-# OPTIONS_GHC -ddump-simpl -ddump-to-file -dsuppress-all #-}
 import Control.DeepSeq
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString as B
@@ -36,7 +37,7 @@ instance NFData TestRec where
 
 instance Serialise TestRec where
   schemaVia = gschemaViaRecord
-  toEncoding = gtoEncodingRecord
+  toBuilder = gtoBuilderRecord
   extractor = gextractorRecord Nothing
 
 instance B.Binary TestRec

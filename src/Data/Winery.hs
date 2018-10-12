@@ -19,7 +19,7 @@ module Data.Winery
   , DecodeException(..)
   , schema
   -- * Standalone serialisation
-  , toEncodingWithSchema
+  , toBuilderWithSchema
   , serialise
   , deserialise
   , deserialiseBy
@@ -33,11 +33,6 @@ module Data.Winery
   , getDecoder
   , getDecoderBy
   , decodeCurrent
-  -- * Encoding combinators
-  , Encoding
-  , BB.getSize
-  , BB.toByteString
-  , BB.hPutEncoding
   -- * Decoding combinators
   , Plan(..)
   , extractListBy
@@ -57,11 +52,11 @@ module Data.Winery
   , GSerialiseRecord
   , gschemaViaRecord
   , GEncodeRecord
-  , gtoEncodingRecord
+  , gtoBuilderRecord
   , gextractorRecord
   , GSerialiseVariant
   , gschemaViaVariant
-  , gtoEncodingVariant
+  , gtoBuilderVariant
   , gextractorVariant
   -- * Preset schema
   , bootstrapSchema
@@ -72,8 +67,8 @@ import Control.Exception
 import Control.Monad.Trans.State.Strict
 import Control.Monad.Reader
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy as BL
-import qualified Data.Winery.Internal.Builder as BB
 import qualified Data.Aeson as J
 import Data.Bits
 import Data.Dynamic
@@ -319,15 +314,15 @@ class Typeable a => Serialise a where
   schemaVia :: Proxy a -> [TypeRep] -> Schema
 
   -- | Serialise a value.
-  toEncoding :: a -> Encoding
+  toBuilder :: a -> BB.Builder
 
   -- | The 'Extractor'
   extractor :: Extractor a
 
   default schemaVia :: (Generic a, GSerialiseVariant (Rep a)) => Proxy a -> [TypeRep] -> Schema
   schemaVia = gschemaViaVariant
-  default toEncoding :: (Generic a, GSerialiseVariant (Rep a)) => a -> Encoding
-  toEncoding = gtoEncodingVariant
+  default toBuilder :: (Generic a, GSerialiseVariant (Rep a)) => a -> BB.Builder
+  toBuilder = gtoBuilderVariant
   default extractor :: (Generic a, GSerialiseVariant (Rep a)) => Extractor a
   extractor = gextractorVariant
 
@@ -356,19 +351,19 @@ decodeCurrent = case getDecoder (schema (Proxy :: Proxy a)) of
 
 -- | Serialise a value along with its schema.
 serialise :: Serialise a => a -> B.ByteString
-serialise a = BB.toByteString $ toEncodingWithSchema a
+serialise = BL.toStrict . BB.toLazyByteString . toBuilderWithSchema
 {-# INLINE serialise #-}
 
 -- | Serialise a value along with its schema.
 writeFileSerialise :: Serialise a => FilePath -> a -> IO ()
 writeFileSerialise path a = withFile path WriteMode
-  $ \h -> BB.hPutEncoding h $ toEncodingWithSchema a
+  $ \h -> BB.hPutBuilder h $ toBuilderWithSchema a
 {-# INLINE writeFileSerialise #-}
 
-toEncodingWithSchema :: Serialise a => a -> Encoding
-toEncodingWithSchema a = mappend (BB.word8 currentSchemaVersion)
-  $ toEncoding (schema [a], a)
-{-# INLINE toEncodingWithSchema #-}
+toBuilderWithSchema :: Serialise a => a -> BB.Builder
+toBuilderWithSchema a = mappend (BB.word8 currentSchemaVersion)
+  $ toBuilder (schema [a], a)
+{-# INLINE toBuilderWithSchema #-}
 
 splitSchema :: B.ByteString -> Either StrategyError (Schema, B.ByteString)
 splitSchema bs_ = case B.uncons bs_ of
@@ -393,7 +388,7 @@ deserialiseBy d bs_ = do
 
 -- | Serialise a value without its schema.
 serialiseOnly :: Serialise a => a -> B.ByteString
-serialiseOnly = BB.toByteString . toEncoding
+serialiseOnly = BL.toStrict . BB.toLazyByteString . toBuilder
 {-# INLINE serialiseOnly #-}
 
 substSchema :: Serialise a => Proxy a -> [TypeRep] -> Schema
@@ -442,20 +437,20 @@ unexpectedSchema' subject expected actual = errorStrategy
 
 instance Serialise Schema where
   schemaVia _ _ = SSchema currentSchemaVersion
-  toEncoding = gtoEncodingVariant
+  toBuilder = gtoBuilderVariant
   extractor = Extractor $ Plan $ \case
     SSchema n -> unwrapExtractor gextractorVariant (bootstrapSchema n)
     s -> unwrapExtractor gextractorVariant s
 
 instance Serialise () where
   schemaVia _ _ = SProduct []
-  toEncoding = mempty
+  toBuilder = mempty
   extractor = pure ()
 
 instance Serialise Bool where
   schemaVia _ _ = SBool
-  toEncoding False = BB.word8 0
-  toEncoding True = BB.word8 1
+  toBuilder False = BB.word8 0
+  toBuilder True = BB.word8 1
   extractor = Extractor $ Plan $ \case
     SBool -> pure $ \case
       TBool b -> b
@@ -464,7 +459,7 @@ instance Serialise Bool where
 
 instance Serialise Word8 where
   schemaVia _ _ = SWord8
-  toEncoding = BB.word8
+  toBuilder = BB.word8
   extractor = Extractor $ Plan $ \case
     SWord8 -> pure $ \case
       TWord8 i -> i
@@ -473,7 +468,7 @@ instance Serialise Word8 where
 
 instance Serialise Word16 where
   schemaVia _ _ = SWord16
-  toEncoding = BB.word16
+  toBuilder = BB.word16LE
   extractor = Extractor $ Plan $ \case
     SWord16 -> pure $ \case
       TWord16 i -> i
@@ -482,7 +477,7 @@ instance Serialise Word16 where
 
 instance Serialise Word32 where
   schemaVia _ _ = SWord32
-  toEncoding = BB.word32
+  toBuilder = BB.word32LE
   extractor = Extractor $ Plan $ \case
     SWord32 -> pure $ \case
       TWord32 i -> i
@@ -491,7 +486,7 @@ instance Serialise Word32 where
 
 instance Serialise Word64 where
   schemaVia _ _ = SWord64
-  toEncoding = BB.word64
+  toBuilder = BB.word64LE
   extractor = Extractor $ Plan $ \case
     SWord64 -> pure $ \case
       TWord64 i -> i
@@ -500,7 +495,7 @@ instance Serialise Word64 where
 
 instance Serialise Word where
   schemaVia _ _ = SWord64
-  toEncoding = BB.word64 . fromIntegral
+  toBuilder = BB.word64LE . fromIntegral
   extractor = Extractor $ Plan $ \case
     SWord64 -> pure $ \case
       TWord64 i -> fromIntegral i
@@ -509,7 +504,7 @@ instance Serialise Word where
 
 instance Serialise Int8 where
   schemaVia _ _ = SInt8
-  toEncoding = BB.word8 . fromIntegral
+  toBuilder = BB.word8 . fromIntegral
   extractor = Extractor $ Plan $ \case
     SInt8 -> pure $ \case
       TInt8 i -> i
@@ -518,7 +513,7 @@ instance Serialise Int8 where
 
 instance Serialise Int16 where
   schemaVia _ _ = SInt16
-  toEncoding = BB.word16 . fromIntegral
+  toBuilder = BB.word16LE . fromIntegral
   extractor = Extractor $ Plan $ \case
     SInt16 -> pure $ \case
       TInt16 i -> i
@@ -527,7 +522,7 @@ instance Serialise Int16 where
 
 instance Serialise Int32 where
   schemaVia _ _ = SInt32
-  toEncoding = BB.word32 . fromIntegral
+  toBuilder = BB.word32LE . fromIntegral
   extractor = Extractor $ Plan $ \case
     SInt32 -> pure $ \case
       TInt32 i -> i
@@ -536,7 +531,7 @@ instance Serialise Int32 where
 
 instance Serialise Int64 where
   schemaVia _ _ = SInt64
-  toEncoding = BB.word64 . fromIntegral
+  toBuilder = BB.word64LE . fromIntegral
   extractor = Extractor $ Plan $ \case
     SInt64 -> pure $ \case
       TInt64 i -> i
@@ -545,7 +540,7 @@ instance Serialise Int64 where
 
 instance Serialise Int where
   schemaVia _ _ = SInteger
-  toEncoding = toEncoding . VarInt
+  toBuilder = toBuilder . VarInt
   extractor = Extractor $ Plan $ \case
     SInteger -> pure $ \case
       TInteger i -> fromIntegral i
@@ -554,7 +549,7 @@ instance Serialise Int where
 
 instance Serialise Float where
   schemaVia _ _ = SFloat
-  toEncoding = BB.word32 . unsafeCoerce
+  toBuilder = BB.word32LE . unsafeCoerce
   extractor = Extractor $ Plan $ \case
     SFloat -> pure $ \case
       TFloat x -> x
@@ -563,7 +558,7 @@ instance Serialise Float where
 
 instance Serialise Double where
   schemaVia _ _ = SDouble
-  toEncoding = BB.word64 . unsafeCoerce
+  toBuilder = BB.word64LE . unsafeCoerce
   extractor = Extractor $ Plan $ \case
     SDouble -> pure $ \case
       TDouble x -> x
@@ -572,7 +567,8 @@ instance Serialise Double where
 
 instance Serialise T.Text where
   schemaVia _ _ = SText
-  toEncoding = toEncoding . T.encodeUtf8
+  toBuilder = toBuilder . T.encodeUtf8
+  {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
     SText -> pure $ \case
       TText t -> t
@@ -585,8 +581,8 @@ newtype VarInt a = VarInt { getVarInt :: a } deriving (Show, Read, Eq, Ord, Enum
 
 instance (Typeable a, Bits a, Integral a) => Serialise (VarInt a) where
   schemaVia _ _ = SInteger
-  toEncoding = BB.varInt . getVarInt
-  {-# INLINE toEncoding #-}
+  toBuilder = varInt . getVarInt
+  {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
     SInteger -> pure $ \case
       TInteger i -> fromIntegral i
@@ -595,12 +591,12 @@ instance (Typeable a, Bits a, Integral a) => Serialise (VarInt a) where
 
 instance Serialise Integer where
   schemaVia _ _ = SInteger
-  toEncoding = toEncoding . VarInt
+  toBuilder = toBuilder . VarInt
   extractor = getVarInt <$> extractor
 
 instance Serialise Char where
   schemaVia _ _ = SChar
-  toEncoding = toEncoding . fromEnum
+  toBuilder = toBuilder . fromEnum
   extractor = Extractor $ Plan $ \case
     SChar -> pure $ \case
       TChar c -> c
@@ -610,8 +606,8 @@ instance Serialise Char where
 instance Serialise a => Serialise (Maybe a) where
   schemaVia _ ts = SVariant [("Nothing", SProduct [])
     , ("Just", substSchema (Proxy :: Proxy a) ts)]
-  toEncoding Nothing = BB.varInt (0 :: Word8)
-  toEncoding (Just a) = BB.varInt (1 :: Word8) <> toEncoding a
+  toBuilder Nothing = varInt (0 :: Word8)
+  toBuilder (Just a) = varInt (1 :: Word8) <> toBuilder a
   extractor = Extractor $ Plan $ \case
     SVariant [_, (_, sch)] -> do
       dec <- unwrapExtractor extractor sch
@@ -623,7 +619,8 @@ instance Serialise a => Serialise (Maybe a) where
 
 instance Serialise B.ByteString where
   schemaVia _ _ = SBytes
-  toEncoding bs = BB.varInt (B.length bs) <> BB.bytes bs
+  toBuilder bs = varInt (B.length bs) <> BB.byteString bs
+  {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
     SBytes -> pure $ \case
       TBytes bs -> bs
@@ -632,12 +629,12 @@ instance Serialise B.ByteString where
 
 instance Serialise BL.ByteString where
   schemaVia _ _ = SBytes
-  toEncoding = toEncoding . BL.toStrict
+  toBuilder = toBuilder . BL.toStrict
   extractor = BL.fromStrict <$> extractor
 
 instance Serialise UTCTime where
   schemaVia _ _ = SUTCTime
-  toEncoding = toEncoding . utcTimeToPOSIXSeconds
+  toBuilder = toBuilder . utcTimeToPOSIXSeconds
   extractor = Extractor $ Plan $ \case
     SUTCTime -> unwrapExtractor
       (posixSecondsToUTCTime <$> extractor)
@@ -646,29 +643,29 @@ instance Serialise UTCTime where
 
 instance Serialise NominalDiffTime where
   schemaVia _ = schemaVia (Proxy :: Proxy Double)
-  toEncoding = toEncoding . (realToFrac :: NominalDiffTime -> Double)
+  toBuilder = toBuilder . (realToFrac :: NominalDiffTime -> Double)
   extractor = (realToFrac :: Double -> NominalDiffTime) <$> extractor
 
 instance Serialise a => Serialise [a] where
   schemaVia _ ts = SVector (substSchema (Proxy :: Proxy a) ts)
-  toEncoding xs = BB.varInt (length xs)
-    <> foldMap toEncoding xs
+  toBuilder xs = varInt (length xs)
+      <> foldMap toBuilder xs
   extractor = V.toList <$> extractListBy extractor
 
 instance Serialise a => Serialise (V.Vector a) where
   schemaVia _ = schemaVia (Proxy :: Proxy [a])
-  toEncoding xs = BB.varInt (V.length xs)
-    <> foldMap toEncoding xs
+  toBuilder xs = varInt (V.length xs)
+    <> foldMap toBuilder xs
   extractor = extractListBy extractor
 
 instance (SV.Storable a, Serialise a) => Serialise (SV.Vector a) where
   schemaVia _ = schemaVia (Proxy :: Proxy [a])
-  toEncoding = toEncoding . (SV.convert :: SV.Vector a -> V.Vector a)
+  toBuilder = toBuilder . (SV.convert :: SV.Vector a -> V.Vector a)
   extractor = SV.convert <$> extractListBy extractor
 
 instance (UV.Unbox a, Serialise a) => Serialise (UV.Vector a) where
   schemaVia _ = schemaVia (Proxy :: Proxy [a])
-  toEncoding = toEncoding . (UV.convert :: UV.Vector a -> V.Vector a)
+  toBuilder = toBuilder . (UV.convert :: UV.Vector a -> V.Vector a)
   extractor = UV.convert <$> extractListBy extractor
 
 -- | Extract a list or an array of values.
@@ -684,37 +681,37 @@ extractListBy (Extractor plan) = Extractor $ Plan $ \case
 
 instance (Ord k, Serialise k, Serialise v) => Serialise (M.Map k v) where
   schemaVia _ = schemaVia (Proxy :: Proxy [(k, v)])
-  toEncoding = toEncoding . M.toList
+  toBuilder = toBuilder . M.toList
   extractor = M.fromList <$> extractor
 
 instance (Eq k, Hashable k, Serialise k, Serialise v) => Serialise (HM.HashMap k v) where
   schemaVia _ = schemaVia (Proxy :: Proxy [(k, v)])
-  toEncoding = toEncoding . HM.toList
+  toBuilder = toBuilder . HM.toList
   extractor = HM.fromList <$> extractor
 
 instance (Serialise v) => Serialise (IM.IntMap v) where
   schemaVia _ = schemaVia (Proxy :: Proxy [(Int, v)])
-  toEncoding = toEncoding . IM.toList
+  toBuilder = toBuilder . IM.toList
   extractor = IM.fromList <$> extractor
 
 instance (Ord a, Serialise a) => Serialise (S.Set a) where
   schemaVia _ = schemaVia (Proxy :: Proxy [a])
-  toEncoding = toEncoding . S.toList
+  toBuilder = toBuilder . S.toList
   extractor = S.fromList <$> extractor
 
 instance Serialise IS.IntSet where
   schemaVia _ = schemaVia (Proxy :: Proxy [Int])
-  toEncoding = toEncoding . IS.toList
+  toBuilder = toBuilder . IS.toList
   extractor = IS.fromList <$> extractor
 
 instance Serialise a => Serialise (Seq.Seq a) where
   schemaVia _ = schemaVia (Proxy :: Proxy [a])
-  toEncoding = toEncoding . toList
+  toBuilder = toBuilder . toList
   extractor = Seq.fromList <$> extractor
 
 instance Serialise Scientific where
   schemaVia _ = schemaVia (Proxy :: Proxy (Integer, Int))
-  toEncoding s = toEncoding (coefficient s, base10Exponent s)
+  toBuilder s = toBuilder (coefficient s, base10Exponent s)
   extractor = Extractor $ Plan $ \s -> case s of
     SWord8 -> f (fromIntegral :: Word8 -> Scientific) s
     SWord16 -> f (fromIntegral :: Word16 -> Scientific) s
@@ -762,7 +759,7 @@ handleRecursion k = Plan $ \sch -> Strategy $ \decs -> case sch of
 
 instance (Serialise a, Serialise b) => Serialise (a, b) where
   schemaVia _ ts = SProduct [substSchema (Proxy :: Proxy a) ts, substSchema (Proxy :: Proxy b) ts]
-  toEncoding (a, b) = toEncoding a <> toEncoding b
+  toBuilder (a, b) = toBuilder a <> toBuilder b
   extractor = Extractor $ Plan $ \case
     SProduct [sa, sb] -> do
       getA <- unwrapExtractor extractor sa
@@ -778,7 +775,7 @@ instance (Serialise a, Serialise b, Serialise c) => Serialise (a, b, c) where
       sa = substSchema (Proxy :: Proxy a) ts
       sb = substSchema (Proxy :: Proxy b) ts
       sc = substSchema (Proxy :: Proxy c) ts
-  toEncoding (a, b, c) = toEncoding a <> toEncoding b <> toEncoding c
+  toBuilder (a, b, c) = toBuilder a <> toBuilder b <> toBuilder c
   extractor = Extractor $ Plan $ \case
     SProduct [sa, sb, sc] -> do
       getA <- unwrapExtractor extractor sa
@@ -796,7 +793,7 @@ instance (Serialise a, Serialise b, Serialise c, Serialise d) => Serialise (a, b
       sb = substSchema (Proxy :: Proxy b) ts
       sc = substSchema (Proxy :: Proxy c) ts
       sd = substSchema (Proxy :: Proxy d) ts
-  toEncoding (a, b, c, d) = toEncoding a <> toEncoding b <> toEncoding c <> toEncoding d
+  toBuilder (a, b, c, d) = toBuilder a <> toBuilder b <> toBuilder c <> toBuilder d
   extractor = Extractor $ Plan $ \case
     SProduct [sa, sb, sc, sd] -> do
       getA <- unwrapExtractor extractor sa
@@ -811,8 +808,8 @@ instance (Serialise a, Serialise b, Serialise c, Serialise d) => Serialise (a, b
 instance (Serialise a, Serialise b) => Serialise (Either a b) where
   schemaVia _ ts = SVariant [("Left", substSchema (Proxy :: Proxy a) ts)
     , ("Right", substSchema (Proxy :: Proxy b) ts)]
-  toEncoding (Left a) = BB.word8 0 <> toEncoding a
-  toEncoding (Right b) = BB.word8 1 <> toEncoding b
+  toBuilder (Left a) = BB.word8 0 <> toBuilder a
+  toBuilder (Right b) = BB.word8 1 <> toBuilder b
   extractor = Extractor $ Plan $ \case
     SVariant [(_, sa), (_, sb)] -> do
       getA <- unwrapExtractor extractor sa
@@ -849,10 +846,10 @@ extractConstructor = extractConstructorBy extractor
 gschemaViaRecord :: forall proxy a. (GSerialiseRecord (Rep a), Generic a, Typeable a) => proxy a -> [TypeRep] -> Schema
 gschemaViaRecord p ts = SFix $ SRecord $ recordSchema (Proxy :: Proxy (Rep a)) (typeRep p : ts)
 
--- | Generic implementation of 'toEncoding' for a record.
-gtoEncodingRecord :: (GEncodeRecord (Rep a), Generic a) => a -> Encoding
-gtoEncodingRecord = recordEncoder . from
-{-# INLINE gtoEncodingRecord #-}
+-- | Generic implementation of 'toBuilder' for a record.
+gtoBuilderRecord :: (GEncodeRecord (Rep a), Generic a) => a -> BB.Builder
+gtoBuilderRecord = recordEncoder . from
+{-# INLINE gtoBuilderRecord #-}
 
 data FieldDecoder i a = FieldDecoder !i !(Maybe a) !(Plan (Term -> a))
 
@@ -882,14 +879,14 @@ gextractorRecord def = Extractor $ handleRecursion $ \case
 {-# INLINE gextractorRecord #-}
 
 class GEncodeRecord f where
-  recordEncoder :: f x -> Encoding
+  recordEncoder :: f x -> BB.Builder
 
 instance (GEncodeRecord f, GEncodeRecord g) => GEncodeRecord (f :*: g) where
   recordEncoder (f :*: g) = recordEncoder f <> recordEncoder g
   {-# INLINE recordEncoder #-}
 
 instance Serialise a => GEncodeRecord (S1 c (K1 i a)) where
-  recordEncoder (M1 (K1 a)) = toEncoding a
+  recordEncoder (M1 (K1 a)) = toBuilder a
   {-# INLINE recordEncoder #-}
 
 instance GEncodeRecord f => GEncodeRecord (C1 c f) where
@@ -928,7 +925,7 @@ instance (GSerialiseRecord f) => GSerialiseRecord (D1 c f) where
 
 class GSerialiseProduct f where
   productSchema :: proxy f -> [TypeRep] -> [Schema]
-  productEncoder :: f x -> Encoding
+  productEncoder :: f x -> BB.Builder
   productExtractor :: Compose (State Int) (TransFusion (FieldDecoder Int) ((->) Term)) (Term -> f x)
 
 instance GSerialiseProduct U1 where
@@ -938,7 +935,7 @@ instance GSerialiseProduct U1 where
 
 instance (Serialise a) => GSerialiseProduct (K1 i a) where
   productSchema _ ts = [substSchema (Proxy :: Proxy a) ts]
-  productEncoder (K1 a) = toEncoding a
+  productEncoder (K1 a) = toBuilder a
   productExtractor = Compose $ state $ \i ->
     ( TransFusion $ \k -> fmap (fmap K1) $ k $ FieldDecoder i Nothing (getExtractor extractor)
     , i + 1)
@@ -971,10 +968,10 @@ extractorProduct' sch = unexpectedSchema' "extractorProduct'" "a product" sch
 gschemaViaVariant :: forall proxy a. (GSerialiseVariant (Rep a), Typeable a, Generic a) => proxy a -> [TypeRep] -> Schema
 gschemaViaVariant p ts = SFix $ SVariant $ variantSchema (Proxy :: Proxy (Rep a)) (typeRep p : ts)
 
--- | Generic implementation of 'toEncoding' for an ADT.
-gtoEncodingVariant :: (GSerialiseVariant (Rep a), Generic a) => a -> Encoding
-gtoEncodingVariant = variantEncoder 0 . from
-{-# INLINE gtoEncodingVariant #-}
+-- | Generic implementation of 'toBuilder' for an ADT.
+gtoBuilderVariant :: (GSerialiseVariant (Rep a), Generic a) => a -> BB.Builder
+gtoBuilderVariant = variantEncoder 0 . from
+{-# INLINE gtoBuilderVariant #-}
 
 -- | Generic implementation of 'extractor' for an ADT.
 gextractorVariant :: forall a. (GSerialiseVariant (Rep a), Generic a, Typeable a)
@@ -997,7 +994,7 @@ gextractorVariant = Extractor $ handleRecursion $ \case
 class GSerialiseVariant f where
   variantCount :: proxy f -> Int
   variantSchema :: proxy f -> [TypeRep] -> [(T.Text, Schema)]
-  variantEncoder :: Int -> f x -> Encoding
+  variantEncoder :: Int -> f x -> BB.Builder
   variantExtractor :: [(T.Text, Schema -> Strategy' (Term -> f x))]
 
 instance (GSerialiseVariant f, GSerialiseVariant g) => GSerialiseVariant (f :+: g) where
@@ -1011,7 +1008,7 @@ instance (GSerialiseVariant f, GSerialiseVariant g) => GSerialiseVariant (f :+: 
 instance (GSerialiseProduct f, Constructor c) => GSerialiseVariant (C1 c f) where
   variantCount _ = 1
   variantSchema _ ts = [(T.pack $ conName (M1 undefined :: M1 i c f x), SProduct $ productSchema (Proxy :: Proxy f) ts)]
-  variantEncoder i (M1 a) = BB.varInt i <> productEncoder a
+  variantEncoder i (M1 a) = varInt i <> productEncoder a
   variantExtractor = [(T.pack $ conName (M1 undefined :: M1 i c f x)
     , fmap (fmap M1) . extractorProduct') ]
 
