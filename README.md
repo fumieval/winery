@@ -38,8 +38,8 @@ For user-defined datatypes, you can either define instances
 ```haskell
 instance Serialise Foo where
   schemaVia = gschemaViaRecord
-  toEncoding = gtoEncodingRecord
-  deserialiser = gdeserialiserRecord Nothing
+  toBuilder = gtoBuilderRecord
+  extractor = gextractorRecord Nothing
 ```
 
 for single-constructor records, or just
@@ -109,7 +109,7 @@ If having default values for missing fields is sufficient, you can pass a
 default value to `gdeserialiserRecord`:
 
 ```haskell
-  deserialiser = gdeserialiserRecord $ Just $ Foo "" 42 0
+  extractor = gextractorRecord $ Just $ Foo "" 42 0
 ```
 
 You can also build a custom deserialiser using the Alternative instance and combinators such as `extractField`, `extractConstructor`, etc.

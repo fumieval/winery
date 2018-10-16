@@ -34,6 +34,7 @@ module Data.Winery
   , getDecoderBy
   , decodeCurrent
   -- * Decoding combinators
+  , Term(..)
   , Plan(..)
   , extractListBy
   , extractField
@@ -45,6 +46,7 @@ module Data.Winery
   -- * Internal
   , unwrapExtractor
   , Strategy
+  , Strategy'
   , StrategyError
   , unexpectedSchema
   , unexpectedSchema'
