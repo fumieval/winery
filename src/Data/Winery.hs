@@ -615,7 +615,7 @@ instance Serialise a => Serialise (Maybe a) where
       dec <- unwrapExtractor extractor sch
       return $ \case
         TVariant 0 _ _ -> Nothing
-        TVariant _ _ v -> dec v
+        TVariant _ _ v -> Just $ dec v
         t -> throw $ InvalidTerm t
     s -> unexpectedSchema "Serialise (Maybe a)" s
 
