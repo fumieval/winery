@@ -31,7 +31,7 @@ import Control.Monad
 import Control.Monad.Fix
 import Control.Monad.State.Strict
 import qualified Data.ByteString as B
-import qualified Data.ByteString.Builder as BB
+import qualified Data.ByteString.FastBuilder as BB
 import qualified Data.ByteString.Internal as B
 import Data.Bits
 import Data.Monoid ((<>))
@@ -58,6 +58,7 @@ varInt n
   | n < 0x40 = BB.word8 (fromIntegral n)
   | otherwise = BB.word8 (fromIntegral n `setBit` 7 `clearBit` 6) <> uvarInt (unsafeShiftR n 6)
 {-# SPECIALISE varInt :: Int -> BB.Builder #-}
+{-# INLINEABLE varInt #-}
 
 uvarInt :: (Bits a, Integral a) => a -> BB.Builder
 uvarInt = go where

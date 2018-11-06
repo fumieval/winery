@@ -1,5 +1,5 @@
 {-# LANGUAGE DeriveGeneric, OverloadedStrings, ScopedTypeVariables #-}
-{-# OPTIONS_GHC -ddump-simpl -ddump-to-file -dsuppress-all #-}
+{-# OPTIONS_GHC -ddump-simpl -ddump-to-file -dsuppress-ticks #-}
 import Control.DeepSeq
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString as B
@@ -50,7 +50,7 @@ main = do
   values :: [TestRec] <- return $ B.decode $ BL.fromStrict binary
   let aValue = head values
   temp <- getTemporaryDirectory
-  defaultMain
+  deepseq values $ defaultMain
     [ bgroup "serialise/list"
       [ bench "winery" $ nf serialiseOnly values
       , bench "binary" $ nf (BL.toStrict . B.encode) values

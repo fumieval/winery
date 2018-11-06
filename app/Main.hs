@@ -83,7 +83,7 @@ main = getOpt Permute options <$> getArgs >>= \case
     let o = foldl (flip id) defaultOptions fs
     q <- case parse (parseQuery <* eof) "argument" $ T.pack qs of
       Left e -> do
-        hPutStrLn stderr $ parseErrorPretty e
+        hPutStrLn stderr $ errorBundlePretty e
         exitWith (ExitFailure 2)
       Right a -> pure a
     forM_ paths $ \case

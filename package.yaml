@@ -25,6 +25,7 @@ dependencies:
 - bytestring
 - containers
 - cpu
+- fast-builder
 - hashable
 - unordered-containers
 - scientific

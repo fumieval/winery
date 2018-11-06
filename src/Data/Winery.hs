@@ -69,7 +69,7 @@ import Control.Exception
 import Control.Monad.Trans.State.Strict
 import Control.Monad.Reader
 import qualified Data.ByteString as B
-import qualified Data.ByteString.Builder as BB
+import qualified Data.ByteString.FastBuilder as BB
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Aeson as J
 import Data.Bits
@@ -447,12 +447,14 @@ instance Serialise Schema where
 instance Serialise () where
   schemaVia _ _ = SProduct []
   toBuilder = mempty
+  {-# INLINE toBuilder #-}
   extractor = pure ()
 
 instance Serialise Bool where
   schemaVia _ _ = SBool
   toBuilder False = BB.word8 0
   toBuilder True = BB.word8 1
+  {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
     SBool -> pure $ \case
       TBool b -> b
@@ -462,6 +464,7 @@ instance Serialise Bool where
 instance Serialise Word8 where
   schemaVia _ _ = SWord8
   toBuilder = BB.word8
+  {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
     SWord8 -> pure $ \case
       TWord8 i -> i
@@ -471,6 +474,7 @@ instance Serialise Word8 where
 instance Serialise Word16 where
   schemaVia _ _ = SWord16
   toBuilder = BB.word16LE
+  {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
     SWord16 -> pure $ \case
       TWord16 i -> i
@@ -480,6 +484,7 @@ instance Serialise Word16 where
 instance Serialise Word32 where
   schemaVia _ _ = SWord32
   toBuilder = BB.word32LE
+  {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
     SWord32 -> pure $ \case
       TWord32 i -> i
@@ -489,6 +494,7 @@ instance Serialise Word32 where
 instance Serialise Word64 where
   schemaVia _ _ = SWord64
   toBuilder = BB.word64LE
+  {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
     SWord64 -> pure $ \case
       TWord64 i -> i
@@ -498,6 +504,7 @@ instance Serialise Word64 where
 instance Serialise Word where
   schemaVia _ _ = SWord64
   toBuilder = BB.word64LE . fromIntegral
+  {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
     SWord64 -> pure $ \case
       TWord64 i -> fromIntegral i
@@ -507,6 +514,7 @@ instance Serialise Word where
 instance Serialise Int8 where
   schemaVia _ _ = SInt8
   toBuilder = BB.word8 . fromIntegral
+  {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
     SInt8 -> pure $ \case
       TInt8 i -> i
@@ -516,6 +524,7 @@ instance Serialise Int8 where
 instance Serialise Int16 where
   schemaVia _ _ = SInt16
   toBuilder = BB.word16LE . fromIntegral
+  {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
     SInt16 -> pure $ \case
       TInt16 i -> i
@@ -525,6 +534,7 @@ instance Serialise Int16 where
 instance Serialise Int32 where
   schemaVia _ _ = SInt32
   toBuilder = BB.word32LE . fromIntegral
+  {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
     SInt32 -> pure $ \case
       TInt32 i -> i
@@ -534,6 +544,7 @@ instance Serialise Int32 where
 instance Serialise Int64 where
   schemaVia _ _ = SInt64
   toBuilder = BB.word64LE . fromIntegral
+  {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
     SInt64 -> pure $ \case
       TInt64 i -> i
@@ -543,6 +554,7 @@ instance Serialise Int64 where
 instance Serialise Int where
   schemaVia _ _ = SInteger
   toBuilder = toBuilder . VarInt
+  {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
     SInteger -> pure $ \case
       TInteger i -> fromIntegral i
@@ -552,6 +564,7 @@ instance Serialise Int where
 instance Serialise Float where
   schemaVia _ _ = SFloat
   toBuilder = BB.word32LE . unsafeCoerce
+  {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
     SFloat -> pure $ \case
       TFloat x -> x
@@ -560,7 +573,8 @@ instance Serialise Float where
 
 instance Serialise Double where
   schemaVia _ _ = SDouble
-  toBuilder = BB.word64LE . unsafeCoerce
+  toBuilder = BB.doubleLE
+  {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
     SDouble -> pure $ \case
       TDouble x -> x
@@ -594,11 +608,13 @@ instance (Typeable a, Bits a, Integral a) => Serialise (VarInt a) where
 instance Serialise Integer where
   schemaVia _ _ = SInteger
   toBuilder = toBuilder . VarInt
+  {-# INLINE toBuilder #-}
   extractor = getVarInt <$> extractor
 
 instance Serialise Char where
   schemaVia _ _ = SChar
   toBuilder = toBuilder . fromEnum
+  {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
     SChar -> pure $ \case
       TChar c -> c
@@ -610,6 +626,7 @@ instance Serialise a => Serialise (Maybe a) where
     , ("Just", substSchema (Proxy :: Proxy a) ts)]
   toBuilder Nothing = varInt (0 :: Word8)
   toBuilder (Just a) = varInt (1 :: Word8) <> toBuilder a
+  {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
     SVariant [_, (_, sch)] -> do
       dec <- unwrapExtractor extractor sch
@@ -632,11 +649,13 @@ instance Serialise B.ByteString where
 instance Serialise BL.ByteString where
   schemaVia _ _ = SBytes
   toBuilder = toBuilder . BL.toStrict
+  {-# INLINE toBuilder #-}
   extractor = BL.fromStrict <$> extractor
 
 instance Serialise UTCTime where
   schemaVia _ _ = SUTCTime
   toBuilder = toBuilder . utcTimeToPOSIXSeconds
+  {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
     SUTCTime -> unwrapExtractor
       (posixSecondsToUTCTime <$> extractor)
@@ -646,28 +665,33 @@ instance Serialise UTCTime where
 instance Serialise NominalDiffTime where
   schemaVia _ = schemaVia (Proxy :: Proxy Double)
   toBuilder = toBuilder . (realToFrac :: NominalDiffTime -> Double)
+  {-# INLINE toBuilder #-}
   extractor = (realToFrac :: Double -> NominalDiffTime) <$> extractor
 
 instance Serialise a => Serialise [a] where
   schemaVia _ ts = SVector (substSchema (Proxy :: Proxy a) ts)
   toBuilder xs = varInt (length xs)
       <> foldMap toBuilder xs
+  {-# INLINE toBuilder #-}
   extractor = V.toList <$> extractListBy extractor
 
 instance Serialise a => Serialise (V.Vector a) where
   schemaVia _ = schemaVia (Proxy :: Proxy [a])
   toBuilder xs = varInt (V.length xs)
     <> foldMap toBuilder xs
+  {-# INLINE toBuilder #-}
   extractor = extractListBy extractor
 
 instance (SV.Storable a, Serialise a) => Serialise (SV.Vector a) where
   schemaVia _ = schemaVia (Proxy :: Proxy [a])
   toBuilder = toBuilder . (SV.convert :: SV.Vector a -> V.Vector a)
+  {-# INLINE toBuilder #-}
   extractor = SV.convert <$> extractListBy extractor
 
 instance (UV.Unbox a, Serialise a) => Serialise (UV.Vector a) where
   schemaVia _ = schemaVia (Proxy :: Proxy [a])
   toBuilder = toBuilder . (UV.convert :: UV.Vector a -> V.Vector a)
+  {-# INLINE toBuilder #-}
   extractor = UV.convert <$> extractListBy extractor
 
 -- | Extract a list or an array of values.
@@ -684,36 +708,43 @@ extractListBy (Extractor plan) = Extractor $ Plan $ \case
 instance (Ord k, Serialise k, Serialise v) => Serialise (M.Map k v) where
   schemaVia _ = schemaVia (Proxy :: Proxy [(k, v)])
   toBuilder = toBuilder . M.toList
+  {-# INLINE toBuilder #-}
   extractor = M.fromList <$> extractor
 
 instance (Eq k, Hashable k, Serialise k, Serialise v) => Serialise (HM.HashMap k v) where
   schemaVia _ = schemaVia (Proxy :: Proxy [(k, v)])
   toBuilder = toBuilder . HM.toList
+  {-# INLINE toBuilder #-}
   extractor = HM.fromList <$> extractor
 
 instance (Serialise v) => Serialise (IM.IntMap v) where
   schemaVia _ = schemaVia (Proxy :: Proxy [(Int, v)])
   toBuilder = toBuilder . IM.toList
+  {-# INLINE toBuilder #-}
   extractor = IM.fromList <$> extractor
 
 instance (Ord a, Serialise a) => Serialise (S.Set a) where
   schemaVia _ = schemaVia (Proxy :: Proxy [a])
   toBuilder = toBuilder . S.toList
+  {-# INLINE toBuilder #-}
   extractor = S.fromList <$> extractor
 
 instance Serialise IS.IntSet where
   schemaVia _ = schemaVia (Proxy :: Proxy [Int])
   toBuilder = toBuilder . IS.toList
+  {-# INLINE toBuilder #-}
   extractor = IS.fromList <$> extractor
 
 instance Serialise a => Serialise (Seq.Seq a) where
   schemaVia _ = schemaVia (Proxy :: Proxy [a])
   toBuilder = toBuilder . toList
+  {-# INLINE toBuilder #-}
   extractor = Seq.fromList <$> extractor
 
 instance Serialise Scientific where
   schemaVia _ = schemaVia (Proxy :: Proxy (Integer, Int))
   toBuilder s = toBuilder (coefficient s, base10Exponent s)
+  {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \s -> case s of
     SWord8 -> f (fromIntegral :: Word8 -> Scientific) s
     SWord16 -> f (fromIntegral :: Word16 -> Scientific) s
@@ -762,6 +793,7 @@ handleRecursion k = Plan $ \sch -> Strategy $ \decs -> case sch of
 instance (Serialise a, Serialise b) => Serialise (a, b) where
   schemaVia _ ts = SProduct [substSchema (Proxy :: Proxy a) ts, substSchema (Proxy :: Proxy b) ts]
   toBuilder (a, b) = toBuilder a <> toBuilder b
+  {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
     SProduct [sa, sb] -> do
       getA <- unwrapExtractor extractor sa
@@ -778,6 +810,7 @@ instance (Serialise a, Serialise b, Serialise c) => Serialise (a, b, c) where
       sb = substSchema (Proxy :: Proxy b) ts
       sc = substSchema (Proxy :: Proxy c) ts
   toBuilder (a, b, c) = toBuilder a <> toBuilder b <> toBuilder c
+  {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
     SProduct [sa, sb, sc] -> do
       getA <- unwrapExtractor extractor sa
@@ -796,6 +829,7 @@ instance (Serialise a, Serialise b, Serialise c, Serialise d) => Serialise (a, b
       sc = substSchema (Proxy :: Proxy c) ts
       sd = substSchema (Proxy :: Proxy d) ts
   toBuilder (a, b, c, d) = toBuilder a <> toBuilder b <> toBuilder c <> toBuilder d
+  {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
     SProduct [sa, sb, sc, sd] -> do
       getA <- unwrapExtractor extractor sa
@@ -812,6 +846,7 @@ instance (Serialise a, Serialise b) => Serialise (Either a b) where
     , ("Right", substSchema (Proxy :: Proxy b) ts)]
   toBuilder (Left a) = BB.word8 0 <> toBuilder a
   toBuilder (Right b) = BB.word8 1 <> toBuilder b
+  {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
     SVariant [(_, sa), (_, sb)] -> do
       getA <- unwrapExtractor extractor sa
@@ -909,6 +944,7 @@ instance (GSerialiseRecord f, GSerialiseRecord g) => GSerialiseRecord (f :*: g) 
   recordExtractor def = (\f g -> (:*:) <$> f <*> g)
     <$> recordExtractor ((\(x :*: _) -> x) <$> def)
     <*> recordExtractor ((\(_ :*: x) -> x) <$> def)
+  {-# INLINE recordExtractor #-}
 
 instance (Serialise a, Selector c) => GSerialiseRecord (S1 c (K1 i a)) where
   recordSchema _ ts = [(T.pack $ selName (M1 undefined :: M1 i c (K1 i a) x), substSchema (Proxy :: Proxy a) ts)]
@@ -916,6 +952,7 @@ instance (Serialise a, Selector c) => GSerialiseRecord (S1 c (K1 i a)) where
     (T.pack $ selName (M1 undefined :: M1 i c (K1 i a) x))
     (unK1 . unM1 <$> def)
     (getExtractor extractor)
+  {-# INLINE recordExtractor #-}
 
 instance (GSerialiseRecord f) => GSerialiseRecord (C1 c f) where
   recordSchema _ = recordSchema (Proxy :: Proxy f)
