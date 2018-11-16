@@ -67,6 +67,7 @@ module Data.Winery
 import Control.Applicative
 import Control.Exception
 import Control.Monad.Trans.State.Strict
+import Control.Monad.Trans.Cont
 import Control.Monad.Reader
 import qualified Data.ByteString as B
 import qualified Data.ByteString.FastBuilder as BB
@@ -129,6 +130,57 @@ data Schema = SFix Schema -- ^ binds a fixpoint
   | SText
   | SUTCTime
   deriving (Show, Read, Eq, Generic)
+
+schemaToSize :: Schema -> Int
+schemaToSize = go [] where
+  go points = \case
+    SFix s -> fix $ \self -> go (self : points) s
+    SSelf i -> unsafeIndex (error "schemaToSize: unbound") points (fromIntegral i)
+    SVector _ -> 4
+    SProduct xs -> sum $ map schemaToSize xs
+    SRecord xs -> sum $ map (schemaToSize . snd) xs
+    SVariant _ -> 4
+    SSchema _ -> 1
+    SBool -> 1
+    SChar -> 2
+    SWord8 -> 1
+    SWord16 -> 2
+    SWord32 -> 4
+    SWord64 -> 8
+    SInt8 -> 1
+    SInt16 -> 2
+    SInt32 -> 4
+    SInt64 -> 8
+    SInteger -> 4
+    SFloat -> 4
+    SDouble -> 8
+    SBytes -> 4
+    SText -> 4
+    SUTCTime -> 8
+
+sliceItem :: Schema -> B.ByteString -> Int -> B.ByteString
+sliceItem s
+  | schemaIsVariable s = \bs n -> B.drop (fromIntegral (getWord32 (B.drop (siz * n) bs))) bs
+  | otherwise = \bs n -> B.drop (siz * n) bs
+  where
+    siz = schemaToSize s
+
+buildTable :: [Schema] -> UV.Vector (Int, Bool)
+buildTable schs = UV.zip (UV.scanl (+) 0 $ UV.fromList $ map schemaToSize schs) (UV.fromList $ map schemaIsVariable schs)
+
+runTable :: UV.Vector (Int, Bool) -> Decoder a -> Int -> Decoder a
+runTable tbl f i = case tbl UV.!? i of
+  Nothing -> error "runTable: impossible"
+  Just (ofs, False) -> f . B.drop ofs
+  Just (ofs, True) -> \bs -> f $ B.drop (fromIntegral $ getWord32 (B.drop ofs bs)) bs
+
+schemaIsVariable :: Schema -> Bool
+schemaIsVariable = \case
+  SVector _ -> True
+  SVariant _ -> True
+  SText -> True
+  SBytes -> True
+  _ -> False
 
 instance Pretty Schema where
   pretty = \case
@@ -214,36 +266,39 @@ decodeTerm :: Schema -> Decoder Term
 decodeTerm = go [] where
   go points = \case
     SSchema ver -> go points (bootstrapSchema ver)
-    SBool -> TBool . (/=0) <$> getWord8
-    Data.Winery.SChar -> TChar . toEnum <$> decodeVarInt
-    SWord8 -> TWord8 <$> getWord8
+    SBool -> TBool . (/=0) <$> evalContT getWord8
+    Data.Winery.SChar -> TChar . toEnum . fromEnum . getWord16
+    SWord8 -> TWord8 <$> evalContT getWord8
     SWord16 -> TWord16 <$> getWord16
     SWord32 -> TWord32 <$> getWord32
     SWord64 -> TWord64 <$> getWord64
-    SInt8 -> TInt8 . fromIntegral <$> getWord8
+    SInt8 -> TInt8 . fromIntegral <$> evalContT getWord8
     SInt16 -> TInt16 . fromIntegral <$> getWord16
     SInt32 -> TInt32 . fromIntegral <$> getWord32
     SInt64 -> TInt64 . fromIntegral <$> getWord64
-    SInteger -> TInteger <$> decodeVarInt
+    SInteger -> TInteger <$> evalContT decodeVarInt
     SFloat -> TFloat <$> unsafeCoerce getWord32
     SDouble -> TDouble <$> unsafeCoerce getWord64
-    SBytes -> do
+    SBytes -> evalContT $ do
       len <- decodeVarInt
-      TBytes <$> state (B.splitAt len)
-    Data.Winery.SText -> do
+      TBytes <$> asks (B.take len)
+    Data.Winery.SText -> evalContT $ do
       len <- decodeVarInt
-      TText . T.decodeUtf8 <$> state (B.splitAt len)
+      TText . T.decodeUtf8 <$> asks (B.take len)
     SUTCTime -> TUTCTime . posixSecondsToUTCTime <$> unsafeCoerce getWord64
-    SVector sch -> do
+    SVector sch -> evalContT $ do
       n <- decodeVarInt
-      TVector <$> V.replicateM n (go points sch)
-    SProduct schs -> TProduct <$> traverse (go points) schs
+      let f = sliceItem sch
+      asks $ \bs -> TVector $ V.map (go points sch . f bs) $ V.enumFromTo 0 (n - 1)
+    SProduct schs -> do
+      let tbl = buildTable schs
+      TProduct <$> traverse (\(i, s) -> runTable tbl (go points s) i) (zip [0..] schs)
     SRecord schs -> TRecord <$> traverse (\(k, s) -> (,) k <$> go points s) (V.fromList schs)
-    SVariant schs -> do
+    SVariant schs -> evalContT $ do
       let decoders = map (\(name, sch) -> (name, go points sch)) schs
       tag <- decodeVarInt
       let (name, dec) = unsafeIndex (throw InvalidTag) decoders tag
-      TVariant tag name <$> dec
+      asks $ TVariant tag name . dec
     SSelf i -> unsafeIndex (throw InvalidTag) points $ fromIntegral i
     SFix s' -> fix $ \a -> go (a : points) s'
 
@@ -251,7 +306,7 @@ decodeTerm = go [] where
 deserialiseTerm :: B.ByteString -> Either (Doc AnsiStyle) (Schema, Term)
 deserialiseTerm bs_ = do
   (sch, bs) <- splitSchema bs_
-  return (sch, decodeTerm sch `evalState` bs)
+  return (sch, decodeTerm sch bs)
 
 instance Pretty Term where
   pretty (TWord8 i) = pretty i
@@ -276,7 +331,7 @@ instance Pretty Term where
   pretty (TUTCTime t) = pretty (show t)
 
 -- | 'Extractor' is a 'Plan' that creates a function from Term.
-newtype Extractor a = Extractor { getExtractor :: Plan (Term -> a) }
+newtype Extractor a = Extractor { getExtractor :: Plan (Decoder a) }
   deriving Functor
 
 instance Applicative Extractor where
@@ -287,7 +342,7 @@ instance Alternative Extractor where
   empty = Extractor empty
   Extractor f <|> Extractor g = Extractor $ f <|> g
 
-type Strategy' = Strategy (Term -> Dynamic)
+type Strategy' = Strategy (Decoder Dynamic)
 
 newtype Plan a = Plan { unPlan :: Schema -> Strategy' a }
   deriving Functor
@@ -306,7 +361,7 @@ instance Alternative Plan where
   empty = Plan $ const empty
   Plan a <|> Plan b = Plan $ \s -> a s <|> b s
 
-unwrapExtractor :: Extractor a -> Schema -> Strategy' (Term -> a)
+unwrapExtractor :: Extractor a -> Schema -> Strategy' (Decoder a)
 unwrapExtractor (Extractor m) = unPlan m
 {-# INLINE unwrapExtractor #-}
 
@@ -340,8 +395,7 @@ getDecoder = getDecoderBy extractor
 
 -- | Get a decoder from a `Extractor` and a schema.
 getDecoderBy :: Extractor a -> Schema -> Either StrategyError (Decoder a)
-getDecoderBy (Extractor plan) sch = (\f -> f <$> decodeTerm sch)
-  <$> unPlan plan sch `unStrategy` []
+getDecoderBy (Extractor plan) sch = unPlan plan sch `unStrategy` []
 {-# INLINE getDecoderBy #-}
 
 -- | Decode a value with the current schema.
@@ -371,9 +425,10 @@ splitSchema :: B.ByteString -> Either StrategyError (Schema, B.ByteString)
 splitSchema bs_ = case B.uncons bs_ of
   Just (ver, bs) -> do
     m <- getDecoder $ SSchema ver
-    return $ flip evalState bs $ do
-      sch <- m
-      state $ \bs' -> ((sch, bs'), mempty)
+    return $ ($ bs) $ evalContT $ do
+      ofs <- decodeVarInt
+      sch <- lift m
+      asks $ \bs' -> (sch, B.drop ofs bs')
   Nothing -> Left "Unexpected empty string"
 
 -- | Deserialise a 'serialise'd 'B.Bytestring'.
@@ -386,7 +441,7 @@ deserialiseBy :: Extractor a -> B.ByteString -> Either StrategyError a
 deserialiseBy d bs_ = do
   (sch, bs) <- splitSchema bs_
   ext <- d `unwrapExtractor` sch `unStrategy` []
-  return $ ext $ evalState (decodeTerm sch) bs
+  return $ ext bs
 
 -- | Serialise a value without its schema.
 serialiseOnly :: Serialise a => a -> B.ByteString
@@ -456,9 +511,7 @@ instance Serialise Bool where
   toBuilder True = BB.word8 1
   {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
-    SBool -> pure $ \case
-      TBool b -> b
-      t -> throw $ InvalidTerm t
+    SBool -> pure $ toEnum . fromEnum . evalContT getWord8
     s -> unexpectedSchema "Serialise Bool" s
 
 instance Serialise Word8 where
@@ -466,9 +519,7 @@ instance Serialise Word8 where
   toBuilder = BB.word8
   {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
-    SWord8 -> pure $ \case
-      TWord8 i -> i
-      t -> throw $ InvalidTerm t
+    SWord8 -> pure $ evalContT getWord8
     s -> unexpectedSchema "Serialise Word8" s
 
 instance Serialise Word16 where
@@ -476,9 +527,7 @@ instance Serialise Word16 where
   toBuilder = BB.word16LE
   {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
-    SWord16 -> pure $ \case
-      TWord16 i -> i
-      t -> throw $ InvalidTerm t
+    SWord16 -> pure getWord16
     s -> unexpectedSchema "Serialise Word16" s
 
 instance Serialise Word32 where
@@ -486,9 +535,7 @@ instance Serialise Word32 where
   toBuilder = BB.word32LE
   {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
-    SWord32 -> pure $ \case
-      TWord32 i -> i
-      t -> throw $ InvalidTerm t
+    SWord32 -> pure getWord32
     s -> unexpectedSchema "Serialise Word32" s
 
 instance Serialise Word64 where
@@ -496,9 +543,7 @@ instance Serialise Word64 where
   toBuilder = BB.word64LE
   {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
-    SWord64 -> pure $ \case
-      TWord64 i -> i
-      t -> throw $ InvalidTerm t
+    SWord64 -> pure getWord64
     s -> unexpectedSchema "Serialise Word64" s
 
 instance Serialise Word where
@@ -506,9 +551,7 @@ instance Serialise Word where
   toBuilder = BB.word64LE . fromIntegral
   {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
-    SWord64 -> pure $ \case
-      TWord64 i -> fromIntegral i
-      t -> throw $ InvalidTerm t
+    SWord64 -> pure $ fromIntegral . getWord64
     s -> unexpectedSchema "Serialise Word" s
 
 instance Serialise Int8 where
@@ -516,9 +559,7 @@ instance Serialise Int8 where
   toBuilder = BB.word8 . fromIntegral
   {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
-    SInt8 -> pure $ \case
-      TInt8 i -> i
-      t -> throw $ InvalidTerm t
+    SInt8 -> pure $ fromIntegral . evalContT getWord8
     s -> unexpectedSchema "Serialise Int8" s
 
 instance Serialise Int16 where
@@ -526,9 +567,7 @@ instance Serialise Int16 where
   toBuilder = BB.word16LE . fromIntegral
   {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
-    SInt16 -> pure $ \case
-      TInt16 i -> i
-      t -> throw $ InvalidTerm t
+    SInt16 -> pure $ fromIntegral . getWord16
     s -> unexpectedSchema "Serialise Int16" s
 
 instance Serialise Int32 where
@@ -536,9 +575,7 @@ instance Serialise Int32 where
   toBuilder = BB.word32LE . fromIntegral
   {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
-    SInt32 -> pure $ \case
-      TInt32 i -> i
-      t -> throw $ InvalidTerm t
+    SInt32 -> pure $ fromIntegral . getWord32
     s -> unexpectedSchema "Serialise Int32" s
 
 instance Serialise Int64 where
@@ -546,19 +583,15 @@ instance Serialise Int64 where
   toBuilder = BB.word64LE . fromIntegral
   {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
-    SInt64 -> pure $ \case
-      TInt64 i -> i
-      t -> throw $ InvalidTerm t
+    SInt64 -> pure $ fromIntegral . getWord64
     s -> unexpectedSchema "Serialise Int64" s
 
 instance Serialise Int where
-  schemaVia _ _ = SInteger
-  toBuilder = toBuilder . VarInt
+  schemaVia _ _ = SInt64
+  toBuilder = toBuilder . (fromIntegral :: Int -> Int64)
   {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
-    SInteger -> pure $ \case
-      TInteger i -> fromIntegral i
-      t -> throw $ InvalidTerm t
+    SInt64 -> pure $ fromIntegral . getWord64
     s -> unexpectedSchema "Serialise Int" s
 
 instance Serialise Float where
@@ -566,9 +599,7 @@ instance Serialise Float where
   toBuilder = BB.word32LE . unsafeCoerce
   {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
-    SFloat -> pure $ \case
-      TFloat x -> x
-      t -> throw $ InvalidTerm t
+    SFloat -> pure $ unsafeCoerce getWord32
     s -> unexpectedSchema "Serialise Float" s
 
 instance Serialise Double where
@@ -576,9 +607,7 @@ instance Serialise Double where
   toBuilder = BB.doubleLE
   {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
-    SDouble -> pure $ \case
-      TDouble x -> x
-      t -> throw $ InvalidTerm t
+    SDouble -> pure $ unsafeCoerce getWord64
     s -> unexpectedSchema "Serialise Double" s
 
 instance Serialise T.Text where
@@ -586,9 +615,9 @@ instance Serialise T.Text where
   toBuilder = toBuilder . T.encodeUtf8
   {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
-    SText -> pure $ \case
-      TText t -> t
-      t -> throw $ InvalidTerm t
+    SText -> pure $ evalContT $ do
+      len <- decodeVarInt
+      asks $ T.decodeUtf8 . B.take len
     s -> unexpectedSchema "Serialise Text" s
 
 -- | Encoded in variable-length quantity.
@@ -600,9 +629,7 @@ instance (Typeable a, Bits a, Integral a) => Serialise (VarInt a) where
   toBuilder = varInt . getVarInt
   {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
-    SInteger -> pure $ \case
-      TInteger i -> fromIntegral i
-      t -> throw $ InvalidTerm t
+    SInteger -> pure $ evalContT decodeVarInt
     s -> unexpectedSchema "Serialise (VarInt a)" s
 
 instance Serialise Integer where
@@ -613,12 +640,10 @@ instance Serialise Integer where
 
 instance Serialise Char where
   schemaVia _ _ = SChar
-  toBuilder = toBuilder . fromEnum
+  toBuilder = toBuilder . (fromIntegral :: Int -> Word16) . fromEnum
   {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
-    SChar -> pure $ \case
-      TChar c -> c
-      t -> throw $ InvalidTerm t
+    SChar -> pure $ toEnum . fromIntegral . getWord16
     s -> unexpectedSchema "Serialise Char" s
 
 instance Serialise a => Serialise (Maybe a) where
@@ -630,10 +655,9 @@ instance Serialise a => Serialise (Maybe a) where
   extractor = Extractor $ Plan $ \case
     SVariant [_, (_, sch)] -> do
       dec <- unwrapExtractor extractor sch
-      return $ \case
-        TVariant 0 _ _ -> Nothing
-        TVariant _ _ v -> Just $ dec v
-        t -> throw $ InvalidTerm t
+      return $ evalContT $ getWord8 >>= \case
+        0 -> pure Nothing
+        _ -> asks $ Just . dec
     s -> unexpectedSchema "Serialise (Maybe a)" s
 
 instance Serialise B.ByteString where
@@ -641,9 +665,9 @@ instance Serialise B.ByteString where
   toBuilder bs = varInt (B.length bs) <> BB.byteString bs
   {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
-    SBytes -> pure $ \case
-      TBytes bs -> bs
-      t -> throw $ InvalidTerm t
+    SBytes -> pure $ evalContT $ do
+      len <- decodeVarInt
+      asks $ B.take len
     s -> unexpectedSchema "Serialise ByteString" s
 
 instance Serialise BL.ByteString where
@@ -670,15 +694,13 @@ instance Serialise NominalDiffTime where
 
 instance Serialise a => Serialise [a] where
   schemaVia _ ts = SVector (substSchema (Proxy :: Proxy a) ts)
-  toBuilder xs = varInt (length xs)
-      <> foldMap toBuilder xs
+  toBuilder xs = toBuilder (length xs) <> foldMap toBuilder xs
   {-# INLINE toBuilder #-}
   extractor = V.toList <$> extractListBy extractor
 
 instance Serialise a => Serialise (V.Vector a) where
   schemaVia _ = schemaVia (Proxy :: Proxy [a])
-  toBuilder xs = varInt (V.length xs)
-    <> foldMap toBuilder xs
+  toBuilder xs = varInt (V.length xs) <> foldMap toBuilder xs
   {-# INLINE toBuilder #-}
   extractor = extractListBy extractor
 
@@ -699,9 +721,11 @@ extractListBy :: Extractor a -> Extractor (V.Vector a)
 extractListBy (Extractor plan) = Extractor $ Plan $ \case
   SVector s -> do
     getItem <- unPlan plan s
-    return $ \case
-      TVector xs -> V.map getItem xs
-      t -> throw $ InvalidTerm t
+    let f = sliceItem s
+    return $ evalContT $ do
+      n <- decodeVarInt
+      asks $ \bs -> V.map (getItem . f bs)
+        $ V.enumFromTo 0 (n - 1)
   s -> unexpectedSchema' "extractListBy ..." "[a]" s
 {-# INLINE extractListBy #-}
 
@@ -770,20 +794,19 @@ extractField = extractFieldBy extractor
 extractFieldBy :: Typeable a => Extractor a -> T.Text -> Extractor a
 extractFieldBy (Extractor g) name = Extractor $ handleRecursion $ \case
   SRecord schs -> do
+    let tbl = buildTable $ map snd schs
     let schs' = [(k, (i, s)) | (i, (k, s)) <- zip [0..] schs]
     case lookup name schs' of
       Just (i, sch) -> do
         m <- unPlan g sch
-        return $ \case
-          TRecord xs -> maybe (error msg) (m . snd) $ xs V.!? i
-          t -> throw $ InvalidTerm t
+        return $ runTable tbl m i
       Nothing -> errorStrategy $ rep <> ": Schema not found in " <> pretty (map fst schs)
   s -> unexpectedSchema' rep "a record" s
   where
     rep = "extractFieldBy ... " <> dquotes (pretty name)
-    msg = "Data.Winery.extractFieldBy ... " <> show name <> ": impossible"
+--    msg = "Data.Winery.extractFieldBy ... " <> show name <> ": impossible"
 
-handleRecursion :: Typeable a => (Schema -> Strategy' (Term -> a)) -> Plan (Term -> a)
+handleRecursion :: Typeable a => (Schema -> Strategy' (Decoder a)) -> Plan (Decoder a)
 handleRecursion k = Plan $ \sch -> Strategy $ \decs -> case sch of
   SSelf i -> return $ fmap (`fromDyn` throw InvalidTag)
     $ unsafeIndex (error "Data.Winery.handleRecursion: unbound fixpoint") decs (fromIntegral i)
@@ -795,51 +818,12 @@ instance (Serialise a, Serialise b) => Serialise (a, b) where
   toBuilder (a, b) = toBuilder a <> toBuilder b
   {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
-    SProduct [sa, sb] -> do
+    SProduct xs@[sa, sb] -> do
+      let tbl = buildTable xs
       getA <- unwrapExtractor extractor sa
       getB <- unwrapExtractor extractor sb
-      return $ \case
-        TProduct [a, b] -> (getA a, getB b)
-        t -> throw $ InvalidTerm t
+      return $ (,) <$> runTable tbl getA 0 <*> runTable tbl getB 1
     s -> unexpectedSchema "Serialise (a, b)" s
-
-instance (Serialise a, Serialise b, Serialise c) => Serialise (a, b, c) where
-  schemaVia _ ts = SProduct [sa, sb, sc]
-    where
-      sa = substSchema (Proxy :: Proxy a) ts
-      sb = substSchema (Proxy :: Proxy b) ts
-      sc = substSchema (Proxy :: Proxy c) ts
-  toBuilder (a, b, c) = toBuilder a <> toBuilder b <> toBuilder c
-  {-# INLINE toBuilder #-}
-  extractor = Extractor $ Plan $ \case
-    SProduct [sa, sb, sc] -> do
-      getA <- unwrapExtractor extractor sa
-      getB <- unwrapExtractor extractor sb
-      getC <- unwrapExtractor extractor sc
-      return $ \case
-        TProduct [a, b, c] -> (getA a, getB b, getC c)
-        t -> throw $ InvalidTerm t
-    s -> unexpectedSchema "Serialise (a, b, c)" s
-
-instance (Serialise a, Serialise b, Serialise c, Serialise d) => Serialise (a, b, c, d) where
-  schemaVia _ ts = SProduct [sa, sb, sc, sd]
-    where
-      sa = substSchema (Proxy :: Proxy a) ts
-      sb = substSchema (Proxy :: Proxy b) ts
-      sc = substSchema (Proxy :: Proxy c) ts
-      sd = substSchema (Proxy :: Proxy d) ts
-  toBuilder (a, b, c, d) = toBuilder a <> toBuilder b <> toBuilder c <> toBuilder d
-  {-# INLINE toBuilder #-}
-  extractor = Extractor $ Plan $ \case
-    SProduct [sa, sb, sc, sd] -> do
-      getA <- unwrapExtractor extractor sa
-      getB <- unwrapExtractor extractor sb
-      getC <- unwrapExtractor extractor sc
-      getD <- unwrapExtractor extractor sd
-      return $ \case
-        TProduct [a, b, c, d] -> (getA a, getB b, getC c, getD d)
-        t -> throw $ InvalidTerm t
-    s -> unexpectedSchema "Serialise (a, b, c, d)" s
 
 instance (Serialise a, Serialise b) => Serialise (Either a b) where
   schemaVia _ ts = SVariant [("Left", substSchema (Proxy :: Proxy a) ts)
@@ -851,10 +835,11 @@ instance (Serialise a, Serialise b) => Serialise (Either a b) where
     SVariant [(_, sa), (_, sb)] -> do
       getA <- unwrapExtractor extractor sa
       getB <- unwrapExtractor extractor sb
-      return $ \case
-        TVariant 0 _ v -> Left $ getA v
-        TVariant _ _ v -> Right $ getB v
-        t -> throw $ InvalidTerm t
+      return $ evalContT $ do
+        i <- getWord8
+        asks $ \v -> case i of
+          (0 :: Word8) -> Left $ getA v
+          _ -> Right $ getB v
     s -> unexpectedSchema "Either (a, b)" s
 
 -- | Tries to extract a specific constructor of a variant. Useful for
@@ -866,11 +851,9 @@ extractConstructorBy d name = Extractor $ handleRecursion $ \case
       [(i, s)] -> fmap ((,) i) $ unwrapExtractor d s `unStrategy` decs
       _ -> Left $ rep <> ": Schema not found in " <> pretty (map fst schs0)
 
-    return $ \case
-      TVariant i _ v
-        | i == j -> Just $ dec v
-        | otherwise -> Nothing
-      t -> throw $ InvalidTerm t
+    return $ evalContT $ do
+      i <- decodeVarInt
+      asks $ \bs -> if i == j then Just $ dec bs else Nothing
   s -> unexpectedSchema' rep "a variant" s
   where
     rep = "extractConstructorBy ... " <> dquotes (pretty name)
@@ -888,7 +871,7 @@ gtoBuilderRecord :: (GEncodeRecord (Rep a), Generic a) => a -> BB.Builder
 gtoBuilderRecord = recordEncoder . from
 {-# INLINE gtoBuilderRecord #-}
 
-data FieldDecoder i a = FieldDecoder !i !(Maybe a) !(Plan (Term -> a))
+data FieldDecoder i a = FieldDecoder !i !(Maybe a) !(Plan (Decoder a))
 
 -- | Generic implementation of 'extractor' for a record.
 gextractorRecord :: forall a. (GSerialiseRecord (Rep a), Generic a, Typeable a)
@@ -896,16 +879,15 @@ gextractorRecord :: forall a. (GSerialiseRecord (Rep a), Generic a, Typeable a)
   -> Extractor a
 gextractorRecord def = Extractor $ handleRecursion $ \case
   SRecord schs -> Strategy $ \decs -> do
+    let tbl = buildTable $ map snd schs
     let schs' = [(k, (i, s)) | (i, (k, s)) <- zip [0..] schs]
-    let go :: FieldDecoder T.Text x -> Either StrategyError (Term -> x)
+    let go :: FieldDecoder T.Text x -> Either StrategyError (Decoder x)
         go (FieldDecoder name def' p) = case lookup name schs' of
           Nothing -> case def' of
             Just d -> Right (const d)
             Nothing -> Left $ rep <> ": Default value not found for " <> pretty name
           Just (i, sch) -> case p `unPlan` sch `unStrategy` decs of
-            Right getItem -> Right $ \case
-              TRecord xs -> maybe (error (show rep)) (getItem . snd) $ xs V.!? i
-              t -> throw $ InvalidTerm t
+            Right getItem -> Right $ runTable tbl getItem i
             Left e -> Left e
     m <- unTransFusion (recordExtractor $ from <$> def) go
     return (to . m)
@@ -936,7 +918,7 @@ instance GEncodeRecord f => GEncodeRecord (D1 c f) where
 
 class GSerialiseRecord f where
   recordSchema :: proxy f -> [TypeRep] -> [(T.Text, Schema)]
-  recordExtractor :: Maybe (f x) -> TransFusion (FieldDecoder T.Text) ((->) Term) (Term -> f x)
+  recordExtractor :: Maybe (f x) -> TransFusion (FieldDecoder T.Text) Decoder (Decoder (f x))
 
 instance (GSerialiseRecord f, GSerialiseRecord g) => GSerialiseRecord (f :*: g) where
   recordSchema _ ts = recordSchema (Proxy :: Proxy f) ts
@@ -965,7 +947,7 @@ instance (GSerialiseRecord f) => GSerialiseRecord (D1 c f) where
 class GSerialiseProduct f where
   productSchema :: proxy f -> [TypeRep] -> [Schema]
   productEncoder :: f x -> BB.Builder
-  productExtractor :: Compose (State Int) (TransFusion (FieldDecoder Int) ((->) Term)) (Term -> f x)
+  productExtractor :: Compose (State Int) (TransFusion (FieldDecoder Int) Decoder) (Decoder (f x))
 
 instance GSerialiseProduct U1 where
   productSchema _ _ = []
@@ -989,16 +971,15 @@ instance (GSerialiseProduct f, GSerialiseProduct g) => GSerialiseProduct (f :*: 
   productEncoder (f :*: g) = productEncoder f <> productEncoder g
   productExtractor = liftA2 (:*:) <$> productExtractor <*> productExtractor
 
-extractorProduct' :: GSerialiseProduct f => Schema -> Strategy' (Term -> f x)
+extractorProduct' :: GSerialiseProduct f => Schema -> Strategy' (Decoder (f x))
 extractorProduct' (SProduct schs) = Strategy $ \recs -> do
-  let go :: FieldDecoder Int x -> Either StrategyError (Term -> x)
+  let tbl = buildTable schs
+  let go :: FieldDecoder Int x -> Either StrategyError (Decoder x)
       go (FieldDecoder i _ p) = do
         getItem <- if i < length schs
           then unPlan p (schs !! i) `unStrategy` recs
           else Left "Data.Winery.gextractorProduct: insufficient fields"
-        return $ \case
-          TProduct xs -> getItem $ unsafeIndex (throw $ InvalidTerm (TProduct xs)) xs i
-          t -> throw $ InvalidTerm t
+        return $ runTable tbl getItem i
   m <- unTransFusion (getCompose productExtractor `evalState` 0) go
   return m
 extractorProduct' sch = unexpectedSchema' "extractorProduct'" "a product" sch
@@ -1022,9 +1003,9 @@ gextractorVariant = Extractor $ handleRecursion $ \case
           Nothing -> Left $ rep <> ": Schema not found for " <> pretty name
           Just f -> f sch `unStrategy` decs
       | (name, sch) <- schs0]
-    return $ \case
-      TVariant i _ v -> to $ maybe (throw InvalidTag) ($ v) $ ds' V.!? i
-      t -> throw $ InvalidTerm t
+    return $ evalContT $ do
+      i <- decodeVarInt
+      asks $ \bs -> to $ maybe (throw InvalidTag) ($ bs) $ ds' V.!? i
   s -> unexpectedSchema' rep "a variant" s
   where
     rep = "gextractorVariant :: Extractor "
@@ -1034,7 +1015,7 @@ class GSerialiseVariant f where
   variantCount :: proxy f -> Int
   variantSchema :: proxy f -> [TypeRep] -> [(T.Text, Schema)]
   variantEncoder :: Int -> f x -> BB.Builder
-  variantExtractor :: [(T.Text, Schema -> Strategy' (Term -> f x))]
+  variantExtractor :: [(T.Text, Schema -> Strategy' (Decoder (f x)))]
 
 instance (GSerialiseVariant f, GSerialiseVariant g) => GSerialiseVariant (f :+: g) where
   variantCount _ = variantCount (Proxy :: Proxy f) + variantCount (Proxy :: Proxy g)

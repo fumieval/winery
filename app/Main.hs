@@ -64,12 +64,12 @@ app o q h = do
       sch <- getRight $ deserialise bs
       when (printSchema o) $ putDoc $ pretty sch <> hardline
       dec <- getDec sch
-      return $ mapM_ putTerm . evalState dec
+      return $ mapM_ putTerm . dec
     Nothing -> return $ \bs_ -> do
       (s, bs) <- getRight $ splitSchema bs_
       dec <- getDec s
       when (printSchema o) $ putDoc $ pretty s <> hardline
-      mapM_ putTerm $ evalState dec bs
+      mapM_ putTerm $ dec bs
 
   case streamInput o of
     False -> B.hGetContents h >>= printer

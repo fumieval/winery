@@ -29,7 +29,7 @@ import Control.Applicative
 import Control.Exception
 import Control.Monad
 import Control.Monad.Fix
-import Control.Monad.State.Strict
+import Control.Monad.Trans.Cont
 import qualified Data.ByteString as B
 import qualified Data.ByteString.FastBuilder as BB
 import qualified Data.ByteString.Internal as B
@@ -67,19 +67,19 @@ uvarInt = go where
     | otherwise = BB.word8 (setBit (fromIntegral m) 7) <> go (unsafeShiftR m 7)
 {-# INLINE uvarInt #-}
 
-type Decoder = State B.ByteString
+type Decoder = (->) B.ByteString
 
-getWord8 :: Decoder Word8
-getWord8 = state $ \bs -> case B.uncons bs of
+getWord8 :: ContT r Decoder Word8
+getWord8 = ContT $ \k bs -> case B.uncons bs of
   Nothing -> throw InsufficientInput
-  Just (x, bs') -> (x, bs')
+  Just (x, b) -> k x b
 {-# INLINE getWord8 #-}
 
 data DecodeException = InsufficientInput
   | InvalidTag deriving (Eq, Show, Read)
 instance Exception DecodeException
 
-decodeVarInt :: (Num a, Bits a) => Decoder a
+decodeVarInt :: (Num a, Bits a) => ContT r Decoder a
 decodeVarInt = getWord8 >>= \case
   n | testBit n 7 -> do
       m <- getWord8 >>= go
@@ -97,21 +97,21 @@ decodeVarInt = getWord8 >>= \case
 {-# INLINE decodeVarInt #-}
 
 getWord16 :: Decoder Word16
-getWord16 = state $ \(B.PS fp ofs len) -> if len >= 2
-  then (B.accursedUnutterablePerformIO $ withForeignPtr fp
-    $ \ptr -> fromLE16 <$> peekByteOff ptr ofs, B.PS fp (ofs + 2) (len - 2))
+getWord16 (B.PS fp ofs len) = if len >= 2
+  then B.accursedUnutterablePerformIO $ withForeignPtr fp
+    $ \ptr -> fromLE16 <$> peekByteOff ptr ofs
   else throw InsufficientInput
 
 getWord32 :: Decoder Word32
-getWord32 = state $ \(B.PS fp ofs len) -> if len >= 4
-  then (B.accursedUnutterablePerformIO $ withForeignPtr fp
-    $ \ptr -> fromLE32 <$> peekByteOff ptr ofs, B.PS fp (ofs + 4) (len - 4))
+getWord32 (B.PS fp ofs len) = if len >= 4
+  then B.accursedUnutterablePerformIO $ withForeignPtr fp
+    $ \ptr -> fromLE32 <$> peekByteOff ptr ofs
   else throw InsufficientInput
 
 getWord64 :: Decoder Word64
-getWord64 = state $ \(B.PS fp ofs len) -> if len >= 8
-  then (B.accursedUnutterablePerformIO $ withForeignPtr fp
-    $ \ptr -> fromLE64 <$> peekByteOff ptr ofs, B.PS fp (ofs + 8) (len - 8))
+getWord64 (B.PS fp ofs len) = if len >= 8
+  then B.accursedUnutterablePerformIO $ withForeignPtr fp
+    $ \ptr -> fromLE64 <$> peekByteOff ptr ofs
   else throw InsufficientInput
 
 unsafeIndexV :: U.Unbox a => String -> U.Vector a -> Int -> a
