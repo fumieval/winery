@@ -97,6 +97,7 @@ import qualified Data.Sequence as Seq
 import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import qualified Data.Text.Encoding.Error as T
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
 import qualified Data.Vector.Unboxed as UV
@@ -475,7 +476,7 @@ instance Serialise T.Text where
   schemaVia _ _ = SText
   toEncoding = toEncoding . T.encodeUtf8
   deserialiser = Deserialiser $ Plan $ \case
-    SText -> pure T.decodeUtf8
+    SText -> pure $ T.decodeUtf8With T.lenientDecode
     s -> unexpectedSchema "Serialise Text" s
 
 -- | Encoded in variable-length quantity.
