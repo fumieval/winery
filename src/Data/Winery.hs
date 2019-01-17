@@ -7,6 +7,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
@@ -15,6 +16,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 module Data.Winery
   ( Schema(..)
+  , Tag(..)
   , Serialise(..)
   , DecodeException(..)
   , schema
@@ -86,7 +88,6 @@ import qualified Data.IntMap as IM
 import qualified Data.IntSet as IS
 import Data.List (elemIndex)
 import qualified Data.Map as M
-import Data.Monoid
 import Data.Word
 import Data.Winery.Internal
 import qualified Data.Sequence as Seq
@@ -101,6 +102,7 @@ import Data.Text.Prettyprint.Doc.Render.Terminal
 import Data.Time.Clock
 import Data.Time.Clock.POSIX
 import Data.Typeable
+import GHC.Exts (IsList(..), IsString(..))
 import GHC.Generics
 import System.IO
 import Unsafe.Coerce
@@ -128,7 +130,40 @@ data Schema = SFix Schema -- ^ binds a fixpoint
   | SBytes
   | SText
   | SUTCTime
+  | STag !Tag !Schema
   deriving (Show, Read, Eq, Generic)
+
+-- | Tag is an extra value that can be attached to a schema.
+data Tag = TagInt !Int
+  | TagStr !T.Text
+  | TagList ![Tag]
+  deriving (Show, Read, Eq, Generic)
+
+-- | Method definitions are rather arbitrary
+instance Num Tag where
+  s + t = ["+", s, t]
+  s - t = ["-", s, t]
+  s * t = ["*", s, t]
+  negate s = ["negate", s]
+  abs s = ["abs", s]
+  signum s = ["signum", s]
+  fromInteger = TagInt . fromInteger
+
+instance IsString Tag where
+  fromString = TagStr . fromString
+
+instance IsList Tag where
+  type Item Tag = Tag
+  fromList = TagList
+  toList (TagList xs) = xs
+  toList _ = []
+
+instance Serialise Tag
+
+instance Pretty Tag where
+  pretty (TagInt i) = pretty i
+  pretty (TagStr s) = pretty s
+  pretty (TagList xs) = list (map pretty xs)
 
 instance Pretty Schema where
   pretty = \case
@@ -157,6 +192,7 @@ instance Pretty Schema where
       [ nest 2 $ sep [pretty k, pretty vs] | (k, vs) <- ss]
     SFix sch -> group $ nest 2 $ sep ["μ", pretty sch]
     SSelf i -> "Self" <+> pretty i
+    STag t s -> nest 2 $ sep [pretty t <> ":", pretty s]
 
 -- | Common representation for any winery data.
 -- Handy for prettyprinting winery-serialised data.
@@ -246,6 +282,7 @@ decodeTerm = go [] where
       TVariant tag name <$> dec
     SSelf i -> unsafeIndex (throw InvalidTag) points $ fromIntegral i
     SFix s' -> fix $ \a -> go (a : points) s'
+    STag _ s -> go points s
 
 -- | Deserialise a 'serialise'd 'B.Bytestring'.
 deserialiseTerm :: B.ByteString -> Either (Doc AnsiStyle) (Schema, Term)
@@ -362,9 +399,9 @@ writeFileSerialise path a = withFile path WriteMode
   $ \h -> BB.hPutBuilder h $ toBuilderWithSchema a
 {-# INLINE writeFileSerialise #-}
 
-toBuilderWithSchema :: Serialise a => a -> BB.Builder
+toBuilderWithSchema :: forall a. Serialise a => a -> BB.Builder
 toBuilderWithSchema a = mappend (BB.word8 currentSchemaVersion)
-  $ toBuilder (schema [a], a)
+  $ toBuilder (schema (Proxy :: Proxy a), a)
 {-# INLINE toBuilderWithSchema #-}
 
 splitSchema :: B.ByteString -> Either StrategyError (Schema, B.ByteString)
@@ -424,7 +461,13 @@ bootstrapSchema 3 = SFix $ SVariant [("SFix",SProduct [SSelf 0])
   ,("SDouble",SProduct [])
   ,("SBytes",SProduct [])
   ,("SText",SProduct [])
-  ,("SUTCTime",SProduct [])]
+  ,("SUTCTime",SProduct [])
+  ,("STag",SProduct [stag, SSelf 0])]
+  where
+    stag = SFix $ SVariant
+      [("TagInt",SProduct [SInteger])
+      ,("TagStr",SProduct [SText])
+      ,("TagList",SProduct [SVector (SSelf 0)])]
 bootstrapSchema n = error $ "Unsupported version: " <> show n
 
 unexpectedSchema :: forall f a. Serialise a => Doc AnsiStyle -> Schema -> Strategy' (f a)
@@ -737,7 +780,7 @@ instance Serialise IS.IntSet where
 
 instance Serialise a => Serialise (Seq.Seq a) where
   schemaVia _ = schemaVia (Proxy :: Proxy [a])
-  toBuilder = toBuilder . toList
+  toBuilder = toBuilder . Data.Foldable.toList
   {-# INLINE toBuilder #-}
   extractor = Seq.fromList <$> extractor
 
