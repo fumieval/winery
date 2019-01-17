@@ -17,7 +17,7 @@ module Data.Winery.Internal
   , getWord32
   , getWord64
   , DecodeException(..)
-  , unsafeIndex
+  , indexDefault
   , unsafeIndexV
   , Strategy(..)
   , StrategyError
@@ -120,8 +120,8 @@ unsafeIndexV err xs i
   | otherwise = U.unsafeIndex xs i
 {-# INLINE unsafeIndexV #-}
 
-unsafeIndex :: a -> [a] -> Int -> a
-unsafeIndex err xs i = (xs ++ repeat err) !! i
+indexDefault :: a -> [a] -> Int -> a
+indexDefault err xs i = (xs ++ repeat err) !! i
 
 type StrategyError = Doc AnsiStyle
 

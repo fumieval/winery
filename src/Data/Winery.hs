@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -110,7 +111,7 @@ import Unsafe.Coerce
 data Schema = SFix Schema -- ^ binds a fixpoint
   | SSelf !Word8 -- ^ @SSelf n@ refers to the n-th innermost fixpoint
   | SVector !Schema
-  | SProduct [Schema]
+  | SProduct (V.Vector Schema)
   | SRecord [(T.Text, Schema)]
   | SVariant [(T.Text, Schema)]
   | SSchema !Word8
@@ -186,7 +187,7 @@ instance Pretty Schema where
     SText -> "Text"
     SUTCTime -> "UTCTime"
     SVector s -> "[" <> pretty s <> "]"
-    SProduct ss -> tupled $ map pretty ss
+    SProduct ss -> tupled $ map pretty (V.toList ss)
     SRecord ss -> align $ encloseSep "{ " " }" ", " [pretty k <+> "::" <+> pretty v | (k, v) <- ss]
     SVariant ss -> align $ encloseSep "( " " )" (flatAlt "| " " | ")
       [ nest 2 $ sep [pretty k, pretty vs] | (k, vs) <- ss]
@@ -213,7 +214,7 @@ data Term = TBool !Bool
   | TText !T.Text
   | TUTCTime !UTCTime
   | TVector (V.Vector Term)
-  | TProduct [Term]
+  | TProduct (V.Vector Term)
   | TRecord (V.Vector (T.Text, Term))
   | TVariant !Int !T.Text Term
   deriving Show
@@ -276,11 +277,11 @@ decodeTerm = go [] where
     SProduct schs -> TProduct <$> traverse (go points) schs
     SRecord schs -> TRecord <$> traverse (\(k, s) -> (,) k <$> go points s) (V.fromList schs)
     SVariant schs -> do
-      let decoders = map (\(name, sch) -> (name, go points sch)) schs
+      let !decoders = V.fromList $ map (\(name, sch) -> let !m = go points sch in (name, m)) schs
       tag <- decodeVarInt
-      let (name, dec) = unsafeIndex (throw InvalidTag) decoders tag
+      let (name, dec) = maybe (throw InvalidTag) id $ decoders V.!? tag
       TVariant tag name <$> dec
-    SSelf i -> unsafeIndex (throw InvalidTag) points $ fromIntegral i
+    SSelf i -> indexDefault (throw InvalidTag) points $ fromIntegral i
     SFix s' -> fix $ \a -> go (a : points) s'
     STag _ s -> go points s
 
@@ -307,7 +308,7 @@ instance Pretty Term where
   pretty (TChar x) = pretty x
   pretty (TFloat x) = pretty x
   pretty (TDouble x) = pretty x
-  pretty (TProduct xs) = tupled $ map pretty xs
+  pretty (TProduct xs) = tupled $ map pretty (V.toList xs)
   pretty (TRecord xs) = align $ encloseSep "{ " " }" ", " [group $ nest 2 $ vsep [pretty k <+> "=", pretty v] | (k, v) <- V.toList xs]
   pretty (TVariant _ tag x) = group $ nest 2 $ sep [pretty tag, pretty x]
   pretty (TUTCTime t) = pretty (show t)
@@ -829,7 +830,7 @@ extractFieldBy (Extractor g) name = Extractor $ handleRecursion $ \case
 handleRecursion :: Typeable a => (Schema -> Strategy' (Term -> a)) -> Plan (Term -> a)
 handleRecursion k = Plan $ \sch -> Strategy $ \decs -> case sch of
   SSelf i -> return $ fmap (`fromDyn` throw InvalidTag)
-    $ unsafeIndex (error "Data.Winery.handleRecursion: unbound fixpoint") decs (fromIntegral i)
+    $ indexDefault (error "Data.Winery.handleRecursion: unbound fixpoint") decs (fromIntegral i)
   SFix s -> mfix $ \a -> unPlan (handleRecursion k) s `unStrategy` (fmap toDyn a : decs)
   s -> k s `unStrategy` decs
 
@@ -1037,10 +1038,11 @@ extractorProduct' (SProduct schs) = Strategy $ \recs -> do
   let go :: FieldDecoder Int x -> Either StrategyError (Term -> x)
       go (FieldDecoder i _ p) = do
         getItem <- if i < length schs
-          then unPlan p (schs !! i) `unStrategy` recs
+          then unPlan p (schs V.! i) `unStrategy` recs
           else Left "Data.Winery.gextractorProduct: insufficient fields"
         return $ \case
-          TProduct xs -> getItem $ unsafeIndex (throw $ InvalidTerm (TProduct xs)) xs i
+          TProduct xs -> getItem $ maybe (throw $ InvalidTerm (TProduct xs)) id
+            $ xs V.!? i
           t -> throw $ InvalidTerm t
   m <- unTransFusion (getCompose productExtractor `evalState` 0) go
   return m
@@ -1089,7 +1091,7 @@ instance (GSerialiseVariant f, GSerialiseVariant g) => GSerialiseVariant (f :+: 
 
 instance (GSerialiseProduct f, Constructor c) => GSerialiseVariant (C1 c f) where
   variantCount _ = 1
-  variantSchema _ ts = [(T.pack $ conName (M1 undefined :: M1 i c f x), SProduct $ productSchema (Proxy :: Proxy f) ts)]
+  variantSchema _ ts = [(T.pack $ conName (M1 undefined :: M1 i c f x), SProduct $ V.fromList $ productSchema (Proxy :: Proxy f) ts)]
   variantEncoder i (M1 a) = varInt i <> productEncoder a
   variantExtractor = [(T.pack $ conName (M1 undefined :: M1 i c f x)
     , fmap (fmap M1) . extractorProduct') ]
