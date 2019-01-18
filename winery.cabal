@@ -1,0 +1,155 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.31.1.
+--
+-- see: https://github.com/sol/hpack
+--
+-- hash: 623c7bc4f9a598efe1b3c88daa7caa8eb92f1fb6dcb09741f1b0eb22fba2d34d
+
+name:           winery
+version:        1
+synopsis:       Sustainable serialisation library
+description:    Please see the README on Github at <https://github.com/fumieval/winery#readme>
+category:       Data, Codec, Parsing, Serialization
+homepage:       https://github.com/fumieval/winery#readme
+bug-reports:    https://github.com/fumieval/winery/issues
+author:         Fumiaki Kinoshita
+maintainer:     fumiexcel@gmail.com
+copyright:      Copyright (c) 2018 Fumiaki Kinoshita
+license:        BSD3
+license-file:   LICENSE
+build-type:     Simple
+extra-source-files:
+    README.md
+    ChangeLog.md
+
+source-repository head
+  type: git
+  location: https://github.com/fumieval/winery
+
+library
+  exposed-modules:
+      Data.Winery
+      Data.Winery.Base
+      Data.Winery.Internal
+      Data.Winery.Query
+      Data.Winery.Query.Parser
+  other-modules:
+      Paths_winery
+  hs-source-dirs:
+      src
+  ghc-options: -Wall -O2
+  build-depends:
+      aeson
+    , base >=4.7 && <5
+    , bytestring
+    , containers
+    , cpu
+    , fast-builder
+    , hashable
+    , megaparsec >=6.0.0
+    , mtl
+    , prettyprinter
+    , prettyprinter-ansi-terminal
+    , scientific
+    , semigroups
+    , text
+    , time
+    , transformers
+    , unordered-containers
+    , vector
+  default-language: Haskell2010
+
+executable winery
+  main-is: Main.hs
+  other-modules:
+      Paths_winery
+  hs-source-dirs:
+      app
+  build-depends:
+      aeson
+    , base >=4.7 && <5
+    , bytestring
+    , containers
+    , cpu
+    , fast-builder
+    , hashable
+    , megaparsec >=6.0.0
+    , mtl
+    , prettyprinter
+    , prettyprinter-ansi-terminal
+    , scientific
+    , semigroups
+    , text
+    , time
+    , transformers
+    , unordered-containers
+    , vector
+    , winery
+  default-language: Haskell2010
+
+test-suite spec
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      Paths_winery
+  hs-source-dirs:
+      test
+  build-depends:
+      QuickCheck
+    , aeson
+    , base >=4.7 && <5
+    , bytestring
+    , containers
+    , cpu
+    , fast-builder
+    , hashable
+    , megaparsec >=6.0.0
+    , mtl
+    , prettyprinter
+    , prettyprinter-ansi-terminal
+    , scientific
+    , semigroups
+    , text
+    , time
+    , transformers
+    , unordered-containers
+    , vector
+    , winery
+  default-language: Haskell2010
+
+benchmark bench-winery
+  type: exitcode-stdio-1.0
+  main-is: bench.hs
+  other-modules:
+      Paths_winery
+  hs-source-dirs:
+      benchmarks
+  ghc-options: -O2
+  build-depends:
+      aeson
+    , base >=4.7 && <5
+    , binary
+    , bytestring
+    , cassava
+    , containers
+    , cpu
+    , deepseq
+    , directory
+    , fast-builder
+    , gauge
+    , hashable
+    , megaparsec >=6.0.0
+    , mtl
+    , prettyprinter
+    , prettyprinter-ansi-terminal
+    , scientific
+    , semigroups
+    , serialise
+    , text
+    , time
+    , transformers
+    , unordered-containers
+    , vector
+    , winery
+  default-language: Haskell2010
