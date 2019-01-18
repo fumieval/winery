@@ -1,5 +1,5 @@
 name:                winery
-version:             "0.3.1"
+version:             "1"
 github:              "fumieval/winery"
 license:             BSD3
 author:              "Fumiaki Kinoshita"
@@ -27,6 +27,7 @@ dependencies:
 - bytestring
 - containers
 - cpu
+- fast-builder
 - hashable
 - unordered-containers
 - scientific
@@ -45,9 +46,8 @@ library:
   ghc-options: -Wall -O2
   exposed-modules:
     - Data.Winery
-    - Data.Winery.Term
+    - Data.Winery.Base
     - Data.Winery.Internal
-    - Data.Winery.Internal.Builder
     - Data.Winery.Query
     - Data.Winery.Query.Parser
 

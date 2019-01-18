@@ -1,3 +1,8 @@
+# 1
+
+* Changed the encoding more compact
+* Decoders are now stateful
+
 # 0.3
 
 * Supported `UTCTime`

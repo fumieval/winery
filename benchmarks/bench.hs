@@ -1,4 +1,6 @@
 {-# LANGUAGE DeriveGeneric, OverloadedStrings, ScopedTypeVariables #-}
+{-# LANGUAGE DerivingVia #-}
+{-# OPTIONS_GHC -ddump-simpl -ddump-to-file -dsuppress-all #-}
 import Control.DeepSeq
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString as B
@@ -12,7 +14,6 @@ import GHC.Generics (Generic)
 import Gauge.Main
 import qualified Codec.Serialise as CBOR
 import qualified Data.Csv as CSV
-import Data.Winery.Term
 import System.Directory
 
 data Gender = Male | Female deriving (Show, Generic)
@@ -31,14 +32,10 @@ data TestRec = TestRec
   , latitude :: !Double
   , longitude :: !Double
   } deriving (Show, Generic)
+  deriving Serialise via WineryRecord TestRec
 
 instance NFData TestRec where
   rnf TestRec{} = ()
-
-instance Serialise TestRec where
-  schemaVia = gschemaViaRecord
-  toEncoding = gtoEncodingRecord
-  deserialiser = gdeserialiserRecord Nothing
 
 instance B.Binary TestRec
 instance CBOR.Serialise TestRec
@@ -50,7 +47,7 @@ main = do
   values :: [TestRec] <- return $ B.decode $ BL.fromStrict binary
   let aValue = head values
   temp <- getTemporaryDirectory
-  defaultMain
+  deepseq values $ defaultMain
     [ bgroup "serialise/list"
       [ bench "winery" $ nf serialiseOnly values
       , bench "binary" $ nf (BL.toStrict . B.encode) values

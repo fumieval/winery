@@ -8,21 +8,17 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 module Data.Winery.Internal
-  ( Encoding
-  , EncodingMulti
-  , encodeMulti
-  , encodeItem
-  , Decoder
-  , decodeAt
+  ( unsignedVarInt
+  , varInt
+  , Decoder(..)
+  , evalDecoder
   , decodeVarInt
-  , Offsets
-  , decodeOffsets
   , getWord8
+  , getWord16
+  , getWord32
+  , getWord64
   , DecodeException(..)
-  , word16be
-  , word32be
-  , word64be
-  , unsafeIndex
+  , indexDefault
   , unsafeIndexV
   , Strategy(..)
   , StrategyError
@@ -34,40 +30,71 @@ import Control.Applicative
 import Control.Exception
 import Control.Monad
 import Control.Monad.Fix
-import Control.Monad.ST
-import Control.Monad.Trans.Cont
 import qualified Data.ByteString as B
-import qualified Data.ByteString.Unsafe as B
+import qualified Data.ByteString.FastBuilder as BB
 import qualified Data.ByteString.Internal as B
-import Data.Winery.Internal.Builder
 import Data.Bits
-import Data.Dynamic
+import Data.Monoid ((<>))
 import Data.Text.Prettyprint.Doc (Doc)
 import Data.Text.Prettyprint.Doc.Render.Terminal (AnsiStyle)
 import qualified Data.Vector.Unboxed as U
-import qualified Data.Vector.Unboxed.Mutable as UM
 import Data.Word
 import Foreign.ForeignPtr
 import Foreign.Storable
 import System.Endian
 
-type Decoder = (->) B.ByteString
+unsignedVarInt :: (Bits a, Integral a) => a -> BB.Builder
+unsignedVarInt n
+  | n < 0x80 = BB.word8 (fromIntegral n)
+  | otherwise = BB.word8 (fromIntegral n `setBit` 7) <> uvarInt (unsafeShiftR n 7)
+{-# INLINE unsignedVarInt #-}
 
-decodeAt :: (Int, Int) -> Decoder a -> Decoder a
-decodeAt (i, l) m = m . B.take l . B.drop i
-{-# INLINE decodeAt #-}
+varInt :: (Bits a, Integral a) => a -> BB.Builder
+varInt n
+  | n < 0 = case negate n of
+    n'
+      | n' < 0x40 -> BB.word8 (fromIntegral n' `setBit` 6)
+      | otherwise -> BB.word8 (0xc0 .|. fromIntegral n') <> uvarInt (unsafeShiftR n' 6)
+  | n < 0x40 = BB.word8 (fromIntegral n)
+  | otherwise = BB.word8 (fromIntegral n `setBit` 7 `clearBit` 6) <> uvarInt (unsafeShiftR n 6)
+{-# SPECIALISE varInt :: Int -> BB.Builder #-}
+{-# INLINEABLE varInt #-}
 
-getWord8 :: ContT r Decoder Word8
-getWord8 = ContT $ \k bs -> case B.uncons bs of
+uvarInt :: (Bits a, Integral a) => a -> BB.Builder
+uvarInt = go where
+  go m
+    | m < 0x80 = BB.word8 (fromIntegral m)
+    | otherwise = BB.word8 (setBit (fromIntegral m) 7) <> go (unsafeShiftR m 7)
+{-# INLINE uvarInt #-}
+
+newtype Decoder a = Decoder { runDecoder :: B.ByteString -> (a, B.ByteString) }
+  deriving Functor
+
+evalDecoder :: Decoder a -> B.ByteString -> a
+evalDecoder m = fst . runDecoder m
+{-# INLINE evalDecoder #-}
+
+instance Applicative Decoder where
+  pure a = Decoder $ \bs -> (a, bs)
+  m <*> k = Decoder $ \bs -> case runDecoder m bs of
+    (f, bs') -> case runDecoder k bs' of
+      (a, bs'') -> (f a, bs'')
+
+instance Monad Decoder where
+  m >>= k = Decoder $ \bs -> case runDecoder m bs of
+    (a, bs') -> runDecoder (k a) bs'
+
+getWord8 :: Decoder Word8
+getWord8 = Decoder $ \bs -> case B.uncons bs of
   Nothing -> throw InsufficientInput
-  Just (x, bs') -> k x $! bs'
+  Just (x, bs') -> (x, bs')
 {-# INLINE getWord8 #-}
 
 data DecodeException = InsufficientInput
   | InvalidTag deriving (Eq, Show, Read)
 instance Exception DecodeException
 
-decodeVarInt :: (Num a, Bits a) => ContT r Decoder a
+decodeVarInt :: (Num a, Bits a) => Decoder a
 decodeVarInt = getWord8 >>= \case
   n | testBit n 7 -> do
       m <- getWord8 >>= go
@@ -84,60 +111,23 @@ decodeVarInt = getWord8 >>= \case
       | otherwise = return $ fromIntegral n
 {-# INLINE decodeVarInt #-}
 
-word16be :: B.ByteString -> Word16
-word16be = \s -> if B.length s >= 2
-  then
-    (fromIntegral (s `B.unsafeIndex` 0) `unsafeShiftL` 8) .|.
-    (fromIntegral (s `B.unsafeIndex` 1))
+getWord16 :: Decoder Word16
+getWord16 = Decoder $ \(B.PS fp ofs len) -> if len >= 2
+  then (B.accursedUnutterablePerformIO $ withForeignPtr fp
+    $ \ptr -> fromLE16 <$> peekByteOff ptr ofs, B.PS fp (ofs + 2) (len - 2))
   else throw InsufficientInput
 
-word32be :: B.ByteString -> Word32
-word32be = \s -> if B.length s >= 4
-  then
-    (fromIntegral (s `B.unsafeIndex` 0) `unsafeShiftL` 24) .|.
-    (fromIntegral (s `B.unsafeIndex` 1) `unsafeShiftL` 16) .|.
-    (fromIntegral (s `B.unsafeIndex` 2) `unsafeShiftL`  8) .|.
-    (fromIntegral (s `B.unsafeIndex` 3) )
+getWord32 :: Decoder Word32
+getWord32 = Decoder $ \(B.PS fp ofs len) -> if len >= 4
+  then (B.accursedUnutterablePerformIO $ withForeignPtr fp
+    $ \ptr -> fromLE32 <$> peekByteOff ptr ofs, B.PS fp (ofs + 4) (len - 4))
   else throw InsufficientInput
 
-word64be :: B.ByteString -> Word64
-word64be (B.PS fp ofs len)
-  | len >= 8 = B.accursedUnutterablePerformIO $ withForeignPtr fp
-    $ \ptr -> fromBE64 <$> peekByteOff ptr ofs
-  | otherwise = throw InsufficientInput
-
-data EncodingMulti = EncodingMulti0
-    | EncodingMulti !Encoding !Encoding
-
-encodeMulti :: (EncodingMulti -> EncodingMulti) -> Encoding
-encodeMulti f = case f EncodingMulti0 of
-  EncodingMulti0 -> mempty
-  EncodingMulti r s -> mappend r s
-{-# INLINE encodeMulti #-}
-
-encodeItem :: Encoding -> EncodingMulti -> EncodingMulti
-encodeItem e EncodingMulti0 = EncodingMulti mempty e
-encodeItem e (EncodingMulti a b) = EncodingMulti
-  (mappend (varInt (getSize e)) a) (mappend e b)
-{-# INLINE encodeItem #-}
-
-type Offsets = U.Vector (Int, Int)
-
-decodeOffsets :: Int -> ContT r Decoder Offsets
-decodeOffsets 0 = pure U.empty
-decodeOffsets n = accum <$> U.replicateM (n - 1) decodeVarInt where
-  accum xs = runST $ do
-    r <- UM.unsafeNew (U.length xs + 1)
-    let go s i
-          | i == U.length xs = do
-            UM.unsafeWrite r i (s, maxBound)
-            U.unsafeFreeze r
-          | otherwise = do
-            let x = U.unsafeIndex xs i
-            let s' = s + x
-            UM.unsafeWrite r i (s, x)
-            go s' (i + 1)
-    go 0 0
+getWord64 :: Decoder Word64
+getWord64 = Decoder $ \(B.PS fp ofs len) -> if len >= 8
+  then (B.accursedUnutterablePerformIO $ withForeignPtr fp
+    $ \ptr -> fromLE64 <$> peekByteOff ptr ofs, B.PS fp (ofs + 8) (len - 8))
+  else throw InsufficientInput
 
 unsafeIndexV :: U.Unbox a => String -> U.Vector a -> Int -> a
 unsafeIndexV err xs i
@@ -145,35 +135,35 @@ unsafeIndexV err xs i
   | otherwise = U.unsafeIndex xs i
 {-# INLINE unsafeIndexV #-}
 
-unsafeIndex :: String -> [a] -> Int -> a
-unsafeIndex err xs i = (xs ++ repeat (error err)) !! i
+indexDefault :: a -> [a] -> Int -> a
+indexDefault err xs i = (xs ++ repeat err) !! i
 
 type StrategyError = Doc AnsiStyle
 
-newtype Strategy a = Strategy { unStrategy :: [Decoder Dynamic] -> Either StrategyError a }
+newtype Strategy r a = Strategy { unStrategy :: [r] -> Either StrategyError a }
   deriving Functor
 
-instance Applicative Strategy where
+instance Applicative (Strategy r) where
   pure = return
   (<*>) = ap
 
-instance Monad Strategy where
+instance Monad (Strategy r) where
   return = Strategy . const . Right
   m >>= k = Strategy $ \decs -> case unStrategy m decs of
     Right a -> unStrategy (k a) decs
     Left e -> Left e
 
-instance Alternative Strategy where
+instance Alternative (Strategy r) where
   empty = Strategy $ const $ Left "empty"
   Strategy a <|> Strategy b = Strategy $ \decs -> case a decs of
     Left _ -> b decs
     Right x -> Right x
 
-instance MonadFix Strategy where
+instance MonadFix (Strategy r) where
   mfix f = Strategy $ \r -> mfix $ \a -> unStrategy (f a) r
   {-# INLINE mfix #-}
 
-errorStrategy :: Doc AnsiStyle -> Strategy a
+errorStrategy :: Doc AnsiStyle -> Strategy r a
 errorStrategy = Strategy . const . Left
 
 newtype TransFusion f g a = TransFusion { unTransFusion :: forall h. Applicative h => (forall x. f x -> h (g x)) -> h a }
