@@ -2,6 +2,9 @@
 
 * Changed the encoding more compact
 * Decoders are now stateful
+* Significantly improved the performance
+* `decodeCurrent` is now a method of `Serialise`
+* Added `STag`
 
 # 0.3
 

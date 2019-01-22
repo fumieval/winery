@@ -32,13 +32,10 @@ serialiseOnly :: Serialise a => a -> B.ByteString
 getDecoder :: Serialise a => Schema -> Either StrategyError (ByteString -> a)
 ```
 
-For user-defined datatypes, you can either define instances
+For user-defined datatypes, you can derive
 
 ```haskell
-instance Serialise Foo where
-  schemaVia = gschemaViaRecord
-  toBuilder = gtoBuilderRecord
-  extractor = gextractorRecord Nothing
+  deriving Serialise via WineryRecord Foo
 ```
 
 for single-constructor records, or just
@@ -78,6 +75,7 @@ data Schema = SFix Schema -- ^ binds a fixpoint
   | SBytes
   | SText
   | SUTCTime
+  | STag Tag
 ```
 
 The `Serialise` instance is derived by generics.
@@ -87,6 +85,13 @@ There are some special schemata:
 * `SSchema n` is a schema of schema. The winery library stores the concrete schema of `Schema` for each version, so it can deserialise data even if the schema changes.
 * `SFix` binds a fixpoint.
 * `SSelf n` refers to the n-th innermost fixpoint bound by `SFix`. This allows it to provide schemata for inductive datatypes.
+* `STag` attaches a tag to a schema which can aid backward compatibility and/or inspectability.
+
+```haskell
+data Tag = TagInt !Int
+  | TagStr !T.Text
+  | TagList ![Tag]
+```
 
 ## Backward compatibility
 
