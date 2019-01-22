@@ -43,7 +43,7 @@ dependencies:
 
 library:
   source-dirs: src
-  ghc-options: -Wall -O2
+  ghc-options: -Wall -O2 -Wcompat
   exposed-modules:
     - Data.Winery
     - Data.Winery.Base
@@ -54,6 +54,7 @@ library:
 executables:
   winery:
     source-dirs: app
+    ghc-options: -Wall -O2 -Wcompat
     main: Main.hs
     dependencies:
       - winery

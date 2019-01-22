@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 623c7bc4f9a598efe1b3c88daa7caa8eb92f1fb6dcb09741f1b0eb22fba2d34d
+-- hash: 9de019995cf39df30ccab1ea472fefdcb8fd2378b7f4c50b93d68f17ea159db4
 
 name:           winery
 version:        1
@@ -18,6 +18,7 @@ maintainer:     fumiexcel@gmail.com
 copyright:      Copyright (c) 2018 Fumiaki Kinoshita
 license:        BSD3
 license-file:   LICENSE
+tested-with:    GHC == 7.10.1, GHC == 8.4.1, GHC == 8.6.1
 build-type:     Simple
 extra-source-files:
     README.md
@@ -38,7 +39,7 @@ library
       Paths_winery
   hs-source-dirs:
       src
-  ghc-options: -Wall -O2
+  ghc-options: -Wall -O2 -Wcompat
   build-depends:
       aeson
     , base >=4.7 && <5
@@ -66,6 +67,7 @@ executable winery
       Paths_winery
   hs-source-dirs:
       app
+  ghc-options: -Wall -O2 -Wcompat
   build-depends:
       aeson
     , base >=4.7 && <5

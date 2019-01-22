@@ -2,7 +2,6 @@
 module Main where
 
 import Control.Monad
-import Control.Monad.State.Strict
 import qualified Data.Aeson as JSON
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
