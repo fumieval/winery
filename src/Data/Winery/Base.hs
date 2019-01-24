@@ -227,6 +227,7 @@ instance Pretty Term where
   pretty (TDouble x) = pretty x
   pretty (TProduct xs) = tupled $ map pretty (V.toList xs)
   pretty (TRecord xs) = align $ encloseSep "{ " " }" ", " [group $ nest 2 $ vsep [pretty k <+> "=", pretty v] | (k, v) <- V.toList xs]
+  pretty (TVariant _ tag (TProduct xs)) = group $ nest 2 $ sep $ pretty tag : map pretty (V.toList xs)
   pretty (TVariant _ tag x) = group $ nest 2 $ sep [pretty tag, pretty x]
   pretty (TUTCTime t) = pretty (show t)
 
