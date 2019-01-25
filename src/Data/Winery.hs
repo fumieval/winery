@@ -208,7 +208,7 @@ serialise = BL.toStrict . BB.toLazyByteString . toBuilderWithSchema
 
 -- | Serialise a value along with its schema.
 writeFileSerialise :: Serialise a => FilePath -> a -> IO ()
-writeFileSerialise path a = withFile path WriteMode
+writeFileSerialise path a = withBinaryFile path WriteMode
   $ \h -> BB.hPutBuilder h $ toBuilderWithSchema a
 {-# INLINE writeFileSerialise #-}
 
