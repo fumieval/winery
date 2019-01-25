@@ -247,11 +247,6 @@ serialiseOnly :: Serialise a => a -> B.ByteString
 serialiseOnly = BL.toStrict . BB.toLazyByteString . toBuilder
 {-# INLINE serialiseOnly #-}
 
-substSchema :: Serialise a => Proxy a -> [TypeRep] -> Schema
-substSchema p ts
-  | Just i <- elemIndex (typeRep p) ts = SSelf $ fromIntegral i
-  | otherwise = schemaVia p ts
-
 unexpectedSchema :: forall f a. Serialise a => Doc AnsiStyle -> Schema -> Strategy' (f a)
 unexpectedSchema subject actual = unexpectedSchema' subject
   (pretty $ schema (Proxy :: Proxy a)) actual
@@ -465,7 +460,7 @@ instance Serialise Char where
 
 instance Serialise a => Serialise (Maybe a) where
   schemaVia _ ts = SVariant [("Nothing", SProduct [])
-    , ("Just", substSchema (Proxy :: Proxy a) ts)]
+    , ("Just", schemaVia (Proxy :: Proxy a) ts)]
   toBuilder Nothing = varInt (0 :: Word8)
   toBuilder (Just a) = varInt (1 :: Word8) <> toBuilder a
   {-# INLINE toBuilder #-}
@@ -520,7 +515,7 @@ instance Serialise NominalDiffTime where
   decodeCurrent = (realToFrac :: Double -> NominalDiffTime) <$> decodeCurrent
 
 instance Serialise a => Serialise [a] where
-  schemaVia _ ts = SVector (substSchema (Proxy :: Proxy a) ts)
+  schemaVia _ ts = SVector (schemaVia (Proxy :: Proxy a) ts)
   toBuilder xs = varInt (length xs)
       <> foldMap toBuilder xs
   {-# INLINE toBuilder #-}
@@ -667,7 +662,7 @@ handleRecursion k = Plan $ \sch -> Strategy $ \decs -> case sch of
   s -> k s `unStrategy` decs
 
 instance (Serialise a, Serialise b) => Serialise (a, b) where
-  schemaVia _ ts = SProduct [substSchema (Proxy :: Proxy a) ts, substSchema (Proxy :: Proxy b) ts]
+  schemaVia _ ts = SProduct [schemaVia (Proxy :: Proxy a) ts, schemaVia (Proxy :: Proxy b) ts]
   toBuilder (a, b) = toBuilder a <> toBuilder b
   {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
@@ -683,9 +678,9 @@ instance (Serialise a, Serialise b) => Serialise (a, b) where
 instance (Serialise a, Serialise b, Serialise c) => Serialise (a, b, c) where
   schemaVia _ ts = SProduct [sa, sb, sc]
     where
-      sa = substSchema (Proxy :: Proxy a) ts
-      sb = substSchema (Proxy :: Proxy b) ts
-      sc = substSchema (Proxy :: Proxy c) ts
+      sa = schemaVia (Proxy :: Proxy a) ts
+      sb = schemaVia (Proxy :: Proxy b) ts
+      sc = schemaVia (Proxy :: Proxy c) ts
   toBuilder (a, b, c) = toBuilder a <> toBuilder b <> toBuilder c
   {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
@@ -702,10 +697,10 @@ instance (Serialise a, Serialise b, Serialise c) => Serialise (a, b, c) where
 instance (Serialise a, Serialise b, Serialise c, Serialise d) => Serialise (a, b, c, d) where
   schemaVia _ ts = SProduct [sa, sb, sc, sd]
     where
-      sa = substSchema (Proxy :: Proxy a) ts
-      sb = substSchema (Proxy :: Proxy b) ts
-      sc = substSchema (Proxy :: Proxy c) ts
-      sd = substSchema (Proxy :: Proxy d) ts
+      sa = schemaVia (Proxy :: Proxy a) ts
+      sb = schemaVia (Proxy :: Proxy b) ts
+      sc = schemaVia (Proxy :: Proxy c) ts
+      sd = schemaVia (Proxy :: Proxy d) ts
   toBuilder (a, b, c, d) = toBuilder a <> toBuilder b <> toBuilder c <> toBuilder d
   {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
@@ -721,8 +716,8 @@ instance (Serialise a, Serialise b, Serialise c, Serialise d) => Serialise (a, b
   decodeCurrent = (,,,) <$> decodeCurrent <*> decodeCurrent <*> decodeCurrent <*> decodeCurrent
 
 instance (Serialise a, Serialise b) => Serialise (Either a b) where
-  schemaVia _ ts = SVariant [("Left", substSchema (Proxy :: Proxy a) ts)
-    , ("Right", substSchema (Proxy :: Proxy b) ts)]
+  schemaVia _ ts = SVariant [("Left", schemaVia (Proxy :: Proxy a) ts)
+    , ("Right", schemaVia (Proxy :: Proxy b) ts)]
   toBuilder (Left a) = BB.word8 0 <> toBuilder a
   toBuilder (Right b) = BB.word8 1 <> toBuilder b
   {-# INLINE toBuilder #-}
@@ -763,7 +758,9 @@ extractConstructor = extractConstructorBy extractor
 
 -- | Generic implementation of 'schemaVia' for a record.
 gschemaViaRecord :: forall proxy a. (GSerialiseRecord (Rep a), Generic a, Typeable a) => proxy a -> [TypeRep] -> Schema
-gschemaViaRecord p ts = SFix $ SRecord $ recordSchema (Proxy :: Proxy (Rep a)) (typeRep p : ts)
+gschemaViaRecord p ts
+  | Just i <- elemIndex (typeRep p) ts = SSelf $ fromIntegral i
+  | otherwise = SFix $ SRecord $ recordSchema (Proxy :: Proxy (Rep a)) (typeRep p : ts)
 
 -- | Generic implementation of 'toBuilder' for a record.
 gtoBuilderRecord :: (GEncodeRecord (Rep a), Generic a) => a -> BB.Builder
@@ -844,7 +841,7 @@ instance (GSerialiseRecord f, GSerialiseRecord g) => GSerialiseRecord (f :*: g) 
   {-# INLINE recordDecoder #-}
 
 instance (Serialise a, Selector c) => GSerialiseRecord (S1 c (K1 i a)) where
-  recordSchema _ ts = [(T.pack $ selName (M1 undefined :: M1 i c (K1 i a) x), substSchema (Proxy :: Proxy a) ts)]
+  recordSchema _ ts = [(T.pack $ selName (M1 undefined :: M1 i c (K1 i a) x), schemaVia (Proxy :: Proxy a) ts)]
   recordExtractor def = TransFusion $ \k -> fmap (fmap (M1 . K1)) $ k $ FieldDecoder
     (T.pack $ selName (M1 undefined :: M1 i c (K1 i a) x))
     (unK1 . unM1 <$> def)
@@ -876,7 +873,7 @@ instance GSerialiseProduct U1 where
   productDecoder = pure U1
 
 instance (Serialise a) => GSerialiseProduct (K1 i a) where
-  productSchema _ ts = [substSchema (Proxy :: Proxy a) ts]
+  productSchema _ ts = [schemaVia (Proxy :: Proxy a) ts]
   productEncoder (K1 a) = toBuilder a
   productExtractor = Compose $ state $ \i ->
     ( TransFusion $ \k -> fmap (fmap K1) $ k $ FieldDecoder i Nothing (getExtractor extractor)
@@ -912,7 +909,9 @@ extractorProduct' sch = unexpectedSchema' "extractorProduct'" "a product" sch
 
 -- | Generic implementation of 'schemaVia' for an ADT.
 gschemaViaVariant :: forall proxy a. (GSerialiseVariant (Rep a), Typeable a, Generic a) => proxy a -> [TypeRep] -> Schema
-gschemaViaVariant p ts = SFix $ SVariant $ variantSchema (Proxy :: Proxy (Rep a)) (typeRep p : ts)
+gschemaViaVariant p ts
+  | Just i <- elemIndex (typeRep p) ts = SSelf $ fromIntegral i
+  | otherwise = SFix $ SVariant $ variantSchema (Proxy :: Proxy (Rep a)) (typeRep p : ts)
 
 -- | Generic implementation of 'toBuilder' for an ADT.
 gtoBuilderVariant :: (GSerialiseVariant (Rep a), Generic a) => a -> BB.Builder
