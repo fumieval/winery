@@ -1,6 +1,4 @@
 {-# LANGUAGE DeriveGeneric, OverloadedStrings, ScopedTypeVariables #-}
-{-# LANGUAGE DerivingVia #-}
-{-# OPTIONS_GHC -ddump-simpl -ddump-to-file -dsuppress-all #-}
 import Control.DeepSeq
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString as B
@@ -32,7 +30,12 @@ data TestRec = TestRec
   , latitude :: !Double
   , longitude :: !Double
   } deriving (Show, Generic)
-  deriving Serialise via WineryRecord TestRec
+
+instance Serialise TestRec where
+  schemaVia = gschemaViaRecord
+  toBuilder = gtoBuilderRecord
+  extractor = gextractorRecord Nothing
+  decodeCurrent = gdecodeCurrentRecord
 
 instance NFData TestRec where
   rnf TestRec{} = ()
