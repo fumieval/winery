@@ -79,7 +79,6 @@ import Data.Bits
 import Data.Dynamic
 import Data.Functor.Compose
 import Data.Functor.Identity
-import Data.Foldable
 import Data.Proxy
 import Data.Scientific (Scientific, scientific, coefficient, base10Exponent)
 import Data.Hashable (Hashable)
@@ -565,42 +564,45 @@ extractListBy (Extractor plan) = Extractor $ Plan $ \case
 
 instance (Ord k, Serialise k, Serialise v) => Serialise (M.Map k v) where
   schemaVia _ = schemaVia (Proxy :: Proxy [(k, v)])
-  toBuilder = toBuilder . M.toList
+  toBuilder m = toBuilder (M.size m)
+    <> M.foldMapWithKey (\k v -> toBuilder (k, v)) m
   {-# INLINE toBuilder #-}
   extractor = M.fromList <$> extractor
   decodeCurrent = M.fromList <$> decodeCurrent
 
 instance (Eq k, Hashable k, Serialise k, Serialise v) => Serialise (HM.HashMap k v) where
   schemaVia _ = schemaVia (Proxy :: Proxy [(k, v)])
-  toBuilder = toBuilder . HM.toList
+  toBuilder m = toBuilder (HM.size m)
+    <> HM.foldrWithKey (\k v r -> toBuilder (k, v) <> r) mempty m
   {-# INLINE toBuilder #-}
   extractor = HM.fromList <$> extractor
   decodeCurrent = HM.fromList <$> decodeCurrent
 
 instance (Serialise v) => Serialise (IM.IntMap v) where
   schemaVia _ = schemaVia (Proxy :: Proxy [(Int, v)])
-  toBuilder = toBuilder . IM.toList
+  toBuilder m = toBuilder (IM.size m)
+    <> IM.foldMapWithKey (\k v -> toBuilder (k, v)) m
   {-# INLINE toBuilder #-}
   extractor = IM.fromList <$> extractor
   decodeCurrent = IM.fromList <$> decodeCurrent
 
 instance (Ord a, Serialise a) => Serialise (S.Set a) where
   schemaVia _ = schemaVia (Proxy :: Proxy [a])
-  toBuilder = toBuilder . S.toList
+  toBuilder s = toBuilder (S.size s) <> foldMap toBuilder s
   {-# INLINE toBuilder #-}
   extractor = S.fromList <$> extractor
   decodeCurrent = S.fromList <$> decodeCurrent
 
 instance Serialise IS.IntSet where
   schemaVia _ = schemaVia (Proxy :: Proxy [Int])
-  toBuilder = toBuilder . IS.toList
+  toBuilder s = toBuilder (IS.size s) <> IS.foldr (mappend . toBuilder) mempty s
   {-# INLINE toBuilder #-}
   extractor = IS.fromList <$> extractor
   decodeCurrent = IS.fromList <$> decodeCurrent
 
 instance Serialise a => Serialise (Seq.Seq a) where
   schemaVia _ = schemaVia (Proxy :: Proxy [a])
-  toBuilder = toBuilder . Data.Foldable.toList
+  toBuilder s = toBuilder (length s) <> foldMap toBuilder s
   {-# INLINE toBuilder #-}
   extractor = Seq.fromList <$> extractor
   decodeCurrent = Seq.fromList <$> decodeCurrent
