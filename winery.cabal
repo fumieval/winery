@@ -93,6 +93,7 @@ executable winery
 test-suite spec
   type: exitcode-stdio-1.0
   main-is: Spec.hs
+  ghc-options: -Wall -Wcompat
   other-modules:
       Paths_winery
   hs-source-dirs:
