@@ -653,11 +653,17 @@ extractFieldBy (Extractor g) name = Extractor $ handleRecursion $ \case
     rep = "extractFieldBy ... " <> dquotes (pretty name)
     msg = "Data.Winery.extractFieldBy ... " <> show name <> ": impossible"
 
-handleRecursion :: Typeable a => (Schema -> Strategy' (Term -> a)) -> Plan (Term -> a)
+handleRecursion :: forall a. Typeable a => (Schema -> Strategy' (Term -> a)) -> Plan (Term -> a)
 handleRecursion k = Plan $ \sch -> Strategy $ \decs -> case sch of
-  SSelf i -> return $ fmap (`fromDyn` throw InvalidTag)
-    $ indexDefault (error "Data.Winery.handleRecursion: unbound fixpoint") decs (fromIntegral i)
-  SFix s -> mfix $ \a -> unPlan (handleRecursion k) s `unStrategy` (fmap toDyn a : decs)
+  SSelf i
+    | i < length decs, dyn <- decs !! i -> case fromDynamic dyn of
+      Nothing -> Left $ "A type mismatch in fixpoint"
+        <+> pretty i <> ":"
+        <+> "expected" <> viaShow (typeRep (Proxy :: Proxy (Term -> a)))
+        <+> "but got " <> viaShow (dynTypeRep dyn)
+      Just a -> Right a
+    | otherwise -> Left $ "Unbound fixpoint: " <> pretty i
+  SFix s -> mfix $ \a -> unPlan (handleRecursion k) s `unStrategy` (toDyn a : decs)
   s -> k s `unStrategy` decs
 
 instance (Serialise a, Serialise b) => Serialise (a, b) where

@@ -68,7 +68,7 @@ currentSchemaVersion :: Word8
 currentSchemaVersion = 3
 
 data Schema = SFix Schema -- ^ binds a fixpoint
-  | SSelf !Word8 -- ^ @SSelf n@ refers to the n-th innermost fixpoint
+  | SSelf !Int -- ^ @SSelf n@ refers to the n-th innermost fixpoint
   | SVector !Schema
   | SProduct (V.Vector Schema)
   | SRecord [(T.Text, Schema)]
@@ -243,7 +243,7 @@ instance Alternative Extractor where
   empty = Extractor empty
   Extractor f <|> Extractor g = Extractor $ f <|> g
 
-type Strategy' = Strategy (Term -> Dynamic)
+type Strategy' = Strategy Dynamic
 
 -- | Plan is a monad for computations which interpret 'Schema'.
 newtype Plan a = Plan { unPlan :: Schema -> Strategy' a }
