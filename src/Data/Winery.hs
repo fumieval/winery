@@ -155,7 +155,9 @@ instance Exception ExtractException
 
 -- | Serialisable datatype
 class Typeable a => Serialise a where
-  -- | Obtain the schema of the datatype. @[TypeRep]@ is for handling recursion.
+  -- | Obtain the schema of the datatype.
+  -- @[TypeRep]@ is a list of types corresponding to bound fixpoints
+  -- (innermost one being first).
   schemaVia :: Proxy a -> [TypeRep] -> Schema
 
   -- | Serialise a value.
@@ -226,22 +228,19 @@ splitSchema bs_ = case B.uncons bs_ of
   Nothing -> Left "Unexpected empty string"
 
 -- | Deserialise a 'serialise'd 'B.Bytestring'.
-deserialise :: forall a. Serialise a => B.ByteString -> Either StrategyError a
+deserialise :: Serialise a => B.ByteString -> Either StrategyError a
 deserialise bs_ = do
   (sch, bs) <- splitSchema bs_
-  if sch == schema (Proxy :: Proxy a)
-    then return $ evalDecoder decodeCurrent bs
-    else do
-      ext <- extractor `unwrapExtractor` sch `unStrategy` []
-      return $ ext $ evalDecoder (decodeTerm sch) bs
+  dec <- getDecoder sch
+  return $ evalDecoder dec bs
 {-# INLINE deserialise #-}
 
 -- | Deserialise a 'serialise'd 'B.Bytestring'.
 deserialiseBy :: Extractor a -> B.ByteString -> Either StrategyError a
-deserialiseBy d bs_ = do
+deserialiseBy e bs_ = do
   (sch, bs) <- splitSchema bs_
-  ext <- d `unwrapExtractor` sch `unStrategy` []
-  return $ ext $ evalDecoder (decodeTerm sch) bs
+  dec <- getDecoderBy e sch
+  return $ evalDecoder dec bs
 
 -- | Serialise a value without its schema.
 serialiseOnly :: Serialise a => a -> B.ByteString

@@ -231,7 +231,7 @@ instance Pretty Term where
   pretty (TVariant _ tag x) = group $ nest 2 $ sep [pretty tag, pretty x]
   pretty (TUTCTime t) = pretty (show t)
 
--- | 'Extractor' is a 'Plan' that creates a function from Term.
+-- | 'Extractor' is a 'Plan' that creates a function to extract a value Term.
 newtype Extractor a = Extractor { getExtractor :: Plan (Term -> a) }
   deriving Functor
 
@@ -245,6 +245,7 @@ instance Alternative Extractor where
 
 type Strategy' = Strategy (Term -> Dynamic)
 
+-- | Plan is a monad for computations which interpret 'Schema'.
 newtype Plan a = Plan { unPlan :: Schema -> Strategy' a }
   deriving Functor
 

@@ -67,6 +67,8 @@ uvarInt = go where
     | otherwise = BB.word8 (setBit (fromIntegral m) 7) <> go (unsafeShiftR m 7)
 {-# INLINE uvarInt #-}
 
+-- | The decoder monad. The reason being not @State@ from transformers is to
+-- allow coercion for newtype deriving and DerivingVia.
 newtype Decoder a = Decoder { runDecoder :: B.ByteString -> (a, B.ByteString) }
   deriving Functor
 
@@ -140,6 +142,9 @@ indexDefault err xs i = (xs ++ repeat err) !! i
 
 type StrategyError = Doc AnsiStyle
 
+-- | A monad with @Reader [r]@ and @Either StrategyError@ combined, used internally
+-- to build an extractor.
+-- @r@ is used to share environment such as extractors for fixpoints.
 newtype Strategy r a = Strategy { unStrategy :: [r] -> Either StrategyError a }
   deriving Functor
 
@@ -166,6 +171,8 @@ instance MonadFix (Strategy r) where
 errorStrategy :: Doc AnsiStyle -> Strategy r a
 errorStrategy = Strategy . const . Left
 
+-- | A Bazaar (chain of indexed store comonad)-like structure which instead
+-- works for natural transformations.
 newtype TransFusion f g a = TransFusion { unTransFusion :: forall h. Applicative h => (forall x. f x -> h (g x)) -> h a }
 
 instance Functor (TransFusion f g) where
