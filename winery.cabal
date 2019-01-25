@@ -18,7 +18,7 @@ maintainer:     fumiexcel@gmail.com
 copyright:      Copyright (c) 2018 Fumiaki Kinoshita
 license:        BSD3
 license-file:   LICENSE
-tested-with:    GHC == 7.10.1, GHC == 8.4.1, GHC == 8.6.1
+tested-with:    GHC == 7.10.1, GHC == 8.4.4, GHC == 8.6.3
 build-type:     Simple
 extra-source-files:
     README.md
