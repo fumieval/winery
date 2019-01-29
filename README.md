@@ -41,7 +41,7 @@ For user-defined datatypes, you can derive
 for single-constructor records, or just
 
 ```haskell
-instance Serialise Foo
+  deriving Serialise via WineryVariant Foo
 ```
 
 for any ADT. The former explicitly describes field names in the schema, and the
