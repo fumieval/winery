@@ -40,16 +40,6 @@ data Tag = TagInt !Int
   | TagList ![Tag]
   deriving (Show, Read, Eq, Generic)
 
--- | Method definitions are rather arbitrary
-instance Num Tag where
-  s + t = ["+", s, t]
-  s - t = ["-", s, t]
-  s * t = ["*", s, t]
-  negate s = ["negate", s]
-  abs s = ["abs", s]
-  signum s = ["signum", s]
-  fromInteger = TagInt . fromInteger
-
 instance IsString Tag where
   fromString = TagStr . fromString
 
