@@ -4,6 +4,20 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
+----------------------------------------------------------------------------
+-- |
+-- Module      :  Data.Winery.Query.Parser
+-- Copyright   :  (c) Fumiaki Kinoshita 2019
+-- License     :  BSD3
+-- Stability   :  Experimental
+--
+-- Maintainer  :  Fumiaki Kinoshita <fumiexcel@gmail.com>
+--
+-- The language for winery queries
+--
+-- See the Pretty-printing section of README.md for examples.
+--
+-----------------------------------------------------------------------------
 module Data.Winery.Query.Parser (parseQuery) where
 
 import Prelude hiding ((.), id)
@@ -28,6 +42,8 @@ name = fmap T.pack (some (alphaNumChar <|> oneOf ("_\'" :: [Char])) <?> "field n
 parseQuery :: Typeable a => Parser (Query (Doc a) (Doc a))
 parseQuery = foldr (.) id <$> sepBy1 parseTerms (symbol "|")
 
+-- | Space-separated list of terms translate to a tabular output, applying the
+-- queries in parallel
 parseTerms :: Typeable a => Parser (Query (Doc a) (Doc a))
 parseTerms = fmap hsep . sequenceA <$> sepBy1 parseTerm space
 
