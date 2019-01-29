@@ -51,8 +51,10 @@ module Data.Winery
   -- * Internal
   , StrategyError
   , unexpectedSchema
-  -- * Generics
+  -- * DerivingVia
   , WineryRecord(..)
+  , WineryVariant(..)
+  -- * Generic implementations (for old GHC / custom instances)
   , GSerialiseRecord
   , gschemaViaRecord
   , GEncodeRecord
@@ -166,16 +168,9 @@ class Typeable a => Serialise a where
   extractor :: Extractor a
 
   -- | Decode a value with the current schema.
+  -- This is equivalent to @getDecoderBy (schema ...)@, but it's strongly
+  -- encouraged to provide a definition for efficiency.
   decodeCurrent :: Decoder a
-
-  default schemaVia :: (Generic a, GSerialiseVariant (Rep a)) => Proxy a -> [TypeRep] -> Schema
-  schemaVia = gschemaViaVariant
-  default toBuilder :: (Generic a, GSerialiseVariant (Rep a)) => a -> BB.Builder
-  toBuilder = gtoBuilderVariant
-  default extractor :: (Generic a, GSerialiseVariant (Rep a)) => Extractor a
-  extractor = gextractorVariant
-  default decodeCurrent :: (Generic a, GSerialiseVariant (Rep a)) => Decoder a
-  decodeCurrent = gdecodeCurrentVariant
 
 decodeCurrentDefault :: forall a. Serialise a => Decoder a
 decodeCurrentDefault = case getDecoderBy extractor (schema (Proxy :: Proxy a)) of
@@ -250,7 +245,11 @@ unexpectedSchema :: forall f a. Serialise a => Doc AnsiStyle -> Schema -> Strate
 unexpectedSchema subject actual = unexpectedSchema' subject
   (pretty $ schema (Proxy :: Proxy a)) actual
 
-instance Serialise Tag
+instance Serialise Tag where
+  schemaVia = gschemaViaVariant
+  toBuilder = gtoBuilderVariant
+  extractor = gextractorVariant
+  decodeCurrent = gdecodeCurrentVariant
 
 instance Serialise Schema where
   schemaVia _ _ = SSchema currentSchemaVersion
@@ -909,6 +908,14 @@ extractorProduct' (SProduct schs) = Strategy $ \recs -> do
   return m
 extractorProduct' sch = unexpectedSchema' "extractorProduct'" "a product" sch
 
+newtype WineryVariant a = WineryVariant { unWineryVariant :: a }
+
+instance (GSerialiseVariant (Rep a), Generic a, Typeable a) => Serialise (WineryVariant a) where
+  schemaVia _ = gschemaViaVariant (Proxy :: Proxy a)
+  toBuilder = gtoBuilderVariant . unWineryVariant
+  extractor = WineryVariant <$> gextractorVariant
+  decodeCurrent = WineryVariant <$> gdecodeCurrentVariant
+
 -- | Generic implementation of 'schemaVia' for an ADT.
 gschemaViaVariant :: forall proxy a. (GSerialiseVariant (Rep a), Typeable a, Generic a) => proxy a -> [TypeRep] -> Schema
 gschemaViaVariant p ts
@@ -981,6 +988,10 @@ instance (GSerialiseVariant f) => GSerialiseVariant (D1 c f) where
   variantExtractor = fmap (fmap (fmap (fmap M1))) <$> variantExtractor
   variantDecoder = fmap M1 <$> variantDecoder
 
-instance Serialise Ordering
+instance Serialise Ordering where
+  schemaVia = gschemaViaVariant
+  toBuilder = gtoBuilderVariant
+  extractor = gextractorVariant
+  decodeCurrent = gdecodeCurrentVariant
 deriving instance Serialise a => Serialise (Identity a)
 deriving instance (Serialise a, Typeable b) => Serialise (Const a (b :: *))

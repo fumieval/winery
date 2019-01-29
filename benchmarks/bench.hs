@@ -16,7 +16,11 @@ import System.Directory
 
 data Gender = Male | Female deriving (Show, Generic)
 
-instance Serialise Gender
+instance Serialise Gender where
+  schemaVia = gschemaViaVariant
+  toBuilder = gtoBuilderVariant
+  extractor = gextractorVariant
+  decodeCurrent = gdecodeCurrentVariant
 instance CBOR.Serialise Gender
 instance B.Binary Gender
 
