@@ -155,6 +155,7 @@ data ExtractException = InvalidTerm !Term deriving Show
 instance Exception ExtractException
 
 -- | Serialisable datatype
+--
 class Typeable a => Serialise a where
   -- | Obtain the schema of the datatype.
   -- @[TypeRep]@ is a list of types corresponding to bound fixpoints
@@ -164,17 +165,27 @@ class Typeable a => Serialise a where
   -- | Serialise a value.
   toBuilder :: a -> BB.Builder
 
-  -- | The 'Extractor'
+  -- | A value of 'Extractor a' interprets a schema and builds a function from
+  -- 'Term' to @a@. This must be equivalent to 'decodeCurrent' when the schema
+  -- is the current one.
+  --
+  -- If @'extractor' s@ returns a function, the function must return a
+  -- non-bottom for any 'Term' @'decodeTerm' s@ returns.
+  --
+  -- It must not return a function if an unsupported schema is supplied.
+  --
+  -- @getDecoderBy extractor (schema (Proxy @ a))@ must be @Right d@
+  -- where @d@ is equivalent to 'decodeCurrent'.
   extractor :: Extractor a
 
   -- | Decode a value with the current schema.
-  -- This is equivalent to @getDecoderBy (schema ...)@, but it's strongly
-  -- encouraged to provide a definition for efficiency.
+  --
+  -- @'decodeCurrent' `evalDecoder` 'toBuilder' x@ ≡ x
   decodeCurrent :: Decoder a
 
 decodeCurrentDefault :: forall a. Serialise a => Decoder a
 decodeCurrentDefault = case getDecoderBy extractor (schema (Proxy :: Proxy a)) of
-  Left err -> error $ show $ "decodeCurrent: failed to get a decoder from the current schema"
+  Left err -> error $ show $ "decodeCurrentDefault: failed to get a decoder from the current schema"
     <+> parens err
   Right a -> a
 
