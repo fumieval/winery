@@ -138,7 +138,9 @@ unsafeIndexV err xs i
 {-# INLINE unsafeIndexV #-}
 
 indexDefault :: a -> [a] -> Int -> a
-indexDefault err xs i = (xs ++ repeat err) !! i
+indexDefault err xs i = case drop i xs of
+  x : _ -> x
+  _ -> err
 
 type StrategyError = Doc AnsiStyle
 
