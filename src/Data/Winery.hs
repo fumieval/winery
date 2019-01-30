@@ -401,7 +401,7 @@ instance Serialise Int where
 
 instance Serialise Float where
   schemaVia _ _ = SFloat
-  toBuilder = BB.word32LE . unsafeCoerce
+  toBuilder = BB.floatLE
   {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
     SFloat -> pure $ \case
