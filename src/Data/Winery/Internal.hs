@@ -8,8 +8,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 module Data.Winery.Internal
-  ( unsignedVarInt
-  , varInt
+  ( varInt
   , Decoder(..)
   , evalDecoder
   , decodeVarInt
@@ -32,6 +31,7 @@ import Control.Monad
 import Control.Monad.Fix
 import qualified Data.ByteString as B
 import qualified Data.ByteString.FastBuilder as BB
+import qualified Data.ByteString.Builder.Prim.Internal as BP
 import qualified Data.ByteString.Internal as B
 import Data.Bits
 import Data.Monoid ((<>))
@@ -43,29 +43,17 @@ import Foreign.ForeignPtr
 import Foreign.Storable
 import System.Endian
 
-unsignedVarInt :: (Bits a, Integral a) => a -> BB.Builder
-unsignedVarInt n
-  | n < 0x80 = BB.word8 (fromIntegral n)
-  | otherwise = BB.word8 (fromIntegral n `setBit` 7) <> uvarInt (unsafeShiftR n 7)
-{-# INLINE unsignedVarInt #-}
-
-varInt :: (Bits a, Integral a) => a -> BB.Builder
+varInt :: Int -> BB.Builder
 varInt n
-  | n < 0 = case negate n of
-    n'
-      | n' < 0x40 -> BB.word8 (fromIntegral n' `setBit` 6)
-      | otherwise -> BB.word8 (0xc0 .|. fromIntegral n') <> uvarInt (unsafeShiftR n' 6)
-  | n < 0x40 = BB.word8 (fromIntegral n)
-  | otherwise = BB.word8 (fromIntegral n `setBit` 7 `clearBit` 6) <> uvarInt (unsafeShiftR n 6)
-{-# SPECIALISE varInt :: Int -> BB.Builder #-}
-{-# INLINEABLE varInt #-}
-
-uvarInt :: (Bits a, Integral a) => a -> BB.Builder
-uvarInt = go where
-  go m
-    | m < 0x80 = BB.word8 (fromIntegral m)
-    | otherwise = BB.word8 (setBit (fromIntegral m) 7) <> go (unsafeShiftR m 7)
-{-# INLINE uvarInt #-}
+  | bits > 56 = BB.word8 0 <> BB.int64LE (fromIntegral n)
+  | otherwise = BB.primFixed (BP.fixedPrim (1 + bytes) (go 0)) ((2 * n + 1) `unsafeShiftL` bytes)
+  where
+    bits = 64 - countLeadingZeros (n .|. 1)
+    bytes = (bits - 1) `div` 7
+    go !i !x !ptr = do
+      pokeByteOff ptr i (fromIntegral (x .&. 0xff) :: Word8)
+      when (i <= bytes) $ go (i + 1) (x `unsafeShiftR` 8) ptr
+{-# INLINABLE varInt #-}
 
 -- | The decoder monad. The reason being not @State@ from transformers is to
 -- allow coercion for newtype deriving and DerivingVia.
@@ -96,22 +84,25 @@ data DecodeException = InsufficientInput
   | InvalidTag deriving (Eq, Show, Read)
 instance Exception DecodeException
 
-decodeVarInt :: (Num a, Bits a) => Decoder a
-decodeVarInt = getWord8 >>= \case
-  n | testBit n 7 -> do
-      m <- getWord8 >>= go
-      if testBit n 6
-        then return $! negate $ unsafeShiftL m 6 .|. fromIntegral n .&. 0x3f
-        else return $! unsafeShiftL m 6 .|. clearBit (fromIntegral n) 7
-    | testBit n 6 -> return $ negate $ fromIntegral $ clearBit n 6
-    | otherwise -> return $ fromIntegral n
-  where
-    go n
-      | testBit n 7 = do
-        m <- getWord8 >>= go
-        return $! unsafeShiftL m 7 .|. clearBit (fromIntegral n) 7
-      | otherwise = return $ fromIntegral n
-{-# INLINE decodeVarInt #-}
+decodeVarInt :: Decoder Int
+decodeVarInt = Decoder $ \(B.PS fp ofs len) -> B.accursedUnutterablePerformIO
+  $ withForeignPtr fp $ \ptr -> do
+    when (len == 0) $ throwIO InsufficientInput
+    prefix <- peekByteOff ptr ofs
+    let bytes = countTrailingZeros (prefix :: Word8)
+    when (bytes >= len) $ throwIO InsufficientInput
+    let go !n !x
+          | n == 0 = return (x `unsafeShiftL` (7 - bytes)
+            .|. fromIntegral (prefix `unsafeShiftR` (bytes + 1))
+            , B.PS fp (ofs + bytes + 1) (len - bytes - 1))
+          | otherwise = do
+            w <- peekByteOff ptr (ofs + n)
+            go (n - 1) (unsafeShiftL x 8 .|. fromIntegral (w :: Word8))
+    if bytes == 8
+      then do
+        x <- fromIntegral . fromLE64 <$> peekByteOff ptr (ofs + 1)
+        return (x, B.PS fp (ofs + 9) (len - 9))
+      else go bytes 0
 
 getWord16 :: Decoder Word16
 getWord16 = Decoder $ \(B.PS fp ofs len) -> if len >= 2

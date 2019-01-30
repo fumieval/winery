@@ -1,13 +1,15 @@
 {-# LANGUAGE TemplateHaskell #-}
-import qualified Data.ByteString.FastBuilder as B
+import Data.Coerce
 import Data.Winery
-import Data.Winery.Internal
 import Test.QuickCheck
 import Control.Monad
 
-prop_VarInt :: Int -> Property
-prop_VarInt i = evalDecoder decodeVarInt
-  (B.toStrictByteString $ varInt i) === i
+prop_VarInt :: [Large Int] -> Property
+prop_VarInt xs0 = evalDecoder decodeCurrent (serialiseOnly xs) === xs
+  where
+    xs = coerce xs0 :: [Int]
 
 return []
+
+main :: IO ()
 main = void $ $quickCheckAll

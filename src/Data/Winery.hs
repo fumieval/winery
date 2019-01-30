@@ -47,7 +47,6 @@ module Data.Winery
   , extractConstructorBy
   , ExtractException(..)
   -- * Variable-length quantity
-  , VarInt(..)
   -- * Internal
   , StrategyError
   , unexpectedSchema
@@ -77,7 +76,6 @@ import Control.Monad.Reader
 import qualified Data.ByteString as B
 import qualified Data.ByteString.FastBuilder as BB
 import qualified Data.ByteString.Lazy as BL
-import Data.Bits
 import Data.Dynamic
 import Data.Functor.Compose
 import Data.Functor.Identity
@@ -125,7 +123,7 @@ decodeTerm = go [] where
     SInt16 -> TInt16 <$> decodeCurrent
     SInt32 -> TInt32 <$> decodeCurrent
     SInt64 -> TInt64 <$> decodeCurrent
-    SInteger -> TInteger <$> decodeVarInt
+    SInteger -> TInteger <$> fromIntegral <$> decodeVarInt
     SFloat -> TFloat <$> decodeCurrent
     SDouble -> TDouble <$> decodeCurrent
     SBytes -> TBytes <$> decodeCurrent
@@ -279,15 +277,15 @@ instance Serialise () where
 
 instance Serialise Bool where
   schemaVia _ _ = SBool
-  toBuilder False = BB.word8 0
-  toBuilder True = BB.word8 1
+  toBuilder False = varInt 0
+  toBuilder True = varInt 1
   {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
     SBool -> pure $ \case
       TBool b -> b
       t -> throw $ InvalidTerm t
     s -> unexpectedSchema "Serialise Bool" s
-  decodeCurrent = (/=0) <$> getWord8
+  decodeCurrent = (/=0) <$> decodeVarInt
 
 instance Serialise Word8 where
   schemaVia _ _ = SWord8
@@ -390,7 +388,7 @@ instance Serialise Int64 where
 
 instance Serialise Int where
   schemaVia _ _ = SInteger
-  toBuilder = toBuilder . VarInt
+  toBuilder = varInt
   {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
     SInteger -> pure $ \case
@@ -434,27 +432,12 @@ instance Serialise T.Text where
     len <- decodeVarInt
     T.decodeUtf8With T.lenientDecode <$> Decoder (B.splitAt len)
 
--- | Encoded in variable-length quantity.
-newtype VarInt a = VarInt { getVarInt :: a } deriving (Show, Read, Eq, Ord, Enum
-  , Bounded, Num, Real, Integral, Bits, Typeable)
-
-instance (Typeable a, Bits a, Integral a) => Serialise (VarInt a) where
-  schemaVia _ _ = SInteger
-  toBuilder = varInt . getVarInt
-  {-# INLINE toBuilder #-}
-  extractor = Extractor $ Plan $ \case
-    SInteger -> pure $ \case
-      TInteger i -> fromIntegral i
-      t -> throw $ InvalidTerm t
-    s -> unexpectedSchema "Serialise (VarInt a)" s
-  decodeCurrent = VarInt <$> decodeVarInt
-
 instance Serialise Integer where
   schemaVia _ _ = SInteger
-  toBuilder = toBuilder . VarInt
+  toBuilder = varInt . fromIntegral
   {-# INLINE toBuilder #-}
-  extractor = getVarInt <$> extractor
-  decodeCurrent = getVarInt <$> decodeCurrent
+  extractor = fromIntegral <$> (extractor :: Extractor Int)
+  decodeCurrent = fromIntegral <$> decodeVarInt
 
 instance Serialise Char where
   schemaVia _ _ = SChar
@@ -470,8 +453,8 @@ instance Serialise Char where
 instance Serialise a => Serialise (Maybe a) where
   schemaVia _ ts = SVariant [("Nothing", SProduct [])
     , ("Just", schemaVia (Proxy :: Proxy a) ts)]
-  toBuilder Nothing = varInt (0 :: Word8)
-  toBuilder (Just a) = varInt (1 :: Word8) <> toBuilder a
+  toBuilder Nothing = varInt 0
+  toBuilder (Just a) = varInt 1 <> toBuilder a
   {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
     SVariant [_, (_, sch)] -> do
@@ -481,7 +464,7 @@ instance Serialise a => Serialise (Maybe a) where
         TVariant _ _ v -> Just $ dec v
         t -> throw $ InvalidTerm t
     s -> unexpectedSchema "Serialise (Maybe a)" s
-  decodeCurrent = getWord8 >>= \case
+  decodeCurrent = decodeVarInt >>= \case
     0 -> pure Nothing
     _ -> Just <$> decodeCurrent
 
@@ -730,8 +713,8 @@ instance (Serialise a, Serialise b, Serialise c, Serialise d) => Serialise (a, b
 instance (Serialise a, Serialise b) => Serialise (Either a b) where
   schemaVia _ ts = SVariant [("Left", schemaVia (Proxy :: Proxy a) ts)
     , ("Right", schemaVia (Proxy :: Proxy b) ts)]
-  toBuilder (Left a) = BB.word8 0 <> toBuilder a
-  toBuilder (Right b) = BB.word8 1 <> toBuilder b
+  toBuilder (Left a) = varInt 0 <> toBuilder a
+  toBuilder (Right b) = varInt 1 <> toBuilder b
   {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
     SVariant [(_, sa), (_, sb)] -> do
@@ -742,7 +725,7 @@ instance (Serialise a, Serialise b) => Serialise (Either a b) where
         TVariant _ _ v -> Right $ getB v
         t -> throw $ InvalidTerm t
     s -> unexpectedSchema "Either (a, b)" s
-  decodeCurrent = getWord8 >>= \case
+  decodeCurrent = decodeVarInt >>= \case
     0 -> Left <$> decodeCurrent
     _ -> Right <$> decodeCurrent
 
