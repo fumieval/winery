@@ -106,9 +106,9 @@ import Data.Text.Prettyprint.Doc.Render.Terminal
 import Data.Time.Clock
 import Data.Time.Clock.POSIX
 import Data.Typeable
+import GHC.Float (castWord32ToFloat, castWord64ToDouble)
 import GHC.Generics
 import System.IO
-import Unsafe.Coerce
 
 -- | Deserialiser for a 'Term'.
 decodeTerm :: Schema -> Decoder Term
@@ -408,7 +408,7 @@ instance Serialise Float where
       TFloat x -> x
       t -> throw $ InvalidTerm t
     s -> unexpectedSchema "Serialise Float" s
-  decodeCurrent = unsafeCoerce getWord32
+  decodeCurrent = castWord32ToFloat <$> getWord32
 
 instance Serialise Double where
   schemaVia _ _ = SDouble
@@ -419,7 +419,7 @@ instance Serialise Double where
       TDouble x -> x
       t -> throw $ InvalidTerm t
     s -> unexpectedSchema "Serialise Double" s
-  decodeCurrent = unsafeCoerce getWord64
+  decodeCurrent = castWord64ToDouble <$> getWord64
 
 instance Serialise T.Text where
   schemaVia _ _ = SText
@@ -514,7 +514,7 @@ instance Serialise UTCTime where
       (posixSecondsToUTCTime <$> extractor)
       (schema (Proxy :: Proxy Double))
     s -> unexpectedSchema "Serialise UTCTime" s
-  decodeCurrent = posixSecondsToUTCTime <$> unsafeCoerce getWord64
+  decodeCurrent = posixSecondsToUTCTime <$> decodeCurrent
 
 instance Serialise NominalDiffTime where
   schemaVia _ = schemaVia (Proxy :: Proxy Double)
