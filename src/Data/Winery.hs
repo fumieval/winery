@@ -647,14 +647,13 @@ extractField = extractFieldBy extractor
 extractFieldBy :: Typeable a => Extractor a -> T.Text -> Extractor a
 extractFieldBy (Extractor g) name = Extractor $ handleRecursion $ \case
   SRecord schs -> do
-    let schs' = [(k, (i, s)) | (i, (k, s)) <- zip [0..] schs]
-    case lookup name schs' of
-      Just (i, sch) -> do
+    case [(i, s) | (i, (k, s)) <- zip [0..] schs, k == name] of
+      (i, sch) : _ -> do
         m <- unPlan g sch
         return $ \case
           TRecord xs -> maybe (error msg) (m . snd) $ xs V.!? i
           t -> throw $ InvalidTerm t
-      Nothing -> errorStrategy $ rep <> ": Schema not found in " <> pretty (map fst schs)
+      _ -> errorStrategy $ rep <> ": Schema not found in " <> pretty (map fst schs)
   s -> unexpectedSchema' rep "a record" s
   where
     rep = "extractFieldBy ... " <> dquotes (pretty name)
@@ -663,7 +662,7 @@ extractFieldBy (Extractor g) name = Extractor $ handleRecursion $ \case
 handleRecursion :: forall a. Typeable a => (Schema -> Strategy' (Term -> a)) -> Plan (Term -> a)
 handleRecursion k = Plan $ \sch -> Strategy $ \decs -> case sch of
   SSelf i
-    | i < length decs, dyn <- decs !! i -> case fromDynamic dyn of
+    | dyn : _ <- drop i decs -> case fromDynamic dyn of
       Nothing -> Left $ "A type mismatch in fixpoint"
         <+> pretty i <> ":"
         <+> "expected" <> viaShow (typeRep (Proxy :: Proxy (Term -> a)))
@@ -752,9 +751,8 @@ extractConstructorBy :: Typeable a => Extractor a -> T.Text -> Extractor (Maybe 
 extractConstructorBy d name = Extractor $ handleRecursion $ \case
   SVariant schs0 -> Strategy $ \decs -> do
     (j, dec) <- case [(i :: Int, ss) | (i, (k, ss)) <- zip [0..] schs0, name == k] of
-      [(i, s)] -> fmap ((,) i) $ unwrapExtractor d s `unStrategy` decs
+      (i, s) : _ -> fmap ((,) i) $ unwrapExtractor d s `unStrategy` decs
       _ -> Left $ rep <> ": Schema not found in " <> pretty (map fst schs0)
-
     return $ \case
       TVariant i _ v
         | i == j -> Just $ dec v
