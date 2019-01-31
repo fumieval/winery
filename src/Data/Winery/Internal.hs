@@ -33,6 +33,7 @@ import Control.Monad.Fix
 import qualified Data.ByteString as B
 import qualified Data.ByteString.FastBuilder as BB
 import qualified Data.ByteString.Internal as B
+import qualified Data.ByteString.Builder.Prim.Internal as BPI
 import Data.Bits
 import Data.Monoid ((<>))
 import Data.Text.Prettyprint.Doc (Doc)
@@ -41,6 +42,7 @@ import qualified Data.Vector.Unboxed as U
 import Data.Word
 import Foreign.ForeignPtr
 import Foreign.Storable
+import Foreign.Ptr
 import System.Endian
 
 unsignedVarInt :: (Bits a, Integral a) => a -> BB.Builder
@@ -57,8 +59,37 @@ varInt n
       | otherwise -> BB.word8 (0xc0 .|. fromIntegral n') <> uvarInt (unsafeShiftR n' 6)
   | n < 0x40 = BB.word8 (fromIntegral n)
   | otherwise = BB.word8 (fromIntegral n `setBit` 7 `clearBit` 6) <> uvarInt (unsafeShiftR n 6)
-{-# SPECIALISE varInt :: Int -> BB.Builder #-}
-{-# INLINEABLE varInt #-}
+{-# RULES "varInt/Int" varInt = varIntFinite #-}
+{-# INLINEABLE[1] varInt #-}
+
+varIntFinite :: Int -> BB.Builder
+varIntFinite n = BB.primBounded (BPI.boudedPrim 10 writeIntFinite) n
+
+writeWord8 :: Word8 -> Ptr Word8 -> IO (Ptr Word8)
+writeWord8 w p = do
+  poke p w
+  return $! plusPtr p 1
+
+writeIntFinite :: Int -> Ptr Word8 -> IO (Ptr Word8)
+writeIntFinite !n
+  | n < 0 = case negate n of
+    n'
+      | n' < 0x40 -> writeWord8 (fromIntegral n' `setBit` 6)
+      | otherwise ->
+          writeWord8 (0xc0 .|. fromIntegral n') >=>
+            writeUnsignedFinite pure (unsafeShiftR n' 6)
+  | n < 0x40 = writeWord8 (fromIntegral n)
+  | otherwise = writeWord8 (fromIntegral n `setBit` 7 `clearBit` 6) >=>
+      writeUnsignedFinite pure (unsafeShiftR n 6)
+{-# INLINE writeIntFinite #-}
+
+writeUnsignedFinite :: (Ptr Word8 -> IO r) -> Int -> Ptr Word8 -> IO r
+writeUnsignedFinite k = go
+  where
+    go m
+      | m < 0x80 = writeWord8 (fromIntegral m) >=> k
+      | otherwise = writeWord8 (setBit (fromIntegral m) 7) >=> go (unsafeShiftR m 7)
+{-# INLINE writeUnsignedFinite #-}
 
 uvarInt :: (Bits a, Integral a) => a -> BB.Builder
 uvarInt = go where
