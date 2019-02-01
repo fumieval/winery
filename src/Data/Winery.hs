@@ -80,6 +80,7 @@ import qualified Data.ByteString.FastBuilder as BB
 import qualified Data.ByteString.Lazy as BL
 import Data.Bits
 import Data.Dynamic
+import Data.Fixed
 import Data.Functor.Compose
 import Data.Functor.Identity
 import Data.Proxy
@@ -107,6 +108,7 @@ import Data.Text.Prettyprint.Doc.Render.Terminal
 import Data.Time.Clock
 import Data.Time.Clock.POSIX
 import Data.Typeable
+import Unsafe.Coerce
 import GHC.Float (castWord32ToFloat, castWord64ToDouble)
 import GHC.Generics
 import System.IO
@@ -516,23 +518,30 @@ instance Serialise BL.ByteString where
   extractor = BL.fromStrict <$> extractor
   decodeCurrent = BL.fromStrict <$> decodeCurrent
 
+-- | time-1.9.1
+nanosecondsToNominalDiffTime :: Integer -> NominalDiffTime
+nanosecondsToNominalDiffTime = unsafeCoerce . MkFixed . (*1000)
+
 instance Serialise UTCTime where
   schemaVia _ _ = SUTCTime
-  toBuilder = toBuilder . utcTimeToPOSIXSeconds
+  toBuilder t = case unsafeCoerce (utcTimeToPOSIXSeconds t) of
+    MkFixed p -> toBuilder $ p `div` 1000
   {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
-    SUTCTime -> unwrapExtractor
-      (posixSecondsToUTCTime <$> extractor)
-      (schema (Proxy :: Proxy Double))
+    SUTCTime -> pure $ \case
+      TUTCTime bs -> bs
+      t -> throw $ InvalidTerm t
     s -> unexpectedSchema "Serialise UTCTime" s
-  decodeCurrent = posixSecondsToUTCTime <$> decodeCurrent
+  decodeCurrent = posixSecondsToUTCTime . nanosecondsToNominalDiffTime
+    <$> decodeCurrent
 
 instance Serialise NominalDiffTime where
-  schemaVia _ = schemaVia (Proxy :: Proxy Double)
-  toBuilder = toBuilder . (realToFrac :: NominalDiffTime -> Double)
+  schemaVia _ _ = SInteger
+  toBuilder x = case unsafeCoerce x of
+    MkFixed p -> toBuilder $ p `div` 1000
   {-# INLINE toBuilder #-}
-  extractor = (realToFrac :: Double -> NominalDiffTime) <$> extractor
-  decodeCurrent = (realToFrac :: Double -> NominalDiffTime) <$> decodeCurrent
+  extractor = nanosecondsToNominalDiffTime <$> extractor
+  decodeCurrent = nanosecondsToNominalDiffTime <$> decodeCurrent
 
 instance Serialise a => Serialise [a] where
   schemaVia _ ts = SVector (schemaVia (Proxy :: Proxy a) ts)

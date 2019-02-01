@@ -80,7 +80,7 @@ data Schema = SFix Schema -- ^ binds a fixpoint
   | SDouble
   | SBytes
   | SText
-  | SUTCTime
+  | SUTCTime -- ^ nanoseconds from POSIX epoch
   | STag !Tag !Schema
   deriving (Show, Read, Eq, Generic)
 
