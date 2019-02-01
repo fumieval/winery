@@ -196,7 +196,7 @@ class Typeable a => Serialise a where
 
 -- | Check the integrity of a Serialise instance.
 testSerialise :: forall a. (Eq a, Show a, Serialise a) => a -> QC.Property
-testSerialise x = case getDecoderBy extractor (schema (Proxy :: Proxy a)) of
+testSerialise x = case getDecoderBy extractor (schema (Proxy @ a)) of
   Left e -> QC.counterexample (show e) False
   Right f -> QC.counterexample "extractor" (evalDecoder f b QC.=== x)
     QC..&&. QC.counterexample "decodeCurrent" (evalDecoder decodeCurrent b QC.=== x)
@@ -204,20 +204,20 @@ testSerialise x = case getDecoderBy extractor (schema (Proxy :: Proxy a)) of
     b = serialiseOnly x
 
 decodeCurrentDefault :: forall a. Serialise a => Decoder a
-decodeCurrentDefault = case getDecoderBy extractor (schema (Proxy :: Proxy a)) of
+decodeCurrentDefault = case getDecoderBy extractor (schema (Proxy @ a)) of
   Left err -> error $ show $ "decodeCurrentDefault: failed to get a decoder from the current schema"
     <+> parens err
   Right a -> a
 
 -- | Obtain the schema of the datatype.
 schema :: forall proxy a. Serialise a => proxy a -> Schema
-schema _ = schemaVia (Proxy :: Proxy a) []
+schema _ = schemaVia (Proxy @ a) []
 {-# INLINE schema #-}
 
 -- | Obtain a decoder from a schema.
 getDecoder :: forall a. Serialise a => Schema -> Either StrategyError (Decoder a)
 getDecoder sch
-  | sch == schema (Proxy :: Proxy a) = Right decodeCurrent
+  | sch == schema (Proxy @ a) = Right decodeCurrent
   | otherwise = getDecoderBy extractor sch
 {-# INLINE getDecoder #-}
 
@@ -240,7 +240,7 @@ writeFileSerialise path a = withBinaryFile path WriteMode
 
 toBuilderWithSchema :: forall a. Serialise a => a -> BB.Builder
 toBuilderWithSchema a = mappend (BB.word8 currentSchemaVersion)
-  $ toBuilder (schema (Proxy :: Proxy a), a)
+  $ toBuilder (schema (Proxy @ a), a)
 {-# INLINE toBuilderWithSchema #-}
 
 splitSchema :: B.ByteString -> Either StrategyError (Schema, B.ByteString)
@@ -274,7 +274,7 @@ serialiseOnly = BL.toStrict . BB.toLazyByteString . toBuilder
 
 unexpectedSchema :: forall f a. Serialise a => Doc AnsiStyle -> Schema -> Strategy' (f a)
 unexpectedSchema subject actual = unexpectedSchema' subject
-  (pretty $ schema (Proxy :: Proxy a)) actual
+  (pretty $ schema (Proxy @ a)) actual
 
 instance Serialise Tag where
   schemaVia = gschemaViaVariant
@@ -489,7 +489,7 @@ instance Serialise Char where
 
 instance Serialise a => Serialise (Maybe a) where
   schemaVia _ ts = SVariant [("Nothing", SProduct [])
-    , ("Just", schemaVia (Proxy :: Proxy a) ts)]
+    , ("Just", schemaVia (Proxy @ a) ts)]
   toBuilder Nothing = varInt (0 :: Word8)
   toBuilder (Just a) = varInt (1 :: Word8) <> toBuilder a
   {-# INLINE toBuilder #-}
@@ -549,7 +549,7 @@ instance Serialise NominalDiffTime where
   decodeCurrent = nanosecondsToNominalDiffTime <$> decodeCurrent
 
 instance Serialise a => Serialise [a] where
-  schemaVia _ ts = SVector (schemaVia (Proxy :: Proxy a) ts)
+  schemaVia _ ts = SVector (schemaVia (Proxy @ a) ts)
   toBuilder xs = varInt (length xs)
       <> foldMap toBuilder xs
   {-# INLINE toBuilder #-}
@@ -559,7 +559,7 @@ instance Serialise a => Serialise [a] where
     replicateM n decodeCurrent
 
 instance Serialise a => Serialise (V.Vector a) where
-  schemaVia _ = schemaVia (Proxy :: Proxy [a])
+  schemaVia _ = schemaVia (Proxy @ [a])
   toBuilder xs = varInt (V.length xs)
     <> foldMap toBuilder xs
   {-# INLINE toBuilder #-}
@@ -569,7 +569,7 @@ instance Serialise a => Serialise (V.Vector a) where
     V.replicateM n decodeCurrent
 
 instance (SV.Storable a, Serialise a) => Serialise (SV.Vector a) where
-  schemaVia _ = schemaVia (Proxy :: Proxy [a])
+  schemaVia _ = schemaVia (Proxy @ [a])
   toBuilder = toBuilder . (SV.convert :: SV.Vector a -> V.Vector a)
   {-# INLINE toBuilder #-}
   extractor = SV.convert <$> extractListBy extractor
@@ -578,7 +578,7 @@ instance (SV.Storable a, Serialise a) => Serialise (SV.Vector a) where
     SV.replicateM n decodeCurrent
 
 instance (UV.Unbox a, Serialise a) => Serialise (UV.Vector a) where
-  schemaVia _ = schemaVia (Proxy :: Proxy [a])
+  schemaVia _ = schemaVia (Proxy @ [a])
   toBuilder = toBuilder . (UV.convert :: UV.Vector a -> V.Vector a)
   {-# INLINE toBuilder #-}
   extractor = UV.convert <$> extractListBy extractor
@@ -598,7 +598,7 @@ extractListBy (Extractor plan) = Extractor $ Plan $ \case
 {-# INLINE extractListBy #-}
 
 instance (Ord k, Serialise k, Serialise v) => Serialise (M.Map k v) where
-  schemaVia _ = schemaVia (Proxy :: Proxy [(k, v)])
+  schemaVia _ = schemaVia (Proxy @ [(k, v)])
   toBuilder m = toBuilder (M.size m)
     <> M.foldMapWithKey (\k v -> toBuilder (k, v)) m
   {-# INLINE toBuilder #-}
@@ -606,7 +606,7 @@ instance (Ord k, Serialise k, Serialise v) => Serialise (M.Map k v) where
   decodeCurrent = M.fromList <$> decodeCurrent
 
 instance (Eq k, Hashable k, Serialise k, Serialise v) => Serialise (HM.HashMap k v) where
-  schemaVia _ = schemaVia (Proxy :: Proxy [(k, v)])
+  schemaVia _ = schemaVia (Proxy @ [(k, v)])
   toBuilder m = toBuilder (HM.size m)
     <> HM.foldrWithKey (\k v r -> toBuilder (k, v) <> r) mempty m
   {-# INLINE toBuilder #-}
@@ -614,7 +614,7 @@ instance (Eq k, Hashable k, Serialise k, Serialise v) => Serialise (HM.HashMap k
   decodeCurrent = HM.fromList <$> decodeCurrent
 
 instance (Serialise v) => Serialise (IM.IntMap v) where
-  schemaVia _ = schemaVia (Proxy :: Proxy [(Int, v)])
+  schemaVia _ = schemaVia (Proxy @ [(Int, v)])
   toBuilder m = toBuilder (IM.size m)
     <> IM.foldMapWithKey (\k v -> toBuilder (k, v)) m
   {-# INLINE toBuilder #-}
@@ -622,28 +622,28 @@ instance (Serialise v) => Serialise (IM.IntMap v) where
   decodeCurrent = IM.fromList <$> decodeCurrent
 
 instance (Ord a, Serialise a) => Serialise (S.Set a) where
-  schemaVia _ = schemaVia (Proxy :: Proxy [a])
+  schemaVia _ = schemaVia (Proxy @ [a])
   toBuilder s = toBuilder (S.size s) <> foldMap toBuilder s
   {-# INLINE toBuilder #-}
   extractor = S.fromList <$> extractor
   decodeCurrent = S.fromList <$> decodeCurrent
 
 instance Serialise IS.IntSet where
-  schemaVia _ = schemaVia (Proxy :: Proxy [Int])
+  schemaVia _ = schemaVia (Proxy @ [Int])
   toBuilder s = toBuilder (IS.size s) <> IS.foldr (mappend . toBuilder) mempty s
   {-# INLINE toBuilder #-}
   extractor = IS.fromList <$> extractor
   decodeCurrent = IS.fromList <$> decodeCurrent
 
 instance Serialise a => Serialise (Seq.Seq a) where
-  schemaVia _ = schemaVia (Proxy :: Proxy [a])
+  schemaVia _ = schemaVia (Proxy @ [a])
   toBuilder s = toBuilder (length s) <> foldMap toBuilder s
   {-# INLINE toBuilder #-}
   extractor = Seq.fromList <$> extractor
   decodeCurrent = Seq.fromList <$> decodeCurrent
 
 instance Serialise Scientific where
-  schemaVia _ = schemaVia (Proxy :: Proxy (Integer, Int))
+  schemaVia _ = schemaVia (Proxy @ (Integer, Int))
   toBuilder s = toBuilder (coefficient s, base10Exponent s)
   {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \s -> case s of
@@ -690,7 +690,7 @@ handleRecursion k = Plan $ \sch -> Strategy $ \decs -> case sch of
     | dyn : _ <- drop i decs -> case fromDynamic dyn of
       Nothing -> Left $ "A type mismatch in fixpoint"
         <+> pretty i <> ":"
-        <+> "expected" <> viaShow (typeRep (Proxy :: Proxy (Term -> a)))
+        <+> "expected" <> viaShow (typeRep (Proxy @ (Term -> a)))
         <+> "but got " <> viaShow (dynTypeRep dyn)
       Just a -> Right a
     | otherwise -> Left $ "Unbound fixpoint: " <> pretty i
@@ -728,8 +728,8 @@ instance (Serialise a, Serialise b, Serialise c, Serialise d, Serialise e, Seria
   decodeCurrent = gdecodeCurrentProduct
 
 instance (Serialise a, Serialise b) => Serialise (Either a b) where
-  schemaVia _ ts = SVariant [("Left", schemaVia (Proxy :: Proxy a) ts)
-    , ("Right", schemaVia (Proxy :: Proxy b) ts)]
+  schemaVia _ ts = SVariant [("Left", schemaVia (Proxy @ a) ts)
+    , ("Right", schemaVia (Proxy @ b) ts)]
   toBuilder (Left a) = BB.word8 0 <> toBuilder a
   toBuilder (Right b) = BB.word8 1 <> toBuilder b
   {-# INLINE toBuilder #-}
@@ -771,7 +771,7 @@ extractConstructor = extractConstructorBy extractor
 gschemaViaRecord :: forall proxy a. (GSerialiseRecord (Rep a), Generic a, Typeable a) => proxy a -> [TypeRep] -> Schema
 gschemaViaRecord p ts
   | Just i <- elemIndex (typeRep p) ts = SSelf i
-  | otherwise = SFix $ SRecord $ V.fromList $ recordSchema (Proxy :: Proxy (Rep a)) (typeRep p : ts)
+  | otherwise = SFix $ SRecord $ V.fromList $ recordSchema (Proxy @ (Rep a)) (typeRep p : ts)
 
 -- | Generic implementation of 'toBuilder' for a record.
 gtoBuilderRecord :: (GEncodeProduct (Rep a), Generic a) => a -> BB.Builder
@@ -816,7 +816,7 @@ gdecodeCurrentRecord = to <$> recordDecoder
 newtype WineryRecord a = WineryRecord { unWineryRecord :: a }
 
 instance (GEncodeProduct (Rep a), GSerialiseRecord (Rep a), Generic a, Typeable a) => Serialise (WineryRecord a) where
-  schemaVia _ = gschemaViaRecord (Proxy :: Proxy a)
+  schemaVia _ = gschemaViaRecord (Proxy @ a)
   toBuilder = gtoBuilderRecord . unWineryRecord
   extractor = WineryRecord <$> gextractorRecord Nothing
   decodeCurrent = WineryRecord <$> gdecodeCurrentRecord
@@ -850,8 +850,8 @@ class GSerialiseRecord f where
   recordDecoder :: Decoder (f x)
 
 instance (GSerialiseRecord f, GSerialiseRecord g) => GSerialiseRecord (f :*: g) where
-  recordSchema _ ts = recordSchema (Proxy :: Proxy f) ts
-    ++ recordSchema (Proxy :: Proxy g) ts
+  recordSchema _ ts = recordSchema (Proxy @ f) ts
+    ++ recordSchema (Proxy @ g) ts
   recordExtractor def = (\f g -> (:*:) <$> f <*> g)
     <$> recordExtractor ((\(x :*: _) -> x) <$> def)
     <*> recordExtractor ((\(_ :*: x) -> x) <$> def)
@@ -860,7 +860,7 @@ instance (GSerialiseRecord f, GSerialiseRecord g) => GSerialiseRecord (f :*: g) 
   {-# INLINE recordDecoder #-}
 
 instance (Serialise a, Selector c) => GSerialiseRecord (S1 c (K1 i a)) where
-  recordSchema _ ts = [(T.pack $ selName (M1 undefined :: M1 i c (K1 i a) x), schemaVia (Proxy :: Proxy a) ts)]
+  recordSchema _ ts = [(T.pack $ selName (M1 undefined :: M1 i c (K1 i a) x), schemaVia (Proxy @ a) ts)]
   recordExtractor def = TransFusion $ \k -> fmap (fmap (M1 . K1)) $ k $ FieldDecoder
     (T.pack $ selName (M1 undefined :: M1 i c (K1 i a) x))
     (unK1 . unM1 <$> def)
@@ -870,12 +870,12 @@ instance (Serialise a, Selector c) => GSerialiseRecord (S1 c (K1 i a)) where
   {-# INLINE recordDecoder #-}
 
 instance (GSerialiseRecord f) => GSerialiseRecord (C1 c f) where
-  recordSchema _ = recordSchema (Proxy :: Proxy f)
+  recordSchema _ = recordSchema (Proxy @ f)
   recordExtractor def = fmap M1 <$> recordExtractor (unM1 <$> def)
   recordDecoder = M1 <$> recordDecoder
 
 instance (GSerialiseRecord f) => GSerialiseRecord (D1 c f) where
-  recordSchema _ = recordSchema (Proxy :: Proxy f)
+  recordSchema _ = recordSchema (Proxy @ f)
   recordExtractor def = fmap M1 <$> recordExtractor (unM1 <$> def)
   recordDecoder = M1 <$> recordDecoder
 
@@ -890,32 +890,32 @@ instance GSerialiseProduct U1 where
   productDecoder = pure U1
 
 instance (Serialise a) => GSerialiseProduct (K1 i a) where
-  productSchema _ ts = [schemaVia (Proxy :: Proxy a) ts]
+  productSchema _ ts = [schemaVia (Proxy @ a) ts]
   productExtractor = Compose $ state $ \i ->
     ( TransFusion $ \k -> fmap (fmap K1) $ k $ FieldDecoder i Nothing (getExtractor extractor)
     , i + 1)
   productDecoder = K1 <$> decodeCurrent
 
 instance GSerialiseProduct f => GSerialiseProduct (M1 i c f) where
-  productSchema _ ts = productSchema (Proxy :: Proxy f) ts
+  productSchema _ ts = productSchema (Proxy @ f) ts
   productExtractor = fmap M1 <$> productExtractor
   productDecoder = M1 <$> productDecoder
 
 instance (GSerialiseProduct f, GSerialiseProduct g) => GSerialiseProduct (f :*: g) where
-  productSchema _ ts = productSchema (Proxy :: Proxy f) ts ++ productSchema (Proxy :: Proxy g) ts
+  productSchema _ ts = productSchema (Proxy @ f) ts ++ productSchema (Proxy @ g) ts
   productExtractor = liftA2 (:*:) <$> productExtractor <*> productExtractor
   productDecoder = (:*:) <$> productDecoder <*> productDecoder
 
 newtype WineryProduct a = WineryProduct { unWineryProduct :: a }
 
 instance (GEncodeProduct (Rep a), GSerialiseProduct (Rep a), Generic a, Typeable a) => Serialise (WineryProduct a) where
-  schemaVia _ = gschemaViaProduct (Proxy :: Proxy a)
+  schemaVia _ = gschemaViaProduct (Proxy @ a)
   toBuilder = gtoBuilderProduct . unWineryProduct
   extractor = WineryProduct <$> gextractorProduct
   decodeCurrent = WineryProduct <$> gdecodeCurrentProduct
 
 gschemaViaProduct :: forall proxy a. (Generic a, GSerialiseProduct (Rep a)) => proxy a -> [TypeRep] -> Schema
-gschemaViaProduct _ = SProduct . V.fromList . productSchema (Proxy :: Proxy (Rep a))
+gschemaViaProduct _ = SProduct . V.fromList . productSchema (Proxy @ (Rep a))
 {-# INLINE gschemaViaProduct #-}
 
 gtoBuilderProduct :: (Generic a, GEncodeProduct (Rep a)) => a -> BB.Builder
@@ -957,7 +957,7 @@ extractorProduct' sch = unexpectedSchema' "extractorProduct'" "a product" sch
 newtype WineryVariant a = WineryVariant { unWineryVariant :: a }
 
 instance (GSerialiseVariant (Rep a), Generic a, Typeable a) => Serialise (WineryVariant a) where
-  schemaVia _ = gschemaViaVariant (Proxy :: Proxy a)
+  schemaVia _ = gschemaViaVariant (Proxy @ a)
   toBuilder = gtoBuilderVariant . unWineryVariant
   extractor = WineryVariant <$> gextractorVariant
   decodeCurrent = WineryVariant <$> gdecodeCurrentVariant
@@ -966,7 +966,7 @@ instance (GSerialiseVariant (Rep a), Generic a, Typeable a) => Serialise (Winery
 gschemaViaVariant :: forall proxy a. (GSerialiseVariant (Rep a), Typeable a, Generic a) => proxy a -> [TypeRep] -> Schema
 gschemaViaVariant p ts
   | Just i <- elemIndex (typeRep p) ts = SSelf i
-  | otherwise = SFix $ SVariant $ V.fromList $ variantSchema (Proxy :: Proxy (Rep a)) (typeRep p : ts)
+  | otherwise = SFix $ SVariant $ V.fromList $ variantSchema (Proxy @ (Rep a)) (typeRep p : ts)
 
 -- | Generic implementation of 'toBuilder' for an ADT.
 gtoBuilderVariant :: (GSerialiseVariant (Rep a), Generic a) => a -> BB.Builder
@@ -987,7 +987,7 @@ gextractorVariant = Extractor $ handleRecursion $ \case
   s -> unexpectedSchema' rep "a variant" s
   where
     rep = "gextractorVariant :: Extractor "
-      <> viaShow (typeRep (Proxy :: Proxy a))
+      <> viaShow (typeRep (Proxy @ a))
 
 gdecodeCurrentVariant :: (GSerialiseVariant (Rep a), Generic a) => Decoder a
 gdecodeCurrentVariant = decodeVarInt >>= maybe (throw InvalidTag) (fmap to) . (decs V.!?)
@@ -1002,38 +1002,38 @@ class GSerialiseVariant f where
   variantDecoder :: [Decoder (f x)]
 
 instance (GSerialiseVariant f, GSerialiseVariant g) => GSerialiseVariant (f :+: g) where
-  variantCount _ = variantCount (Proxy :: Proxy f) + variantCount (Proxy :: Proxy g)
-  variantSchema _ ts = variantSchema (Proxy :: Proxy f) ts ++ variantSchema (Proxy :: Proxy g) ts
+  variantCount _ = variantCount (Proxy @ f) + variantCount (Proxy @ g)
+  variantSchema _ ts = variantSchema (Proxy @ f) ts ++ variantSchema (Proxy @ g) ts
   variantEncoder i (L1 f) = variantEncoder i f
-  variantEncoder i (R1 g) = variantEncoder (i + variantCount (Proxy :: Proxy f)) g
+  variantEncoder i (R1 g) = variantEncoder (i + variantCount (Proxy @ f)) g
   variantExtractor = fmap (fmap (fmap (fmap (fmap L1)))) variantExtractor
     ++ fmap (fmap (fmap (fmap (fmap R1)))) variantExtractor
   variantDecoder = fmap (fmap L1) variantDecoder ++ fmap (fmap R1) variantDecoder
 
 instance (GSerialiseProduct f, GEncodeProduct f, KnownSymbol name) => GSerialiseVariant (C1 ('MetaCons name fixity 'False) f) where
   variantCount _ = 1
-  variantSchema _ ts = [(T.pack $ symbolVal (Proxy @ name), SProduct $ V.fromList $ productSchema (Proxy :: Proxy f) ts)]
+  variantSchema _ ts = [(T.pack $ symbolVal (Proxy @ name), SProduct $ V.fromList $ productSchema (Proxy @ f) ts)]
   variantEncoder i (M1 a) = varInt i <> productEncoder a
   variantExtractor = [(T.pack $ symbolVal (Proxy @ name), fmap (fmap M1) . extractorProduct') ]
   variantDecoder = [M1 <$> productDecoder]
 
 instance (GSerialiseRecord f, GEncodeProduct f, KnownSymbol name) => GSerialiseVariant (C1 ('MetaCons name fixity 'True) f) where
   variantCount _ = 1
-  variantSchema _ ts = [(T.pack $ symbolVal (Proxy @ name), SRecord $ V.fromList $ recordSchema (Proxy :: Proxy f) ts)]
+  variantSchema _ ts = [(T.pack $ symbolVal (Proxy @ name), SRecord $ V.fromList $ recordSchema (Proxy @ f) ts)]
   variantEncoder i (M1 a) = varInt i <> productEncoder a
   variantExtractor = [(T.pack $ symbolVal (Proxy @ name), fmap (fmap M1) . extractorRecord' "" Nothing) ]
   variantDecoder = [M1 <$> recordDecoder]
 
 instance (GSerialiseVariant f) => GSerialiseVariant (S1 c f) where
-  variantCount _ = variantCount (Proxy :: Proxy f)
-  variantSchema _ ts = variantSchema (Proxy :: Proxy f) ts
+  variantCount _ = variantCount (Proxy @ f)
+  variantSchema _ ts = variantSchema (Proxy @ f) ts
   variantEncoder i (M1 a) = variantEncoder i a
   variantExtractor = fmap (fmap (fmap (fmap M1))) <$> variantExtractor
   variantDecoder = fmap M1 <$> variantDecoder
 
 instance (GSerialiseVariant f) => GSerialiseVariant (D1 c f) where
-  variantCount _ = variantCount (Proxy :: Proxy f)
-  variantSchema _ ts = variantSchema (Proxy :: Proxy f) ts
+  variantCount _ = variantCount (Proxy @ f)
+  variantSchema _ ts = variantSchema (Proxy @ f) ts
   variantEncoder i (M1 a) = variantEncoder i a
   variantExtractor = fmap (fmap (fmap (fmap M1))) <$> variantExtractor
   variantDecoder = fmap M1 <$> variantDecoder
