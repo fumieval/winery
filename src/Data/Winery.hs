@@ -56,6 +56,7 @@ module Data.Winery
   -- * DerivingVia
   , WineryRecord(..)
   , WineryVariant(..)
+  , WineryProduct(..)
   -- * Generic implementations (for old GHC / custom instances)
   , GSerialiseRecord
   , gschemaViaRecord
@@ -67,7 +68,11 @@ module Data.Winery
   , gschemaViaVariant
   , gtoBuilderVariant
   , gextractorVariant
+  , gschemaViaProduct
+  , gtoBuilderProduct
   , gdecodeCurrentVariant
+  , gextractorProduct
+  , gdecodeCurrentProduct
   -- * Preset schema
   , bootstrapSchema
   )where
@@ -925,6 +930,34 @@ instance (GSerialiseProduct f, GSerialiseProduct g) => GSerialiseProduct (f :*: 
   productSchema _ ts = productSchema (Proxy :: Proxy f) ts ++ productSchema (Proxy :: Proxy g) ts
   productExtractor = liftA2 (:*:) <$> productExtractor <*> productExtractor
   productDecoder = (:*:) <$> productDecoder <*> productDecoder
+
+newtype WineryProduct a = WineryProduct { unWineryProduct :: a }
+
+instance (GEncodeProduct (Rep a), GSerialiseProduct (Rep a), Generic a, Typeable a) => Serialise (WineryProduct a) where
+  schemaVia _ = gschemaViaProduct (Proxy :: Proxy a)
+  toBuilder = gtoBuilderProduct . unWineryProduct
+  extractor = WineryProduct <$> gextractorProduct
+  decodeCurrent = WineryProduct <$> gdecodeCurrentProduct
+
+gschemaViaProduct :: forall proxy a. (Generic a, GSerialiseProduct (Rep a)) => proxy a -> [TypeRep] -> Schema
+gschemaViaProduct _ = SProduct . V.fromList . productSchema (Proxy :: Proxy (Rep a))
+{-# INLINE gschemaViaProduct #-}
+
+gtoBuilderProduct :: (Generic a, GEncodeProduct (Rep a)) => a -> BB.Builder
+gtoBuilderProduct = productEncoder . from
+{-# INLINE gtoBuilderProduct #-}
+
+-- | Generic implementation of 'extractor' for a record.
+gextractorProduct :: forall a. (GSerialiseProduct (Rep a), Generic a, Typeable a)
+  => Extractor a
+gextractorProduct = Extractor $ handleRecursion $ fmap (to .) . extractorProduct'
+{-# INLINE gextractorProduct #-}
+
+-- | Generic implementation of 'extractor' for a record.
+gdecodeCurrentProduct :: forall a. (GSerialiseProduct (Rep a), Generic a)
+  => Decoder a
+gdecodeCurrentProduct = to <$> productDecoder
+{-# INLINE gdecodeCurrentProduct #-}
 
 extractorProduct' :: GSerialiseProduct f => Schema -> Strategy' (Term -> f x)
 extractorProduct' (SProduct schs) = Strategy $ \recs -> do
