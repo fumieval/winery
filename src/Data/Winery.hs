@@ -10,6 +10,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -111,6 +112,7 @@ import Data.Typeable
 import Unsafe.Coerce
 import GHC.Float (castWord32ToFloat, castWord64ToDouble)
 import GHC.Generics
+import GHC.TypeLits
 import System.IO
 import qualified Test.QuickCheck as QC
 
@@ -801,8 +803,17 @@ data FieldDecoder i a = FieldDecoder !i !(Maybe a) !(Plan (Term -> a))
 gextractorRecord :: forall a. (GSerialiseRecord (Rep a), Generic a, Typeable a)
   => Maybe a -- ^ default value (optional)
   -> Extractor a
-gextractorRecord def = Extractor $ handleRecursion $ \case
-  SRecord schs -> Strategy $ \decs -> do
+gextractorRecord def = Extractor $ handleRecursion
+  $ fmap (fmap (to .)) $ extractorRecord'
+  ("gextractorRecord :: Extractor " <> viaShow (typeRep (Proxy @ a)))
+  (from <$> def)
+
+-- | Generic implementation of 'extractor' for a record.
+extractorRecord' :: (GSerialiseRecord f)
+  => StrategyError
+  -> Maybe (f x) -- ^ default value (optional)
+  -> Schema -> Strategy' (Term -> f x)
+extractorRecord' rep def (SRecord schs) = Strategy $ \decs -> do
     let schs' = [(k, (i, s)) | (i, (k, s)) <- zip [0..] schs]
     let go :: FieldDecoder T.Text x -> Either StrategyError (Term -> x)
         go (FieldDecoder name def' p) = case lookup name schs' of
@@ -814,12 +825,8 @@ gextractorRecord def = Extractor $ handleRecursion $ \case
               TRecord xs -> maybe (error (show rep)) (getItem . snd) $ xs V.!? i
               t -> throw $ InvalidTerm t
             Left e -> Left e
-    m <- unTransFusion (recordExtractor $ from <$> def) go
-    return (to . m)
-  s -> unexpectedSchema' rep "a record" s
-  where
-    rep = "gextractorRecord :: Extractor "
-      <> viaShow (typeRep (Proxy :: Proxy a))
+    unTransFusion (recordExtractor def) go
+extractorRecord' rep _ s = unexpectedSchema' rep "a record" s
 {-# INLINE gextractorRecord #-}
 
 gdecodeCurrentRecord :: (GSerialiseRecord (Rep a), Generic a) => Decoder a
@@ -993,13 +1000,19 @@ instance (GSerialiseVariant f, GSerialiseVariant g) => GSerialiseVariant (f :+: 
     ++ fmap (fmap (fmap (fmap (fmap R1)))) variantExtractor
   variantDecoder = fmap (fmap L1) variantDecoder ++ fmap (fmap R1) variantDecoder
 
-instance (GSerialiseProduct f, Constructor c) => GSerialiseVariant (C1 c f) where
+instance (GSerialiseProduct f, KnownSymbol name) => GSerialiseVariant (C1 ('MetaCons name fixity 'False) f) where
   variantCount _ = 1
-  variantSchema _ ts = [(T.pack $ conName (M1 undefined :: M1 i c f x), SProduct $ V.fromList $ productSchema (Proxy :: Proxy f) ts)]
+  variantSchema _ ts = [(T.pack $ symbolVal (Proxy @ name), SProduct $ V.fromList $ productSchema (Proxy :: Proxy f) ts)]
   variantEncoder i (M1 a) = varInt i <> productEncoder a
-  variantExtractor = [(T.pack $ conName (M1 undefined :: M1 i c f x)
-    , fmap (fmap M1) . extractorProduct') ]
+  variantExtractor = [(T.pack $ symbolVal (Proxy @ name), fmap (fmap M1) . extractorProduct') ]
   variantDecoder = [M1 <$> productDecoder]
+
+instance (GSerialiseRecord f, GEncodeRecord f, KnownSymbol name) => GSerialiseVariant (C1 ('MetaCons name fixity 'True) f) where
+  variantCount _ = 1
+  variantSchema _ ts = [(T.pack $ symbolVal (Proxy @ name), SRecord $ recordSchema (Proxy :: Proxy f) ts)]
+  variantEncoder i (M1 a) = varInt i <> recordEncoder a
+  variantExtractor = [(T.pack $ symbolVal (Proxy @ name), fmap (fmap M1) . extractorRecord' "" Nothing) ]
+  variantDecoder = [M1 <$> recordDecoder]
 
 instance (GSerialiseVariant f) => GSerialiseVariant (S1 c f) where
   variantCount _ = variantCount (Proxy :: Proxy f)
