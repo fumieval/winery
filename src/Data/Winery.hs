@@ -85,12 +85,16 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.FastBuilder as BB
 import qualified Data.ByteString.Lazy as BL
 import Data.Bits
+import Data.Complex
 import Data.Dynamic
 import Data.Fixed
 import Data.Functor.Compose
 import Data.Functor.Identity
+import Data.Monoid as M
 import Data.Proxy
+import Data.Ratio
 import Data.Scientific (Scientific, scientific, coefficient, base10Exponent)
+import Data.Semigroup as S
 import Data.Hashable (Hashable)
 import qualified Data.HashMap.Strict as HM
 import Data.Int
@@ -98,6 +102,7 @@ import qualified Data.IntMap as IM
 import qualified Data.IntSet as IS
 import Data.List (elemIndex)
 import qualified Data.Map as M
+import Data.Ord
 import Data.Word
 import Data.Winery.Base as W
 import Data.Winery.Internal
@@ -114,8 +119,10 @@ import Data.Text.Prettyprint.Doc.Render.Terminal
 import Data.Time.Clock
 import Data.Time.Clock.POSIX
 import Data.Typeable
+import Data.Void
 import Unsafe.Coerce
 import GHC.Float (castWord32ToFloat, castWord64ToDouble)
+import GHC.Natural
 import GHC.Generics
 import GHC.TypeLits
 import System.IO
@@ -476,6 +483,12 @@ instance Serialise Integer where
   extractor = getVarInt <$> extractor
   decodeCurrent = getVarInt <$> decodeCurrent
 
+instance Serialise Natural where
+  schemaVia _ _ = SInteger
+  toBuilder = toBuilder . naturalToInteger
+  extractor = naturalFromInteger <$> extractor
+  decodeCurrent = naturalFromInteger <$> decodeCurrent
+
 instance Serialise Char where
   schemaVia _ _ = SChar
   toBuilder = toBuilder . fromEnum
@@ -641,6 +654,13 @@ instance Serialise a => Serialise (Seq.Seq a) where
   {-# INLINE toBuilder #-}
   extractor = Seq.fromList <$> extractor
   decodeCurrent = Seq.fromList <$> decodeCurrent
+
+instance (Integral a, Serialise a) => Serialise (Ratio a) where
+  schemaVia _ = schemaVia (Proxy @ (a, a))
+  toBuilder x = toBuilder (numerator x, denominator x)
+  {-# INLINE toBuilder #-}
+  extractor = uncurry (%) <$> extractor
+  decodeCurrent = uncurry (%) <$> decodeCurrent
 
 instance Serialise Scientific where
   schemaVia _ = schemaVia (Proxy @ (Integer, Int))
@@ -1043,5 +1063,47 @@ instance Serialise Ordering where
   toBuilder = gtoBuilderVariant
   extractor = gextractorVariant
   decodeCurrent = gdecodeCurrentVariant
+
 deriving instance Serialise a => Serialise (Identity a)
-deriving instance (Serialise a, Typeable b) => Serialise (Const a (b :: *))
+deriving instance (Serialise a, Typeable b, Typeable k) => Serialise (Const a (b :: k))
+deriving instance Serialise Any
+deriving instance Serialise All
+deriving instance Serialise a => Serialise (Down a)
+deriving instance Serialise a => Serialise (Product a)
+deriving instance Serialise a => Serialise (Sum a)
+deriving instance Serialise a => Serialise (Dual a)
+deriving instance Serialise a => Serialise (M.Last a)
+deriving instance Serialise a => Serialise (M.First a)
+deriving instance Serialise a => Serialise (S.Last a)
+deriving instance Serialise a => Serialise (S.First a)
+deriving instance Serialise a => Serialise (ZipList a)
+deriving instance Serialise a => Serialise (Option a)
+deriving instance Serialise a => Serialise (Max a)
+deriving instance Serialise a => Serialise (Min a)
+deriving instance (Typeable k, Typeable f, Typeable a, Serialise (f a)) => Serialise (Alt f (a :: k))
+deriving instance (Typeable k, Typeable f, Typeable a, Serialise (f a)) => Serialise (Ap f (a :: k))
+deriving instance (Typeable j, Typeable k, Typeable f, Typeable g, Typeable a, Serialise (f (g a))) => Serialise (Compose f (g :: j -> k) (a :: j))
+
+instance (Typeable k, Typeable a, Typeable b, a ~ b) => Serialise ((a :: k) :~: b) where
+  schemaVia _ _ = SProduct []
+  toBuilder = mempty
+  extractor = pure Refl
+  decodeCurrent = pure Refl
+
+instance (Serialise a, Serialise b) => Serialise (Arg a b) where
+  schemaVia = gschemaViaProduct
+  toBuilder = gtoBuilderProduct
+  extractor = gextractorProduct
+  decodeCurrent = gdecodeCurrentProduct
+
+instance Serialise a => Serialise (Complex a) where
+  schemaVia = gschemaViaProduct
+  toBuilder = gtoBuilderProduct
+  extractor = gextractorProduct
+  decodeCurrent = gdecodeCurrentProduct
+
+instance Serialise Void where
+  schemaVia _ _ = SVariant V.empty
+  toBuilder = mempty
+  extractor = Extractor $ Plan $ const $ errorStrategy "No extractor for Void"
+  decodeCurrent = error "No decodeCurrent for Void"
