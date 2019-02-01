@@ -936,18 +936,23 @@ gdecodeCurrentProduct = to <$> productDecoder
 {-# INLINE gdecodeCurrentProduct #-}
 
 extractorProduct' :: GSerialiseProduct f => Schema -> Strategy' (Term -> f x)
-extractorProduct' (SProduct schs) = Strategy $ \recs -> do
-  let go :: FieldDecoder Int x -> Either StrategyError (Term -> x)
-      go (FieldDecoder i _ p) = do
-        getItem <- if i < length schs
-          then unPlan p (schs V.! i) `unStrategy` recs
-          else Left "Data.Winery.gextractorProduct: insufficient fields"
-        return $ \case
-          TProduct xs -> getItem $ maybe (throw $ InvalidTerm (TProduct xs)) id
-            $ xs V.!? i
-          t -> throw $ InvalidTerm t
-  m <- unTransFusion (getCompose productExtractor `evalState` 0) go
-  return m
+extractorProduct' sch
+  | Just schs <- strip sch = Strategy $ \recs -> do
+    let go :: FieldDecoder Int x -> Either StrategyError (Term -> x)
+        go (FieldDecoder i _ p) = do
+          getItem <- if i < length schs
+            then unPlan p (schs V.! i) `unStrategy` recs
+            else Left "Data.Winery.gextractorProduct: insufficient fields"
+          return $ \case
+            TProduct xs -> getItem $ maybe (throw $ InvalidTerm (TProduct xs)) id
+              $ xs V.!? i
+            t -> throw $ InvalidTerm t
+    m <- unTransFusion (getCompose productExtractor `evalState` 0) go
+    return m
+  where
+    strip (SProduct xs) = Just xs
+    strip (SRecord xs) = Just $ V.fromList $ map snd xs
+    strip _ = Nothing
 extractorProduct' sch = unexpectedSchema' "extractorProduct'" "a product" sch
 
 newtype WineryVariant a = WineryVariant { unWineryVariant :: a }
