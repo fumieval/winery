@@ -519,26 +519,24 @@ instance Serialise BL.ByteString where
   decodeCurrent = BL.fromStrict <$> decodeCurrent
 
 -- | time-1.9.1
-nanosecondsToNominalDiffTime :: Integer -> NominalDiffTime
-nanosecondsToNominalDiffTime = unsafeCoerce . MkFixed . (*1000)
+nanosecondsToNominalDiffTime :: Int64 -> NominalDiffTime
+nanosecondsToNominalDiffTime = unsafeCoerce . MkFixed . (*1000) . fromIntegral
 
 instance Serialise UTCTime where
   schemaVia _ _ = SUTCTime
-  toBuilder t = case unsafeCoerce (utcTimeToPOSIXSeconds t) of
-    MkFixed p -> toBuilder $ p `div` 1000
+  toBuilder = toBuilder . utcTimeToPOSIXSeconds
   {-# INLINE toBuilder #-}
   extractor = Extractor $ Plan $ \case
     SUTCTime -> pure $ \case
       TUTCTime bs -> bs
       t -> throw $ InvalidTerm t
     s -> unexpectedSchema "Serialise UTCTime" s
-  decodeCurrent = posixSecondsToUTCTime . nanosecondsToNominalDiffTime
-    <$> decodeCurrent
+  decodeCurrent = posixSecondsToUTCTime <$> decodeCurrent
 
 instance Serialise NominalDiffTime where
-  schemaVia _ _ = SInteger
+  schemaVia _ _ = SInt64
   toBuilder x = case unsafeCoerce x of
-    MkFixed p -> toBuilder $ p `div` 1000
+    MkFixed p -> toBuilder (fromIntegral (p `div` 1000) :: Int64)
   {-# INLINE toBuilder #-}
   extractor = nanosecondsToNominalDiffTime <$> extractor
   decodeCurrent = nanosecondsToNominalDiffTime <$> decodeCurrent
