@@ -19,6 +19,7 @@ module Data.Winery
   ( Schema(..)
   , Tag(..)
   , Serialise(..)
+  , testSerialise
   , DecodeException(..)
   , schema
   -- * Standalone serialisation
@@ -109,6 +110,7 @@ import Data.Typeable
 import GHC.Float (castWord32ToFloat, castWord64ToDouble)
 import GHC.Generics
 import System.IO
+import qualified Test.QuickCheck as QC
 
 -- | Deserialiser for a 'Term'.
 decodeTerm :: Schema -> Decoder Term
@@ -141,7 +143,7 @@ decodeTerm = go [] where
       tag <- decodeVarInt
       let (name, dec) = maybe (throw InvalidTag) id $ decoders V.!? tag
       TVariant tag name <$> dec
-    SSelf i -> indexDefault (throw InvalidTag) points $ fromIntegral i
+    SSelf i -> indexDefault (throw InvalidTag) points i
     SFix s' -> fix $ \a -> go (a : points) s'
     STag _ s -> go points s
 
@@ -182,6 +184,15 @@ class Typeable a => Serialise a where
   --
   -- @'decodeCurrent' `evalDecoder` 'toBuilder' x@ ≡ x
   decodeCurrent :: Decoder a
+
+-- | Check the integrity of a Serialise instance.
+testSerialise :: forall a. (Eq a, Show a, Serialise a) => a -> QC.Property
+testSerialise x = case getDecoderBy extractor (schema (Proxy :: Proxy a)) of
+  Left e -> QC.counterexample (show e) False
+  Right f -> QC.counterexample "extractor" (evalDecoder f b QC.=== x)
+    QC..&&. QC.counterexample "decodeCurrent" (evalDecoder decodeCurrent b QC.=== x)
+  where
+    b = serialiseOnly x
 
 decodeCurrentDefault :: forall a. Serialise a => Decoder a
 decodeCurrentDefault = case getDecoderBy extractor (schema (Proxy :: Proxy a)) of
@@ -769,7 +780,7 @@ extractConstructor = extractConstructorBy extractor
 -- | Generic implementation of 'schemaVia' for a record.
 gschemaViaRecord :: forall proxy a. (GSerialiseRecord (Rep a), Generic a, Typeable a) => proxy a -> [TypeRep] -> Schema
 gschemaViaRecord p ts
-  | Just i <- elemIndex (typeRep p) ts = SSelf $ fromIntegral i
+  | Just i <- elemIndex (typeRep p) ts = SSelf i
   | otherwise = SFix $ SRecord $ recordSchema (Proxy :: Proxy (Rep a)) (typeRep p : ts)
 
 -- | Generic implementation of 'toBuilder' for a record.
@@ -928,7 +939,7 @@ instance (GSerialiseVariant (Rep a), Generic a, Typeable a) => Serialise (Winery
 -- | Generic implementation of 'schemaVia' for an ADT.
 gschemaViaVariant :: forall proxy a. (GSerialiseVariant (Rep a), Typeable a, Generic a) => proxy a -> [TypeRep] -> Schema
 gschemaViaVariant p ts
-  | Just i <- elemIndex (typeRep p) ts = SSelf $ fromIntegral i
+  | Just i <- elemIndex (typeRep p) ts = SSelf i
   | otherwise = SFix $ SVariant $ variantSchema (Proxy :: Proxy (Rep a)) (typeRep p : ts)
 
 -- | Generic implementation of 'toBuilder' for an ADT.

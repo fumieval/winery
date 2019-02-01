@@ -117,6 +117,9 @@ instance Monad Decoder where
   m >>= k = Decoder $ \bs -> case runDecoder m bs of
     (a, bs') -> runDecoder (k a) bs'
 
+instance MonadFix Decoder where
+  mfix f = Decoder $ \s -> fix $ \ ~(a, _) -> runDecoder (f a) s
+
 getWord8 :: Decoder Word8
 getWord8 = Decoder $ \bs -> case B.uncons bs of
   Nothing -> throw InsufficientInput

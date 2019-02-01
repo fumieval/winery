@@ -33,6 +33,7 @@ import Data.Winery.Internal
 import Data.Word
 import GHC.Generics (Generic)
 import GHC.Exts (IsList(..))
+import Test.QuickCheck.Instances ()
 
 -- | Tag is an extra value that can be attached to a schema.
 data Tag = TagInt !Int
@@ -55,7 +56,7 @@ instance Pretty Tag where
   pretty (TagList xs) = list (map pretty xs)
 
 currentSchemaVersion :: Word8
-currentSchemaVersion = 3
+currentSchemaVersion = 4
 
 data Schema = SFix Schema -- ^ binds a fixpoint
   | SSelf !Int -- ^ @SSelf n@ refers to the n-th innermost fixpoint
@@ -113,8 +114,10 @@ instance Pretty Schema where
     STag t s -> nest 2 $ sep [pretty t <> ":", pretty s]
 
 bootstrapSchema :: Word8 -> Schema
-bootstrapSchema 3 = SFix $ SVariant [("SFix",SProduct [SSelf 0])
-  ,("SSelf",SProduct [SWord8])
+bootstrapSchema 4 = SFix
+  $ SVariant
+  [("SFix",SProduct [SSelf 0])
+  ,("SSelf",SProduct [SInteger])
   ,("SVector",SProduct [SSelf 0])
   ,("SProduct",SProduct [SVector (SSelf 0)])
   ,("SRecord",SProduct [SVector (SProduct [SText,SSelf 0])])
@@ -136,12 +139,12 @@ bootstrapSchema 3 = SFix $ SVariant [("SFix",SProduct [SSelf 0])
   ,("SBytes",SProduct [])
   ,("SText",SProduct [])
   ,("SUTCTime",SProduct [])
-  ,("STag",SProduct [stag, SSelf 0])]
-  where
-    stag = SFix $ SVariant
+  ,("STag",SProduct
+    [SFix $ SVariant
       [("TagInt",SProduct [SInteger])
       ,("TagStr",SProduct [SText])
       ,("TagList",SProduct [SVector (SSelf 0)])]
+    ,SSelf 0])]
 bootstrapSchema n = error $ "Unsupported version: " <> show n
 
 unexpectedSchema' :: Doc AnsiStyle -> Doc AnsiStyle -> Schema -> Strategy' a
