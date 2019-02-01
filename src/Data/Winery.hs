@@ -698,58 +698,34 @@ handleRecursion k = Plan $ \sch -> Strategy $ \decs -> case sch of
   s -> k s `unStrategy` decs
 
 instance (Serialise a, Serialise b) => Serialise (a, b) where
-  schemaVia _ ts = SProduct [schemaVia (Proxy :: Proxy a) ts, schemaVia (Proxy :: Proxy b) ts]
-  toBuilder (a, b) = toBuilder a <> toBuilder b
-  {-# INLINE toBuilder #-}
-  extractor = Extractor $ Plan $ \case
-    SProduct [sa, sb] -> do
-      getA <- unwrapExtractor extractor sa
-      getB <- unwrapExtractor extractor sb
-      return $ \case
-        TProduct [a, b] -> (getA a, getB b)
-        t -> throw $ InvalidTerm t
-    s -> unexpectedSchema "Serialise (a, b)" s
-  decodeCurrent = (,) <$> decodeCurrent <*> decodeCurrent
+  schemaVia = gschemaViaProduct
+  toBuilder = gtoBuilderProduct
+  extractor = gextractorProduct
+  decodeCurrent = gdecodeCurrentProduct
 
 instance (Serialise a, Serialise b, Serialise c) => Serialise (a, b, c) where
-  schemaVia _ ts = SProduct [sa, sb, sc]
-    where
-      sa = schemaVia (Proxy :: Proxy a) ts
-      sb = schemaVia (Proxy :: Proxy b) ts
-      sc = schemaVia (Proxy :: Proxy c) ts
-  toBuilder (a, b, c) = toBuilder a <> toBuilder b <> toBuilder c
-  {-# INLINE toBuilder #-}
-  extractor = Extractor $ Plan $ \case
-    SProduct [sa, sb, sc] -> do
-      getA <- unwrapExtractor extractor sa
-      getB <- unwrapExtractor extractor sb
-      getC <- unwrapExtractor extractor sc
-      return $ \case
-        TProduct [a, b, c] -> (getA a, getB b, getC c)
-        t -> throw $ InvalidTerm t
-    s -> unexpectedSchema "Serialise (a, b, c)" s
-  decodeCurrent = (,,) <$> decodeCurrent <*> decodeCurrent <*> decodeCurrent
+  schemaVia = gschemaViaProduct
+  toBuilder = gtoBuilderProduct
+  extractor = gextractorProduct
+  decodeCurrent = gdecodeCurrentProduct
 
 instance (Serialise a, Serialise b, Serialise c, Serialise d) => Serialise (a, b, c, d) where
-  schemaVia _ ts = SProduct [sa, sb, sc, sd]
-    where
-      sa = schemaVia (Proxy :: Proxy a) ts
-      sb = schemaVia (Proxy :: Proxy b) ts
-      sc = schemaVia (Proxy :: Proxy c) ts
-      sd = schemaVia (Proxy :: Proxy d) ts
-  toBuilder (a, b, c, d) = toBuilder a <> toBuilder b <> toBuilder c <> toBuilder d
-  {-# INLINE toBuilder #-}
-  extractor = Extractor $ Plan $ \case
-    SProduct [sa, sb, sc, sd] -> do
-      getA <- unwrapExtractor extractor sa
-      getB <- unwrapExtractor extractor sb
-      getC <- unwrapExtractor extractor sc
-      getD <- unwrapExtractor extractor sd
-      return $ \case
-        TProduct [a, b, c, d] -> (getA a, getB b, getC c, getD d)
-        t -> throw $ InvalidTerm t
-    s -> unexpectedSchema "Serialise (a, b, c, d)" s
-  decodeCurrent = (,,,) <$> decodeCurrent <*> decodeCurrent <*> decodeCurrent <*> decodeCurrent
+  schemaVia = gschemaViaProduct
+  toBuilder = gtoBuilderProduct
+  extractor = gextractorProduct
+  decodeCurrent = gdecodeCurrentProduct
+
+instance (Serialise a, Serialise b, Serialise c, Serialise d, Serialise e) => Serialise (a, b, c, d, e) where
+  schemaVia = gschemaViaProduct
+  toBuilder = gtoBuilderProduct
+  extractor = gextractorProduct
+  decodeCurrent = gdecodeCurrentProduct
+
+instance (Serialise a, Serialise b, Serialise c, Serialise d, Serialise e, Serialise f) => Serialise (a, b, c, d, e, f) where
+  schemaVia = gschemaViaProduct
+  toBuilder = gtoBuilderProduct
+  extractor = gextractorProduct
+  decodeCurrent = gdecodeCurrentProduct
 
 instance (Serialise a, Serialise b) => Serialise (Either a b) where
   schemaVia _ ts = SVariant [("Left", schemaVia (Proxy :: Proxy a) ts)
