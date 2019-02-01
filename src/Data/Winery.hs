@@ -146,9 +146,9 @@ decodeTerm = go [] where
       n <- decodeVarInt
       TVector <$> V.replicateM n (go points sch)
     SProduct schs -> TProduct <$> traverse (go points) schs
-    SRecord schs -> TRecord <$> traverse (\(k, s) -> (,) k <$> go points s) (V.fromList schs)
+    SRecord schs -> TRecord <$> traverse (\(k, s) -> (,) k <$> go points s) schs
     SVariant schs -> do
-      let !decoders = V.fromList $ map (\(name, sch) -> let !m = go points sch in (name, m)) schs
+      let !decoders = V.map (\(name, sch) -> let !m = go points sch in (name, m)) schs
       tag <- decodeVarInt
       let (name, dec) = maybe (throw InvalidTag) id $ decoders V.!? tag
       TVariant tag name <$> dec
@@ -672,13 +672,13 @@ extractField = extractFieldBy extractor
 extractFieldBy :: Typeable a => Extractor a -> T.Text -> Extractor a
 extractFieldBy (Extractor g) name = Extractor $ handleRecursion $ \case
   SRecord schs -> do
-    case [(i, s) | (i, (k, s)) <- zip [0..] schs, k == name] of
-      (i, sch) : _ -> do
+    case lookupWithIndexV name schs of
+      Just (i, sch) -> do
         m <- unPlan g sch
         return $ \case
           TRecord xs -> maybe (error msg) (m . snd) $ xs V.!? i
           t -> throw $ InvalidTerm t
-      _ -> errorStrategy $ rep <> ": Schema not found in " <> pretty (map fst schs)
+      _ -> errorStrategy $ rep <> ": field not found in " <> pretty (map fst $ V.toList schs)
   s -> unexpectedSchema' rep "a record" s
   where
     rep = "extractFieldBy ... " <> dquotes (pretty name)
@@ -751,9 +751,9 @@ instance (Serialise a, Serialise b) => Serialise (Either a b) where
 extractConstructorBy :: Typeable a => Extractor a -> T.Text -> Extractor (Maybe a)
 extractConstructorBy d name = Extractor $ handleRecursion $ \case
   SVariant schs0 -> Strategy $ \decs -> do
-    (j, dec) <- case [(i :: Int, ss) | (i, (k, ss)) <- zip [0..] schs0, name == k] of
-      (i, s) : _ -> fmap ((,) i) $ unwrapExtractor d s `unStrategy` decs
-      _ -> Left $ rep <> ": Schema not found in " <> pretty (map fst schs0)
+    (j, dec) <- case lookupWithIndexV name schs0 of
+      Just (i, s) -> fmap ((,) i) $ unwrapExtractor d s `unStrategy` decs
+      _ -> Left $ rep <> ": constructor not found in " <> pretty (map fst $ V.toList schs0)
     return $ \case
       TVariant i _ v
         | i == j -> Just $ dec v
@@ -771,7 +771,7 @@ extractConstructor = extractConstructorBy extractor
 gschemaViaRecord :: forall proxy a. (GSerialiseRecord (Rep a), Generic a, Typeable a) => proxy a -> [TypeRep] -> Schema
 gschemaViaRecord p ts
   | Just i <- elemIndex (typeRep p) ts = SSelf i
-  | otherwise = SFix $ SRecord $ recordSchema (Proxy :: Proxy (Rep a)) (typeRep p : ts)
+  | otherwise = SFix $ SRecord $ V.fromList $ recordSchema (Proxy :: Proxy (Rep a)) (typeRep p : ts)
 
 -- | Generic implementation of 'toBuilder' for a record.
 gtoBuilderRecord :: (GEncodeProduct (Rep a), Generic a) => a -> BB.Builder
@@ -795,9 +795,8 @@ extractorRecord' :: (GSerialiseRecord f)
   -> Maybe (f x) -- ^ default value (optional)
   -> Schema -> Strategy' (Term -> f x)
 extractorRecord' rep def (SRecord schs) = Strategy $ \decs -> do
-    let schs' = [(k, (i, s)) | (i, (k, s)) <- zip [0..] schs]
     let go :: FieldDecoder T.Text x -> Either StrategyError (Term -> x)
-        go (FieldDecoder name def' p) = case lookup name schs' of
+        go (FieldDecoder name def' p) = case lookupWithIndexV name schs of
           Nothing -> case def' of
             Just d -> Right (const d)
             Nothing -> Left $ rep <> ": Default value not found for " <> pretty name
@@ -951,7 +950,7 @@ extractorProduct' sch
     return m
   where
     strip (SProduct xs) = Just xs
-    strip (SRecord xs) = Just $ V.fromList $ map snd xs
+    strip (SRecord xs) = Just $ V.map snd xs
     strip _ = Nothing
 extractorProduct' sch = unexpectedSchema' "extractorProduct'" "a product" sch
 
@@ -967,7 +966,7 @@ instance (GSerialiseVariant (Rep a), Generic a, Typeable a) => Serialise (Winery
 gschemaViaVariant :: forall proxy a. (GSerialiseVariant (Rep a), Typeable a, Generic a) => proxy a -> [TypeRep] -> Schema
 gschemaViaVariant p ts
   | Just i <- elemIndex (typeRep p) ts = SSelf i
-  | otherwise = SFix $ SVariant $ variantSchema (Proxy :: Proxy (Rep a)) (typeRep p : ts)
+  | otherwise = SFix $ SVariant $ V.fromList $ variantSchema (Proxy :: Proxy (Rep a)) (typeRep p : ts)
 
 -- | Generic implementation of 'toBuilder' for an ADT.
 gtoBuilderVariant :: (GSerialiseVariant (Rep a), Generic a) => a -> BB.Builder
@@ -979,11 +978,9 @@ gextractorVariant :: forall a. (GSerialiseVariant (Rep a), Generic a, Typeable a
   => Extractor a
 gextractorVariant = Extractor $ handleRecursion $ \case
   SVariant schs0 -> Strategy $ \decs -> do
-    ds' <- V.fromList <$> sequence
-      [ case lookup name variantExtractor of
-          Nothing -> Left $ rep <> ": Schema not found for " <> pretty name
-          Just f -> f sch `unStrategy` decs
-      | (name, sch) <- schs0]
+    ds' <- traverse (\(name, sch) -> case lookup name variantExtractor of
+      Nothing -> Left $ rep <> ": Schema not found for " <> pretty name
+      Just f -> f sch `unStrategy` decs) schs0
     return $ \case
       TVariant i _ v -> to $ maybe (throw InvalidTag) ($ v) $ ds' V.!? i
       t -> throw $ InvalidTerm t
@@ -1022,7 +1019,7 @@ instance (GSerialiseProduct f, GEncodeProduct f, KnownSymbol name) => GSerialise
 
 instance (GSerialiseRecord f, GEncodeProduct f, KnownSymbol name) => GSerialiseVariant (C1 ('MetaCons name fixity 'True) f) where
   variantCount _ = 1
-  variantSchema _ ts = [(T.pack $ symbolVal (Proxy @ name), SRecord $ recordSchema (Proxy :: Proxy f) ts)]
+  variantSchema _ ts = [(T.pack $ symbolVal (Proxy @ name), SRecord $ V.fromList $ recordSchema (Proxy :: Proxy f) ts)]
   variantEncoder i (M1 a) = varInt i <> productEncoder a
   variantExtractor = [(T.pack $ symbolVal (Proxy @ name), fmap (fmap M1) . extractorRecord' "" Nothing) ]
   variantDecoder = [M1 <$> recordDecoder]

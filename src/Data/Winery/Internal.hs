@@ -20,6 +20,7 @@ module Data.Winery.Internal
   , DecodeException(..)
   , indexDefault
   , unsafeIndexV
+  , lookupWithIndexV
   , Strategy(..)
   , StrategyError
   , errorStrategy
@@ -39,6 +40,7 @@ import Data.Monoid ((<>))
 import Data.Text.Prettyprint.Doc (Doc)
 import Data.Text.Prettyprint.Doc.Render.Terminal (AnsiStyle)
 import qualified Data.Vector.Unboxed as U
+import qualified Data.Vector as V
 import Data.Word
 import Foreign.ForeignPtr
 import Foreign.Storable
@@ -170,6 +172,11 @@ unsafeIndexV err xs i
   | i >= U.length xs || i < 0 = error err
   | otherwise = U.unsafeIndex xs i
 {-# INLINE unsafeIndexV #-}
+
+lookupWithIndexV :: Eq k => k -> V.Vector (k, v) -> Maybe (Int, v)
+lookupWithIndexV k v = fmap (\i -> (i, snd $ V.unsafeIndex v i))
+  $ V.findIndex ((k==) . fst) v
+{-# INLINE lookupWithIndexV #-}
 
 indexDefault :: a -> [a] -> Int -> a
 indexDefault err xs i = case drop i xs of

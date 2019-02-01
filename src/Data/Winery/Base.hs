@@ -62,8 +62,8 @@ data Schema = SFix Schema -- ^ binds a fixpoint
   | SSelf !Int -- ^ @SSelf n@ refers to the n-th innermost fixpoint
   | SVector !Schema
   | SProduct (V.Vector Schema)
-  | SRecord [(T.Text, Schema)]
-  | SVariant [(T.Text, Schema)]
+  | SRecord (V.Vector (T.Text, Schema))
+  | SVariant (V.Vector (T.Text, Schema))
   | SSchema !Word8
   | SBool
   | SChar
@@ -106,9 +106,9 @@ instance Pretty Schema where
     SUTCTime -> "UTCTime"
     SVector s -> "[" <> pretty s <> "]"
     SProduct ss -> tupled $ map pretty (V.toList ss)
-    SRecord ss -> align $ encloseSep "{ " " }" ", " [pretty k <+> "::" <+> pretty v | (k, v) <- ss]
+    SRecord ss -> align $ encloseSep "{ " " }" ", " [pretty k <+> "::" <+> pretty v | (k, v) <- V.toList ss]
     SVariant ss -> align $ encloseSep "( " " )" (flatAlt "| " " | ")
-      [ nest 2 $ sep [pretty k, pretty vs] | (k, vs) <- ss]
+      [ nest 2 $ sep [pretty k, pretty vs] | (k, vs) <- V.toList ss]
     SFix sch -> group $ nest 2 $ sep ["μ", pretty sch]
     SSelf i -> "Self" <+> pretty i
     STag t s -> nest 2 $ sep [pretty t <> ":", pretty s]
