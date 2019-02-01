@@ -59,7 +59,7 @@ module Data.Winery
   -- * Generic implementations (for old GHC / custom instances)
   , GSerialiseRecord
   , gschemaViaRecord
-  , GEncodeRecord
+  , GEncodeProduct
   , gtoBuilderRecord
   , gextractorRecord
   , gdecodeCurrentRecord
@@ -793,8 +793,8 @@ gschemaViaRecord p ts
   | otherwise = SFix $ SRecord $ recordSchema (Proxy :: Proxy (Rep a)) (typeRep p : ts)
 
 -- | Generic implementation of 'toBuilder' for a record.
-gtoBuilderRecord :: (GEncodeRecord (Rep a), Generic a) => a -> BB.Builder
-gtoBuilderRecord = recordEncoder . from
+gtoBuilderRecord :: (GEncodeProduct (Rep a), Generic a) => a -> BB.Builder
+gtoBuilderRecord = productEncoder . from
 {-# INLINE gtoBuilderRecord #-}
 
 data FieldDecoder i a = FieldDecoder !i !(Maybe a) !(Plan (Term -> a))
@@ -835,30 +835,34 @@ gdecodeCurrentRecord = to <$> recordDecoder
 
 newtype WineryRecord a = WineryRecord { unWineryRecord :: a }
 
-instance (GEncodeRecord (Rep a), GSerialiseRecord (Rep a), Generic a, Typeable a) => Serialise (WineryRecord a) where
+instance (GEncodeProduct (Rep a), GSerialiseRecord (Rep a), Generic a, Typeable a) => Serialise (WineryRecord a) where
   schemaVia _ = gschemaViaRecord (Proxy :: Proxy a)
   toBuilder = gtoBuilderRecord . unWineryRecord
   extractor = WineryRecord <$> gextractorRecord Nothing
   decodeCurrent = WineryRecord <$> gdecodeCurrentRecord
 
-class GEncodeRecord f where
-  recordEncoder :: f x -> BB.Builder
+class GEncodeProduct f where
+  productEncoder :: f x -> BB.Builder
 
-instance (GEncodeRecord f, GEncodeRecord g) => GEncodeRecord (f :*: g) where
-  recordEncoder (f :*: g) = recordEncoder f <> recordEncoder g
-  {-# INLINE recordEncoder #-}
+instance GEncodeProduct U1 where
+  productEncoder _ = mempty
+  {-# INLINE productEncoder #-}
 
-instance Serialise a => GEncodeRecord (S1 c (K1 i a)) where
-  recordEncoder (M1 (K1 a)) = toBuilder a
-  {-# INLINE recordEncoder #-}
+instance (GEncodeProduct f, GEncodeProduct g) => GEncodeProduct (f :*: g) where
+  productEncoder (f :*: g) = productEncoder f <> productEncoder g
+  {-# INLINE productEncoder #-}
 
-instance GEncodeRecord f => GEncodeRecord (C1 c f) where
-  recordEncoder (M1 a) = recordEncoder a
-  {-# INLINE recordEncoder #-}
+instance Serialise a => GEncodeProduct (S1 c (K1 i a)) where
+  productEncoder (M1 (K1 a)) = toBuilder a
+  {-# INLINE productEncoder #-}
 
-instance GEncodeRecord f => GEncodeRecord (D1 c f) where
-  recordEncoder (M1 a) = recordEncoder a
-  {-# INLINE recordEncoder #-}
+instance GEncodeProduct f => GEncodeProduct (C1 c f) where
+  productEncoder (M1 a) = productEncoder a
+  {-# INLINE productEncoder #-}
+
+instance GEncodeProduct f => GEncodeProduct (D1 c f) where
+  productEncoder (M1 a) = productEncoder a
+  {-# INLINE productEncoder #-}
 
 class GSerialiseRecord f where
   recordSchema :: proxy f -> [TypeRep] -> [(T.Text, Schema)]
@@ -897,19 +901,16 @@ instance (GSerialiseRecord f) => GSerialiseRecord (D1 c f) where
 
 class GSerialiseProduct f where
   productSchema :: proxy f -> [TypeRep] -> [Schema]
-  productEncoder :: f x -> BB.Builder
   productExtractor :: Compose (State Int) (TransFusion (FieldDecoder Int) ((->) Term)) (Term -> f x)
   productDecoder :: Decoder (f x)
 
 instance GSerialiseProduct U1 where
   productSchema _ _ = []
-  productEncoder _ = mempty
   productExtractor = pure (pure U1)
   productDecoder = pure U1
 
 instance (Serialise a) => GSerialiseProduct (K1 i a) where
   productSchema _ ts = [schemaVia (Proxy :: Proxy a) ts]
-  productEncoder (K1 a) = toBuilder a
   productExtractor = Compose $ state $ \i ->
     ( TransFusion $ \k -> fmap (fmap K1) $ k $ FieldDecoder i Nothing (getExtractor extractor)
     , i + 1)
@@ -917,13 +918,11 @@ instance (Serialise a) => GSerialiseProduct (K1 i a) where
 
 instance GSerialiseProduct f => GSerialiseProduct (M1 i c f) where
   productSchema _ ts = productSchema (Proxy :: Proxy f) ts
-  productEncoder (M1 a) = productEncoder a
   productExtractor = fmap M1 <$> productExtractor
   productDecoder = M1 <$> productDecoder
 
 instance (GSerialiseProduct f, GSerialiseProduct g) => GSerialiseProduct (f :*: g) where
   productSchema _ ts = productSchema (Proxy :: Proxy f) ts ++ productSchema (Proxy :: Proxy g) ts
-  productEncoder (f :*: g) = productEncoder f <> productEncoder g
   productExtractor = liftA2 (:*:) <$> productExtractor <*> productExtractor
   productDecoder = (:*:) <$> productDecoder <*> productDecoder
 
@@ -1000,17 +999,17 @@ instance (GSerialiseVariant f, GSerialiseVariant g) => GSerialiseVariant (f :+: 
     ++ fmap (fmap (fmap (fmap (fmap R1)))) variantExtractor
   variantDecoder = fmap (fmap L1) variantDecoder ++ fmap (fmap R1) variantDecoder
 
-instance (GSerialiseProduct f, KnownSymbol name) => GSerialiseVariant (C1 ('MetaCons name fixity 'False) f) where
+instance (GSerialiseProduct f, GEncodeProduct f, KnownSymbol name) => GSerialiseVariant (C1 ('MetaCons name fixity 'False) f) where
   variantCount _ = 1
   variantSchema _ ts = [(T.pack $ symbolVal (Proxy @ name), SProduct $ V.fromList $ productSchema (Proxy :: Proxy f) ts)]
   variantEncoder i (M1 a) = varInt i <> productEncoder a
   variantExtractor = [(T.pack $ symbolVal (Proxy @ name), fmap (fmap M1) . extractorProduct') ]
   variantDecoder = [M1 <$> productDecoder]
 
-instance (GSerialiseRecord f, GEncodeRecord f, KnownSymbol name) => GSerialiseVariant (C1 ('MetaCons name fixity 'True) f) where
+instance (GSerialiseRecord f, GEncodeProduct f, KnownSymbol name) => GSerialiseVariant (C1 ('MetaCons name fixity 'True) f) where
   variantCount _ = 1
   variantSchema _ ts = [(T.pack $ symbolVal (Proxy @ name), SRecord $ recordSchema (Proxy :: Proxy f) ts)]
-  variantEncoder i (M1 a) = varInt i <> recordEncoder a
+  variantEncoder i (M1 a) = varInt i <> productEncoder a
   variantExtractor = [(T.pack $ symbolVal (Proxy @ name), fmap (fmap M1) . extractorRecord' "" Nothing) ]
   variantDecoder = [M1 <$> recordDecoder]
 
