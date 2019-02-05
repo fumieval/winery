@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE BangPatterns #-}
@@ -11,6 +12,9 @@
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE TypeApplications #-}
+#if __GLASGOW_HASKELL__ < 806
+{-# LANGUAGE TypeInType #-}
+#endif
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -485,7 +489,7 @@ instance Serialise Integer where
 
 instance Serialise Natural where
   schemaVia _ _ = SInteger
-  toBuilder = toBuilder . naturalToInteger
+  toBuilder = toBuilder . toInteger
   extractor = naturalFromInteger <$> extractor
   decodeCurrent = naturalFromInteger <$> decodeCurrent
 
@@ -1066,6 +1070,7 @@ instance Serialise Ordering where
 
 deriving instance Serialise a => Serialise (Identity a)
 deriving instance (Serialise a, Typeable b, Typeable k) => Serialise (Const a (b :: k))
+
 deriving instance Serialise Any
 deriving instance Serialise All
 deriving instance Serialise a => Serialise (Down a)
@@ -1081,8 +1086,10 @@ deriving instance Serialise a => Serialise (Option a)
 deriving instance Serialise a => Serialise (Max a)
 deriving instance Serialise a => Serialise (Min a)
 deriving instance (Typeable k, Typeable f, Typeable a, Serialise (f a)) => Serialise (Alt f (a :: k))
-deriving instance (Typeable k, Typeable f, Typeable a, Serialise (f a)) => Serialise (Ap f (a :: k))
 deriving instance (Typeable j, Typeable k, Typeable f, Typeable g, Typeable a, Serialise (f (g a))) => Serialise (Compose f (g :: j -> k) (a :: j))
+#if MIN_VERSION_base(4,12,0)
+deriving instance (Typeable k, Typeable f, Typeable a, Serialise (f a)) => Serialise (Ap f (a :: k))
+#endif
 
 instance (Typeable k, Typeable a, Typeable b, a ~ b) => Serialise ((a :: k) :~: b) where
   schemaVia _ _ = SProduct []
