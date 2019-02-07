@@ -58,12 +58,12 @@ instance Pretty Tag where
 currentSchemaVersion :: Word8
 currentSchemaVersion = 4
 
-data Schema = SFix Schema -- ^ binds a fixpoint
+data Schema = SFix !Schema -- ^ binds a fixpoint
   | SSelf !Int -- ^ @SSelf n@ refers to the n-th innermost fixpoint
   | SVector !Schema
-  | SProduct (V.Vector Schema)
-  | SRecord (V.Vector (T.Text, Schema))
-  | SVariant (V.Vector (T.Text, Schema))
+  | SProduct !(V.Vector Schema)
+  | SRecord !(V.Vector (T.Text, Schema))
+  | SVariant !(V.Vector (T.Text, Schema))
   | SSchema !Word8
   | SBool
   | SChar
@@ -171,9 +171,9 @@ data Term = TBool !Bool
   | TBytes !B.ByteString
   | TText !T.Text
   | TUTCTime !UTCTime
-  | TVector (V.Vector Term)
-  | TProduct (V.Vector Term)
-  | TRecord (V.Vector (T.Text, Term))
+  | TVector !(V.Vector Term)
+  | TProduct !(V.Vector Term)
+  | TRecord !(V.Vector (T.Text, Term))
   | TVariant !Int !T.Text Term
   deriving Show
 
