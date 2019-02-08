@@ -163,7 +163,7 @@ decodeTerm = go [] where
       tag <- decodeVarInt
       let (name, dec) = maybe (throw InvalidTag) id $ decoders V.!? tag
       TVariant tag name <$> dec
-    SSelf i -> indexDefault (throw InvalidTag) points i
+    SVar i -> indexDefault (throw InvalidTag) points i
     SFix s' -> fix $ \a -> go (a : points) s'
     STag _ s -> go points s
 
@@ -710,7 +710,7 @@ extractFieldBy (Extractor g) name = Extractor $ handleRecursion $ \case
 
 handleRecursion :: forall a. Typeable a => (Schema -> Strategy' (Term -> a)) -> Plan (Term -> a)
 handleRecursion k = Plan $ \sch -> Strategy $ \decs -> case sch of
-  SSelf i
+  SVar i
     | dyn : _ <- drop i decs -> case fromDynamic dyn of
       Nothing -> Left $ "A type mismatch in fixpoint"
         <+> pretty i <> ":"
@@ -794,7 +794,7 @@ extractConstructor = extractConstructorBy extractor
 -- | Generic implementation of 'schemaVia' for a record.
 gschemaViaRecord :: forall proxy a. (GSerialiseRecord (Rep a), Generic a, Typeable a) => proxy a -> [TypeRep] -> Schema
 gschemaViaRecord p ts
-  | Just i <- elemIndex (typeRep p) ts = SSelf i
+  | Just i <- elemIndex (typeRep p) ts = SVar i
   | otherwise = SFix $ SRecord $ V.fromList $ recordSchema (Proxy @ (Rep a)) (typeRep p : ts)
 
 -- | Generic implementation of 'toBuilder' for a record.
@@ -989,7 +989,7 @@ instance (GSerialiseVariant (Rep a), Generic a, Typeable a) => Serialise (Winery
 -- | Generic implementation of 'schemaVia' for an ADT.
 gschemaViaVariant :: forall proxy a. (GSerialiseVariant (Rep a), Typeable a, Generic a) => proxy a -> [TypeRep] -> Schema
 gschemaViaVariant p ts
-  | Just i <- elemIndex (typeRep p) ts = SSelf i
+  | Just i <- elemIndex (typeRep p) ts = SVar i
   | otherwise = SFix $ SVariant $ V.fromList $ variantSchema (Proxy @ (Rep a)) (typeRep p : ts)
 
 -- | Generic implementation of 'toBuilder' for an ADT.

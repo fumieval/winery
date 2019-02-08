@@ -59,7 +59,7 @@ currentSchemaVersion :: Word8
 currentSchemaVersion = 4
 
 data Schema = SFix !Schema -- ^ binds a fixpoint
-  | SSelf !Int -- ^ @SSelf n@ refers to the n-th innermost fixpoint
+  | SVar !Int -- ^ @SVar n@ refers to the n-th innermost fixpoint
   | SVector !Schema
   | SProduct !(V.Vector Schema)
   | SRecord !(V.Vector (T.Text, Schema))
@@ -110,18 +110,18 @@ instance Pretty Schema where
     SVariant ss -> align $ encloseSep "( " " )" (flatAlt "| " " | ")
       [ nest 2 $ sep [pretty k, pretty vs] | (k, vs) <- V.toList ss]
     SFix sch -> group $ nest 2 $ sep ["μ", pretty sch]
-    SSelf i -> "Self" <+> pretty i
+    SVar i -> "Self" <+> pretty i
     STag t s -> nest 2 $ sep [pretty t <> ":", pretty s]
 
 bootstrapSchema :: Word8 -> Schema
 bootstrapSchema 4 = SFix
   $ SVariant
-  [("SFix",SProduct [SSelf 0])
-  ,("SSelf",SProduct [SInteger])
-  ,("SVector",SProduct [SSelf 0])
-  ,("SProduct",SProduct [SVector (SSelf 0)])
-  ,("SRecord",SProduct [SVector (SProduct [SText,SSelf 0])])
-  ,("SVariant",SProduct [SVector (SProduct [SText,SSelf 0])])
+  [("SFix",SProduct [SVar 0])
+  ,("SVar",SProduct [SInteger])
+  ,("SVector",SProduct [SVar 0])
+  ,("SProduct",SProduct [SVector (SVar 0)])
+  ,("SRecord",SProduct [SVector (SProduct [SText,SVar 0])])
+  ,("SVariant",SProduct [SVector (SProduct [SText,SVar 0])])
   ,("SSchema",SProduct [SWord8])
   ,("SBool",SProduct [])
   ,("SChar",SProduct [])
@@ -143,8 +143,8 @@ bootstrapSchema 4 = SFix
     [SFix $ SVariant
       [("TagInt",SProduct [SInteger])
       ,("TagStr",SProduct [SText])
-      ,("TagList",SProduct [SVector (SSelf 0)])]
-    ,SSelf 0])]
+      ,("TagList",SProduct [SVector (SVar 0)])]
+    ,SVar 0])]
 bootstrapSchema n = error $ "Unsupported version: " <> show n
 
 unexpectedSchema' :: Doc AnsiStyle -> Doc AnsiStyle -> Schema -> Strategy' a
