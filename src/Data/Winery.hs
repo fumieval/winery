@@ -21,7 +21,8 @@
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE StandaloneDeriving #-}
 module Data.Winery
-  ( Schema(..)
+  ( Schema
+  , SchemaP(..)
   , Tag(..)
   , Serialise(..)
   , testSerialise

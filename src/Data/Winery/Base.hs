@@ -6,7 +6,8 @@
 {-# LANGUAGE TypeFamilies #-}
 module Data.Winery.Base
   ( Tag(..)
-  , Schema(..)
+  , Schema
+  , SchemaP(..)
   , currentSchemaVersion
   , bootstrapSchema
   , unexpectedSchema'
@@ -58,12 +59,14 @@ instance Pretty Tag where
 currentSchemaVersion :: Word8
 currentSchemaVersion = 4
 
-data Schema = SFix !Schema -- ^ binds a fixpoint
-  | SVar !Int -- ^ @SVar n@ refers to the n-th innermost fixpoint
+type Schema = SchemaP Int
+
+data SchemaP a = SFix !(SchemaP a) -- ^ binds a fixpoint
+  | SVar !a -- ^ @SVar n@ refers to the n-th innermost fixpoint
   | SVector !Schema
-  | SProduct !(V.Vector Schema)
-  | SRecord !(V.Vector (T.Text, Schema))
-  | SVariant !(V.Vector (T.Text, Schema))
+  | SProduct !(V.Vector (SchemaP a))
+  | SRecord !(V.Vector (T.Text, SchemaP a))
+  | SVariant !(V.Vector (T.Text, SchemaP a))
   | SSchema !Word8
   | SBool
   | SChar
@@ -81,10 +84,10 @@ data Schema = SFix !Schema -- ^ binds a fixpoint
   | SBytes
   | SText
   | SUTCTime -- ^ nanoseconds from POSIX epoch
-  | STag !Tag !Schema
+  | STag !Tag !(SchemaP a)
   deriving (Show, Read, Eq, Generic)
 
-instance Pretty Schema where
+instance Pretty a => Pretty (SchemaP a) where
   pretty = \case
     SSchema v -> "Schema " <> pretty v
     SProduct [] -> "()"
