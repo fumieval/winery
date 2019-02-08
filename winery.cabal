@@ -35,6 +35,7 @@ library
       Data.Winery.Internal
       Data.Winery.Query
       Data.Winery.Query.Parser
+      Data.Winery.Test
   other-modules:
       Paths_winery
   hs-source-dirs:
@@ -48,6 +49,7 @@ library
     , cpu
     , fast-builder
     , hashable
+    , HUnit
     , megaparsec >=6.0.0
     , mtl
     , prettyprinter
