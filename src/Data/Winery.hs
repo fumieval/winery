@@ -39,7 +39,7 @@ module Data.Winery
   -- * Separate serialisation
   , Extractor(..)
   , unwrapExtractor
-  , Decoder(..)
+  , Decoder
   , evalDecoder
   , serialiseOnly
   , getDecoder
@@ -84,7 +84,6 @@ module Data.Winery
 
 import Control.Applicative
 import Control.Exception
-import Control.Monad.Trans.State.Strict
 import Control.Monad.Reader
 import qualified Data.ByteString as B
 import qualified Data.ByteString.FastBuilder as BB
@@ -261,7 +260,7 @@ splitSchema bs_ = case B.uncons bs_ of
     m <- getDecoder $ SSchema ver
     return $ flip evalDecoder bs $ do
       sch <- m
-      Decoder $ \bs' -> ((sch, bs'), mempty)
+      State $ \bs' -> ((sch, bs'), mempty)
   Nothing -> Left "Unexpected empty string"
 
 -- | Deserialise a 'serialise'd 'B.Bytestring'.
@@ -464,7 +463,7 @@ instance Serialise T.Text where
     s -> unexpectedSchema "Serialise Text" s
   decodeCurrent = do
     len <- decodeVarInt
-    T.decodeUtf8With T.lenientDecode <$> Decoder (B.splitAt len)
+    T.decodeUtf8With T.lenientDecode <$> State (B.splitAt len)
 
 -- | Encoded in variable-length quantity.
 newtype VarInt a = VarInt { getVarInt :: a } deriving (Show, Read, Eq, Ord, Enum
@@ -534,7 +533,7 @@ instance Serialise B.ByteString where
     s -> unexpectedSchema "Serialise ByteString" s
   decodeCurrent = do
     len <- decodeVarInt
-    Decoder (B.splitAt len)
+    State (B.splitAt len)
 
 instance Serialise BL.ByteString where
   schemaVia _ _ = SBytes
@@ -916,7 +915,7 @@ instance GSerialiseProduct U1 where
 
 instance (Serialise a) => GSerialiseProduct (K1 i a) where
   productSchema _ ts = [schemaVia (Proxy @ a) ts]
-  productExtractor = Compose $ state $ \i ->
+  productExtractor = Compose $ State $ \i ->
     ( TransFusion $ \k -> fmap (fmap K1) $ k $ FieldDecoder i Nothing (getExtractor extractor)
     , i + 1)
   productDecoder = K1 <$> decodeCurrent

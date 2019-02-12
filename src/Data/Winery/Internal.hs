@@ -10,8 +10,10 @@
 module Data.Winery.Internal
   ( unsignedVarInt
   , varInt
-  , Decoder(..)
+  , Decoder
   , evalDecoder
+  , State(..)
+  , evalState
   , decodeVarInt
   , getWord8
   , getWord16
@@ -100,30 +102,36 @@ uvarInt = go where
     | otherwise = BB.word8 (setBit (fromIntegral m) 7) <> go (unsafeShiftR m 7)
 {-# INLINE uvarInt #-}
 
--- | The decoder monad. The reason being not @State@ from transformers is to
+-- | A state monad. The reason being not @State@ from transformers is to
 -- allow coercion for newtype deriving and DerivingVia.
-newtype Decoder a = Decoder { runDecoder :: B.ByteString -> (a, B.ByteString) }
+newtype State s a = State { runState :: s -> (a, s) }
   deriving Functor
 
+evalState :: State s a -> s -> a
+evalState m = fst . runState m
+{-# INLINE evalState #-}
+
+instance Applicative (State s) where
+  pure a = State $ \s -> (a, s)
+  m <*> k = State $ \s -> case runState m s of
+    (f, s') -> case runState k s' of
+      (a, s'') -> (f a, s'')
+
+instance Monad (State s) where
+  m >>= k = State $ \s -> case runState m s of
+    (a, s') -> runState (k a) s'
+
+instance MonadFix (State s) where
+  mfix f = State $ \s -> fix $ \ ~(a, _) -> runState (f a) s
+
+type Decoder = State B.ByteString
+
 evalDecoder :: Decoder a -> B.ByteString -> a
-evalDecoder m = fst . runDecoder m
+evalDecoder = evalState
 {-# INLINE evalDecoder #-}
 
-instance Applicative Decoder where
-  pure a = Decoder $ \bs -> (a, bs)
-  m <*> k = Decoder $ \bs -> case runDecoder m bs of
-    (f, bs') -> case runDecoder k bs' of
-      (a, bs'') -> (f a, bs'')
-
-instance Monad Decoder where
-  m >>= k = Decoder $ \bs -> case runDecoder m bs of
-    (a, bs') -> runDecoder (k a) bs'
-
-instance MonadFix Decoder where
-  mfix f = Decoder $ \s -> fix $ \ ~(a, _) -> runDecoder (f a) s
-
 getWord8 :: Decoder Word8
-getWord8 = Decoder $ \bs -> case B.uncons bs of
+getWord8 = State $ \bs -> case B.uncons bs of
   Nothing -> throw InsufficientInput
   Just (x, bs') -> (x, bs')
 {-# INLINE getWord8 #-}
@@ -150,19 +158,19 @@ decodeVarInt = getWord8 >>= \case
 {-# INLINE decodeVarInt #-}
 
 getWord16 :: Decoder Word16
-getWord16 = Decoder $ \(B.PS fp ofs len) -> if len >= 2
+getWord16 = State $ \(B.PS fp ofs len) -> if len >= 2
   then (B.accursedUnutterablePerformIO $ withForeignPtr fp
     $ \ptr -> fromLE16 <$> peekByteOff ptr ofs, B.PS fp (ofs + 2) (len - 2))
   else throw InsufficientInput
 
 getWord32 :: Decoder Word32
-getWord32 = Decoder $ \(B.PS fp ofs len) -> if len >= 4
+getWord32 = State $ \(B.PS fp ofs len) -> if len >= 4
   then (B.accursedUnutterablePerformIO $ withForeignPtr fp
     $ \ptr -> fromLE32 <$> peekByteOff ptr ofs, B.PS fp (ofs + 4) (len - 4))
   else throw InsufficientInput
 
 getWord64 :: Decoder Word64
-getWord64 = Decoder $ \(B.PS fp ofs len) -> if len >= 8
+getWord64 = State $ \(B.PS fp ofs len) -> if len >= 8
   then (B.accursedUnutterablePerformIO $ withForeignPtr fp
     $ \ptr -> fromLE64 <$> peekByteOff ptr ofs, B.PS fp (ofs + 8) (len - 8))
   else throw InsufficientInput
