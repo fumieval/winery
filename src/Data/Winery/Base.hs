@@ -34,7 +34,6 @@ import Data.Winery.Internal
 import Data.Word
 import GHC.Generics (Generic)
 import GHC.Exts (IsList(..))
-import Test.QuickCheck.Instances ()
 
 -- | Tag is an extra value that can be attached to a schema.
 data Tag = TagInt !Int

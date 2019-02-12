@@ -22,6 +22,7 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
 import qualified Data.Vector.Unboxed as UV
 import Test.QuickCheck
+import Test.QuickCheck.Instances ()
 
 prop_VarInt :: Int -> Property
 prop_VarInt i = evalDecoder decodeVarInt
