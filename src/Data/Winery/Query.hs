@@ -53,12 +53,12 @@ invalid :: StrategyError -> Query a b
 invalid = Query . const . Extractor . Plan . const . errorStrategy
 
 -- | Takes a list and traverses on it.
-list :: Query a a
+list :: Typeable a => Query a a
 list = Query $ \d -> concat <$> extractListBy d
 
 -- | Takes a list and enumerates elements in the specified range.
 -- Like Python's array slicing, negative numbers counts from the last element.
-range :: Int -> Int -> Query a a
+range :: Typeable a => Int -> Int -> Query a a
 range i j = Query $ \d -> (\v -> foldMap id
   $ V.backpermute v (V.enumFromTo (i `mod` V.length v) (j `mod` V.length v)))
   <$> extractListBy d

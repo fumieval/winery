@@ -168,6 +168,7 @@ decodeTerm = go [] where
     SVar i -> indexDefault (throw InvalidTag) points i
     SFix s' -> fix $ \a -> go (a : points) s'
     STag _ s -> go points s
+    SLet s t -> go (go points s : points) t
 
 -- | Deserialise a 'serialise'd 'B.Bytestring'.
 deserialiseTerm :: B.ByteString -> Either (Doc AnsiStyle) (Schema, Term)
@@ -182,7 +183,7 @@ type SchemaGen = State (M.Map TypeRep (SchemaP TypeRep))
 
 getSchema :: forall proxy a. Serialise a => proxy a -> SchemaGen (SchemaP TypeRep)
 getSchema p = State $ \m -> case M.lookup rep m of
-  Just a -> (a, m)
+  Just _ -> (SVar rep, m)
   Nothing -> let (a, m') = runState (schemaGen (Proxy @ a)) m
     in (SVar rep, M.insert rep a m')
   where
@@ -234,8 +235,13 @@ decodeCurrentDefault = case getDecoderBy extractor (schema (Proxy @ a)) of
 
 -- | Obtain the schema of the datatype.
 schema :: forall proxy a. Serialise a => proxy a -> Schema
-schema _ = go [] s0
+schema _ = bind (M.toList m) []
   where
+    bind ((rep, sch) : xs) ts
+      | isBigSchema sch = SLet (go ts sch) (bind xs (rep : ts))
+      | otherwise = bind xs ts
+    bind [] ts = go ts s0
+
     go :: [TypeRep] -> SchemaP TypeRep -> Schema
     go ts (SVar rep)
       | Just i <- elemIndex rep ts = SVar i
@@ -244,6 +250,7 @@ schema _ = go [] s0
         else go ts a
       | otherwise = error $ "Data.Winery.Schema: panic! unbound " ++ show rep
     go ts (SFix s) = SFix $ go ts s
+    go ts (SLet s t) = SLet (go ts s) (go ts t)
     go ts (SVector s) = SVector $ go ts s
     go ts (SProduct v) = SProduct $ fmap (go ts) v
     go ts (SRecord v) = SRecord $ fmap (fmap (go ts)) v
@@ -549,24 +556,10 @@ instance Serialise Char where
   decodeCurrent = toEnum <$> decodeVarInt
 
 instance Serialise a => Serialise (Maybe a) where
-  schemaGen _ = do
-    s <- getSchema (Proxy @ a)
-    return $ SVariant
-      [("Nothing", SProduct []), ("Just", s)]
-  toBuilder Nothing = varInt (0 :: Word8)
-  toBuilder (Just a) = varInt (1 :: Word8) <> toBuilder a
-  {-# INLINE toBuilder #-}
-  extractor = Extractor $ handleRecursion $ \case
-    SVariant [_, (_, sch)] -> do
-      dec <- unwrapExtractor extractor sch
-      return $ \case
-        TVariant 0 _ _ -> Nothing
-        TVariant _ _ v -> Just $ dec v
-        t -> throw $ InvalidTerm t
-    s -> unexpectedSchema "Serialise (Maybe a)" s
-  decodeCurrent = getWord8 >>= \case
-    0 -> pure Nothing
-    _ -> Just <$> decodeCurrent
+  schemaGen = gschemaGenVariant
+  toBuilder = gtoBuilderVariant
+  extractor = gextractorVariant
+  decodeCurrent = gdecodeCurrentVariant
 
 instance Serialise B.ByteString where
   schemaGen _ = pure SBytes
@@ -650,8 +643,8 @@ instance (UV.Unbox a, Serialise a) => Serialise (UV.Vector a) where
     UV.replicateM n decodeCurrent
 
 -- | Extract a list or an array of values.
-extractListBy :: Extractor a -> Extractor (V.Vector a)
-extractListBy (Extractor plan) = Extractor $ Plan $ \case
+extractListBy :: Typeable a => Extractor a -> Extractor (V.Vector a)
+extractListBy (Extractor plan) = Extractor $ handleRecursion $ \case
   SVector s -> do
     getItem <- unPlan plan s
     return $ \case
@@ -757,14 +750,17 @@ extractFieldBy (Extractor g) name = Extractor $ handleRecursion $ \case
 handleRecursion :: forall a. Typeable a => (Schema -> Strategy' (Term -> a)) -> Plan (Term -> a)
 handleRecursion k = Plan $ \sch -> Strategy $ \decs -> case sch of
   SVar i
-    | dyn : _ <- drop i decs -> case fromDynamic dyn of
-      Nothing -> Left $ "A type mismatch in fixpoint"
-        <+> pretty i <> ":"
-        <+> "expected" <> viaShow (typeRep (Proxy @ (Term -> a)))
-        <+> "but got " <> viaShow (dynTypeRep dyn)
-      Just a -> Right a
-    | otherwise -> Left $ "Unbound fixpoint: " <> pretty i
-  SFix s -> mfix $ \a -> unPlan (handleRecursion k) s `unStrategy` (toDyn a : decs)
+    | point : _ <- drop i decs -> case point of
+      Left sch' -> unPlan (handleRecursion k) sch' `unStrategy` decs
+      Right dyn -> case fromDynamic dyn of
+        Nothing -> Left $ "A type mismatch in fixpoint"
+          <+> pretty i <> ":"
+          <+> "expected" <> viaShow (typeRep (Proxy @ (Term -> a)))
+          <+> "but got " <> viaShow (dynTypeRep dyn)
+        Just a -> Right a
+    | otherwise -> Left $ "Unbound variable: " <> pretty i
+  SFix s -> mfix $ \a -> unPlan (handleRecursion k) s `unStrategy` (Right (toDyn a) : decs)
+  SLet s t -> unPlan (handleRecursion k) t `unStrategy` (Left s : decs)
   s -> k s `unStrategy` decs
 
 instance (Serialise a, Serialise b) => Serialise (a, b) where

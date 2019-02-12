@@ -9,6 +9,7 @@ module Data.Winery.Base
   ( Tag(..)
   , Schema
   , SchemaP(..)
+  , isBigSchema
   , currentSchemaVersion
   , bootstrapSchema
   , unexpectedSchema'
@@ -85,7 +86,15 @@ data SchemaP a = SFix !(SchemaP a) -- ^ binds a fixpoint
   | SText
   | SUTCTime -- ^ nanoseconds from POSIX epoch
   | STag !Tag !(SchemaP a)
+  | SLet !(SchemaP a) !(SchemaP a)
   deriving (Show, Read, Eq, Generic, Functor, Foldable, Traversable)
+
+-- | Somewhat arbitrary predicate that a schema should be floated out
+isBigSchema :: SchemaP a -> Bool
+isBigSchema (SProduct _) = True
+isBigSchema (SRecord _) = True
+isBigSchema (SVariant _) = True
+isBigSchema _ = False
 
 instance Pretty a => Pretty (SchemaP a) where
   pretty = \case
@@ -115,6 +124,7 @@ instance Pretty a => Pretty (SchemaP a) where
     SFix sch -> group $ nest 2 $ sep ["μ", pretty sch]
     SVar i -> "Self" <+> pretty i
     STag t s -> nest 2 $ sep [pretty t <> ":", pretty s]
+    SLet s t -> nest 2 $ sep ["let" <+> pretty s, pretty t]
 
 bootstrapSchema :: Word8 -> Schema
 bootstrapSchema 4 = SFix
@@ -147,7 +157,8 @@ bootstrapSchema 4 = SFix
       [("TagInt",SProduct [SInteger])
       ,("TagStr",SProduct [SText])
       ,("TagList",SProduct [SVector (SVar 0)])]
-    ,SVar 0])]
+    ,SVar 0])
+  ,("SLet",SProduct [SVar 0, SVar 0])]
 bootstrapSchema n = error $ "Unsupported version: " <> show n
 
 unexpectedSchema' :: Doc AnsiStyle -> Doc AnsiStyle -> Schema -> Strategy' a
@@ -239,7 +250,7 @@ instance Alternative Extractor where
   empty = Extractor empty
   Extractor f <|> Extractor g = Extractor $ f <|> g
 
-type Strategy' = Strategy Dynamic
+type Strategy' = Strategy (Either Schema Dynamic)
 
 -- | Plan is a monad for computations which interpret 'Schema'.
 newtype Plan a = Plan { unPlan :: Schema -> Strategy' a }
