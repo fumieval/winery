@@ -47,7 +47,7 @@ import qualified Data.Vector.Unboxed as UV
 import GHC.Generics
 import Text.Show
 
--- | Build a test case.
+-- | Construct a test case.
 testCase :: (Show a, Eq a, Serialise a)
   => Schema -- ^ the schema
   -> B.ByteString -- ^ serialised
@@ -101,6 +101,8 @@ ppTest a = showString "testCase "
   . showChar ' '
   . showsPrec 11 a
 
+-- | A class to provide test values and gather tests for its components.
+-- It is recommended to use the generic default methods.
 class Typeable a => TestGen a where
   -- | A list of values that can be used as test cases.
   -- It should contain at least one value as long as there exists a
