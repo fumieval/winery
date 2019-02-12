@@ -47,6 +47,7 @@ module Data.Winery
   -- * Decoding combinators
   , Term(..)
   , Plan(..)
+  , mkPlan
   , extractListBy
   , extractField
   , extractFieldBy
@@ -347,7 +348,7 @@ instance Serialise Tag where
 instance Serialise Schema where
   schemaGen _ = pure $ SSchema currentSchemaVersion
   toBuilder = gtoBuilderVariant
-  extractor = Extractor $ handleRecursion $ \case
+  extractor = Extractor $ mkPlan $ \case
     SSchema n -> unwrapExtractor gextractorVariant (bootstrapSchema n)
     s -> unwrapExtractor gextractorVariant s
   decodeCurrent = gdecodeCurrentVariant
@@ -364,7 +365,7 @@ instance Serialise Bool where
   toBuilder False = BB.word8 0
   toBuilder True = BB.word8 1
   {-# INLINE toBuilder #-}
-  extractor = Extractor $ handleRecursion $ \case
+  extractor = Extractor $ mkPlan $ \case
     SBool -> pure $ \case
       TBool b -> b
       t -> throw $ InvalidTerm t
@@ -375,7 +376,7 @@ instance Serialise Word8 where
   schemaGen _ = pure SWord8
   toBuilder = BB.word8
   {-# INLINE toBuilder #-}
-  extractor = Extractor $ handleRecursion $ \case
+  extractor = Extractor $ mkPlan $ \case
     SWord8 -> pure $ \case
       TWord8 i -> i
       t -> throw $ InvalidTerm t
@@ -386,7 +387,7 @@ instance Serialise Word16 where
   schemaGen _ = pure SWord16
   toBuilder = BB.word16LE
   {-# INLINE toBuilder #-}
-  extractor = Extractor $ handleRecursion $ \case
+  extractor = Extractor $ mkPlan $ \case
     SWord16 -> pure $ \case
       TWord16 i -> i
       t -> throw $ InvalidTerm t
@@ -397,7 +398,7 @@ instance Serialise Word32 where
   schemaGen _ = pure SWord32
   toBuilder = BB.word32LE
   {-# INLINE toBuilder #-}
-  extractor = Extractor $ handleRecursion $ \case
+  extractor = Extractor $ mkPlan $ \case
     SWord32 -> pure $ \case
       TWord32 i -> i
       t -> throw $ InvalidTerm t
@@ -408,7 +409,7 @@ instance Serialise Word64 where
   schemaGen _ = pure SWord64
   toBuilder = BB.word64LE
   {-# INLINE toBuilder #-}
-  extractor = Extractor $ handleRecursion $ \case
+  extractor = Extractor $ mkPlan $ \case
     SWord64 -> pure $ \case
       TWord64 i -> i
       t -> throw $ InvalidTerm t
@@ -419,7 +420,7 @@ instance Serialise Word where
   schemaGen _ = pure SWord64
   toBuilder = BB.word64LE . fromIntegral
   {-# INLINE toBuilder #-}
-  extractor = Extractor $ handleRecursion $ \case
+  extractor = Extractor $ mkPlan $ \case
     SWord64 -> pure $ \case
       TWord64 i -> fromIntegral i
       t -> throw $ InvalidTerm t
@@ -430,7 +431,7 @@ instance Serialise Int8 where
   schemaGen _ = pure SInt8
   toBuilder = BB.word8 . fromIntegral
   {-# INLINE toBuilder #-}
-  extractor = Extractor $ handleRecursion $ \case
+  extractor = Extractor $ mkPlan $ \case
     SInt8 -> pure $ \case
       TInt8 i -> i
       t -> throw $ InvalidTerm t
@@ -441,7 +442,7 @@ instance Serialise Int16 where
   schemaGen _ = pure SInt16
   toBuilder = BB.word16LE . fromIntegral
   {-# INLINE toBuilder #-}
-  extractor = Extractor $ handleRecursion $ \case
+  extractor = Extractor $ mkPlan $ \case
     SInt16 -> pure $ \case
       TInt16 i -> i
       t -> throw $ InvalidTerm t
@@ -452,7 +453,7 @@ instance Serialise Int32 where
   schemaGen _ = pure SInt32
   toBuilder = BB.word32LE . fromIntegral
   {-# INLINE toBuilder #-}
-  extractor = Extractor $ handleRecursion $ \case
+  extractor = Extractor $ mkPlan $ \case
     SInt32 -> pure $ \case
       TInt32 i -> i
       t -> throw $ InvalidTerm t
@@ -463,7 +464,7 @@ instance Serialise Int64 where
   schemaGen _ = pure SInt64
   toBuilder = BB.word64LE . fromIntegral
   {-# INLINE toBuilder #-}
-  extractor = Extractor $ handleRecursion $ \case
+  extractor = Extractor $ mkPlan $ \case
     SInt64 -> pure $ \case
       TInt64 i -> i
       t -> throw $ InvalidTerm t
@@ -474,7 +475,7 @@ instance Serialise Int where
   schemaGen _ = pure SInteger
   toBuilder = toBuilder . VarInt
   {-# INLINE toBuilder #-}
-  extractor = Extractor $ handleRecursion $ \case
+  extractor = Extractor $ mkPlan $ \case
     SInteger -> pure $ \case
       TInteger i -> fromIntegral i
       t -> throw $ InvalidTerm t
@@ -485,7 +486,7 @@ instance Serialise Float where
   schemaGen _ = pure SFloat
   toBuilder = BB.floatLE
   {-# INLINE toBuilder #-}
-  extractor = Extractor $ handleRecursion $ \case
+  extractor = Extractor $ mkPlan $ \case
     SFloat -> pure $ \case
       TFloat x -> x
       t -> throw $ InvalidTerm t
@@ -496,7 +497,7 @@ instance Serialise Double where
   schemaGen _ = pure SDouble
   toBuilder = BB.doubleLE
   {-# INLINE toBuilder #-}
-  extractor = Extractor $ handleRecursion $ \case
+  extractor = Extractor $ mkPlan $ \case
     SDouble -> pure $ \case
       TDouble x -> x
       t -> throw $ InvalidTerm t
@@ -507,7 +508,7 @@ instance Serialise T.Text where
   schemaGen _ = pure SText
   toBuilder = toBuilder . T.encodeUtf8
   {-# INLINE toBuilder #-}
-  extractor = Extractor $ handleRecursion $ \case
+  extractor = Extractor $ mkPlan $ \case
     SText -> pure $ \case
       TText t -> t
       t -> throw $ InvalidTerm t
@@ -524,7 +525,7 @@ instance (Typeable a, Bits a, Integral a) => Serialise (VarInt a) where
   schemaGen _ = pure SInteger
   toBuilder = varInt . getVarInt
   {-# INLINE toBuilder #-}
-  extractor = Extractor $ handleRecursion $ \case
+  extractor = Extractor $ mkPlan $ \case
     SInteger -> pure $ \case
       TInteger i -> fromIntegral i
       t -> throw $ InvalidTerm t
@@ -548,7 +549,7 @@ instance Serialise Char where
   schemaGen _ = pure SChar
   toBuilder = toBuilder . fromEnum
   {-# INLINE toBuilder #-}
-  extractor = Extractor $ handleRecursion $ \case
+  extractor = Extractor $ mkPlan $ \case
     SChar -> pure $ \case
       TChar c -> c
       t -> throw $ InvalidTerm t
@@ -565,7 +566,7 @@ instance Serialise B.ByteString where
   schemaGen _ = pure SBytes
   toBuilder bs = varInt (B.length bs) <> BB.byteString bs
   {-# INLINE toBuilder #-}
-  extractor = Extractor $ handleRecursion $ \case
+  extractor = Extractor $ mkPlan $ \case
     SBytes -> pure $ \case
       TBytes bs -> bs
       t -> throw $ InvalidTerm t
@@ -644,7 +645,7 @@ instance (UV.Unbox a, Serialise a) => Serialise (UV.Vector a) where
 
 -- | Extract a list or an array of values.
 extractListBy :: Typeable a => Extractor a -> Extractor (V.Vector a)
-extractListBy (Extractor plan) = Extractor $ handleRecursion $ \case
+extractListBy (Extractor plan) = Extractor $ mkPlan $ \case
   SVector s -> do
     getItem <- unPlan plan s
     return $ \case
@@ -733,7 +734,7 @@ extractField = extractFieldBy extractor
 
 -- | Extract a field using the supplied 'Extractor'.
 extractFieldBy :: Typeable a => Extractor a -> T.Text -> Extractor a
-extractFieldBy (Extractor g) name = Extractor $ handleRecursion $ \case
+extractFieldBy (Extractor g) name = Extractor $ mkPlan $ \case
   SRecord schs -> do
     case lookupWithIndexV name schs of
       Just (i, sch) -> do
@@ -747,11 +748,12 @@ extractFieldBy (Extractor g) name = Extractor $ handleRecursion $ \case
     rep = "extractFieldBy ... " <> dquotes (pretty name)
     msg = "Data.Winery.extractFieldBy ... " <> show name <> ": impossible"
 
-handleRecursion :: forall a. Typeable a => (Schema -> Strategy' (Term -> a)) -> Plan (Term -> a)
-handleRecursion k = Plan $ \sch -> Strategy $ \decs -> case sch of
+-- | Construct a plan, expanding fixpoints and let bindings.
+mkPlan :: forall a. Typeable a => (Schema -> Strategy' (Term -> a)) -> Plan (Term -> a)
+mkPlan k = Plan $ \sch -> Strategy $ \decs -> case sch of
   SVar i
     | point : _ <- drop i decs -> case point of
-      Left sch' -> unPlan (handleRecursion k) sch' `unStrategy` decs
+      Left sch' -> unPlan (mkPlan k) sch' `unStrategy` decs
       Right dyn -> case fromDynamic dyn of
         Nothing -> Left $ "A type mismatch in fixpoint"
           <+> pretty i <> ":"
@@ -759,8 +761,8 @@ handleRecursion k = Plan $ \sch -> Strategy $ \decs -> case sch of
           <+> "but got " <> viaShow (dynTypeRep dyn)
         Just a -> Right a
     | otherwise -> Left $ "Unbound variable: " <> pretty i
-  SFix s -> mfix $ \a -> unPlan (handleRecursion k) s `unStrategy` (Right (toDyn a) : decs)
-  SLet s t -> unPlan (handleRecursion k) t `unStrategy` (Left s : decs)
+  SFix s -> mfix $ \a -> unPlan (mkPlan k) s `unStrategy` (Right (toDyn a) : decs)
+  SLet s t -> unPlan (mkPlan k) t `unStrategy` (Left s : decs)
   s -> k s `unStrategy` decs
 
 instance (Serialise a, Serialise b) => Serialise (a, b) where
@@ -802,7 +804,7 @@ instance (Serialise a, Serialise b) => Serialise (Either a b) where
 -- | Tries to extract a specific constructor of a variant. Useful for
 -- implementing backward-compatible extractors.
 extractConstructorBy :: Typeable a => Extractor a -> T.Text -> Extractor (Maybe a)
-extractConstructorBy d name = Extractor $ handleRecursion $ \case
+extractConstructorBy d name = Extractor $ mkPlan $ \case
   SVariant schs0 -> Strategy $ \decs -> do
     (j, dec) <- case lookupWithIndexV name schs0 of
       Just (i, s) -> fmap ((,) i) $ unwrapExtractor d s `unStrategy` decs
@@ -835,7 +837,7 @@ data FieldDecoder i a = FieldDecoder !i !(Maybe a) !(Plan (Term -> a))
 gextractorRecord :: forall a. (GSerialiseRecord (Rep a), Generic a, Typeable a)
   => Maybe a -- ^ default value (optional)
   -> Extractor a
-gextractorRecord def = Extractor $ handleRecursion
+gextractorRecord def = Extractor $ mkPlan
   $ fmap (fmap (to .)) $ extractorRecord'
   ("gextractorRecord :: Extractor " <> viaShow (typeRep (Proxy @ a)))
   (from <$> def)
@@ -977,7 +979,7 @@ gtoBuilderProduct = productEncoder . from
 -- | Generic implementation of 'extractor' for a record.
 gextractorProduct :: forall a. (GSerialiseProduct (Rep a), Generic a, Typeable a)
   => Extractor a
-gextractorProduct = Extractor $ handleRecursion $ fmap (to .) . extractorProduct'
+gextractorProduct = Extractor $ mkPlan $ fmap (to .) . extractorProduct'
 {-# INLINE gextractorProduct #-}
 
 -- | Generic implementation of 'extractor' for a record.
@@ -1026,7 +1028,7 @@ gtoBuilderVariant = variantEncoder 0 . from
 -- | Generic implementation of 'extractor' for an ADT.
 gextractorVariant :: forall a. (GSerialiseVariant (Rep a), Generic a, Typeable a)
   => Extractor a
-gextractorVariant = Extractor $ handleRecursion $ \case
+gextractorVariant = Extractor $ mkPlan $ \case
   SVariant schs0 -> Strategy $ \decs -> do
     ds' <- traverse (\(name, sch) -> case lookup name variantExtractor of
       Nothing -> Left $ rep <> ": Schema not found for " <> pretty name
