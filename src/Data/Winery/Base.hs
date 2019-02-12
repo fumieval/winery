@@ -4,6 +4,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE DeriveTraversable #-}
 module Data.Winery.Base
   ( Tag(..)
   , Schema
@@ -84,7 +85,7 @@ data SchemaP a = SFix !(SchemaP a) -- ^ binds a fixpoint
   | SText
   | SUTCTime -- ^ nanoseconds from POSIX epoch
   | STag !Tag !(SchemaP a)
-  deriving (Show, Read, Eq, Generic)
+  deriving (Show, Read, Eq, Generic, Functor, Foldable, Traversable)
 
 instance Pretty a => Pretty (SchemaP a) where
   pretty = \case
