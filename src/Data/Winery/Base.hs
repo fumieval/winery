@@ -63,7 +63,7 @@ type Schema = SchemaP Int
 
 data SchemaP a = SFix !(SchemaP a) -- ^ binds a fixpoint
   | SVar !a -- ^ @SVar n@ refers to the n-th innermost fixpoint
-  | SVector !Schema
+  | SVector !(SchemaP a)
   | SProduct !(V.Vector (SchemaP a))
   | SRecord !(V.Vector (T.Text, SchemaP a))
   | SVariant !(V.Vector (T.Text, SchemaP a))
