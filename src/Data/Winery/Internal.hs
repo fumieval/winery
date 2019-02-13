@@ -7,6 +7,18 @@
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
+----------------------------------------------------------------------------
+-- |
+-- Module      :  Data.Winery.Internal
+-- Copyright   :  (c) Fumiaki Kinoshita 2019
+-- License     :  BSD3
+-- Stability   :  Experimental
+--
+-- Maintainer  :  Fumiaki Kinoshita <fumiexcel@gmail.com>
+--
+-- Internal functions and datatypes
+--
+-----------------------------------------------------------------------------
 module Data.Winery.Internal
   ( unsignedVarInt
   , varInt

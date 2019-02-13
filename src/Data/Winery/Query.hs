@@ -29,8 +29,7 @@ import Data.Typeable
 import qualified Data.Text as T
 import qualified Data.Vector as V
 
--- | The type of winery queries.
---
+-- | Query is a transformation between 'Extractor's.
 -- Like jq, this returns a list of values.
 newtype Query a b = Query
   { runQuery :: Extractor [a] -> Extractor [b] }

@@ -5,6 +5,18 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE DeriveTraversable #-}
+----------------------------------------------------------------------------
+-- |
+-- Module      :  Data.Winery.Base
+-- Copyright   :  (c) Fumiaki Kinoshita 2019
+-- License     :  BSD3
+-- Stability   :  Provisional
+--
+-- Maintainer  :  Fumiaki Kinoshita <fumiexcel@gmail.com>
+--
+-- Basic types
+--
+-----------------------------------------------------------------------------
 module Data.Winery.Base
   ( Tag(..)
   , Schema
@@ -60,6 +72,10 @@ instance Pretty Tag where
 currentSchemaVersion :: Word8
 currentSchemaVersion = 4
 
+-- | A schema preserves structure of a datatype, allowing users to inspect
+-- the data regardless of the current implementation.
+--
+-- /"Yeah, it’s just a memento. Just, you know, from the first time we met."/
 type Schema = SchemaP Int
 
 data SchemaP a = SFix !(SchemaP a) -- ^ binds a fixpoint
@@ -238,7 +254,12 @@ instance Pretty Term where
   pretty (TVariant _ tag x) = group $ nest 2 $ sep [pretty tag, pretty x]
   pretty (TUTCTime t) = pretty (show t)
 
--- | 'Extractor' is a 'Plan' that creates a function to extract a value Term.
+-- | 'Extractor' is a 'Plan' that creates a function to extract a value from Term.
+--
+-- The 'Applicative' instance can be used to build a user-defined extractor.
+-- This is also 'Alternative', meaning that fallback plans may be added.
+--
+-- /"Don't get set into one form, adapt it and build your own, and let it grow, be like water."/
 newtype Extractor a = Extractor { getExtractor :: Plan (Term -> a) }
   deriving Functor
 

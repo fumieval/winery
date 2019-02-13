@@ -66,6 +66,9 @@ allTests :: forall a. (TestGen a, Tested a) => M.Map TypeRep [Test]
 allTests = M.insertWith (++) (typeRep (Proxy @ a)) (testCases @ a) (inheritedTests (Proxy @ a))
 
 -- | Types with concrete test cases.
+--
+-- /"Doubt is useful, it keeps faith a living thing. After all, you cannot know
+-- the strength of your faith until it has been tested."/
 class TestGen a => Tested a where
   -- | List of test cases for the type.
   testCases :: [Test]

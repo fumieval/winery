@@ -20,6 +20,18 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE StandaloneDeriving #-}
+----------------------------------------------------------------------------
+-- |
+-- Module      :  Data.Winery
+-- Copyright   :  (c) Fumiaki Kinoshita 2019
+-- License     :  BSD3
+-- Stability   :  Provisional
+--
+-- Maintainer  :  Fumiaki Kinoshita <fumiexcel@gmail.com>
+--
+-- The standard interface of winery serialisation library
+--
+-----------------------------------------------------------------------------
 module Data.Winery
   ( Schema
   , SchemaP(..)
@@ -46,8 +58,6 @@ module Data.Winery
   , getDecoderBy
   -- * Decoding combinators
   , Term(..)
-  , Plan(..)
-  , mkPlan
   , extractListBy
   , extractField
   , extractFieldBy
@@ -61,6 +71,8 @@ module Data.Winery
   , unexpectedSchema
   , SchemaGen
   , getSchema
+  , Plan(..)
+  , mkPlan
   -- * DerivingVia
   , WineryRecord(..)
   , WineryVariant(..)
@@ -136,6 +148,8 @@ import System.IO
 import qualified Test.QuickCheck as QC
 
 -- | Deserialiser for a 'Term'.
+--
+-- /"I will read anything rather than work."/
 decodeTerm :: Schema -> Decoder Term
 decodeTerm = go [] where
   go points = \case
@@ -177,11 +191,14 @@ deserialiseTerm bs_ = do
   (sch, bs) <- splitSchema bs_
   return (sch, decodeTerm sch `evalDecoder` bs)
 
+-- | This may be thrown if illegal 'Term' is passes to an extractor.
 data ExtractException = InvalidTerm !Term deriving Show
 instance Exception ExtractException
 
+-- | Schema generator
 type SchemaGen = State (M.Map TypeRep (SchemaP TypeRep))
 
+-- | Obtain a schema and memoise the result.
 getSchema :: forall proxy a. Serialise a => proxy a -> SchemaGen (SchemaP TypeRep)
 getSchema p = State $ \m -> case M.lookup rep m of
   Just _ -> (SVar rep, m)
@@ -194,8 +211,6 @@ getSchema p = State $ \m -> case M.lookup rep m of
 --
 class Typeable a => Serialise a where
   -- | Obtain the schema of the datatype.
-  -- @[TypeRep]@ is a list of types corresponding to bound fixpoints
-  -- (innermost one being first).
   schemaGen :: Proxy a -> SchemaGen (SchemaP TypeRep)
 
   -- | Serialise a value.
@@ -212,6 +227,7 @@ class Typeable a => Serialise a where
   --
   -- @getDecoderBy extractor (schema (Proxy @ a))@ must be @Right d@
   -- where @d@ is equivalent to 'decodeCurrent'.
+  --
   extractor :: Extractor a
 
   -- | Decode a value with the current schema.
@@ -220,6 +236,8 @@ class Typeable a => Serialise a where
   decodeCurrent :: Decoder a
 
 -- | Check the integrity of a Serialise instance.
+--
+-- /"No tears in the writer, no tears in the reader. No surprise in the writer, no surprise in the reader."/
 testSerialise :: forall a. (Eq a, Show a, Serialise a) => a -> QC.Property
 testSerialise x = case getDecoderBy extractor (schema (Proxy @ a)) of
   Left e -> QC.counterexample (show e) False
@@ -235,6 +253,8 @@ decodeCurrentDefault = case getDecoderBy extractor (schema (Proxy @ a)) of
   Right a -> a
 
 -- | Obtain the schema of the datatype.
+--
+-- /"Tell me what you drink, and I will tell you what you are."/
 schema :: forall proxy a. Serialise a => proxy a -> Schema
 schema _ = bind (M.toList m) []
   where
@@ -278,6 +298,8 @@ schema _ = bind (M.toList m) []
 {-# INLINE schema #-}
 
 -- | Obtain a decoder from a schema.
+--
+-- /"A reader lives a thousand lives before he dies... The man who never reads lives only one."/
 getDecoder :: forall a. Serialise a => Schema -> Either StrategyError (Decoder a)
 getDecoder sch
   | sch == schema (Proxy @ a) = Right decodeCurrent
@@ -291,6 +313,8 @@ getDecoderBy (Extractor plan) sch = (\f -> f <$> decodeTerm sch)
 {-# INLINE getDecoderBy #-}
 
 -- | Serialise a value along with its schema.
+--
+-- /"Write the vision, and make it plain upon tables, that he may run that readeth it."/
 serialise :: Serialise a => a -> B.ByteString
 serialise = BL.toStrict . BB.toLazyByteString . toBuilderWithSchema
 {-# INLINE serialise #-}
@@ -316,6 +340,8 @@ splitSchema bs_ = case B.uncons bs_ of
   Nothing -> Left "Unexpected empty string"
 
 -- | Deserialise a 'serialise'd 'B.Bytestring'.
+--
+-- /"Old wood to burn! Old wine to drink! Old friends to trust! Old authors to read!"/
 deserialise :: Serialise a => B.ByteString -> Either StrategyError a
 deserialise bs_ = do
   (sch, bs) <- splitSchema bs_
@@ -323,7 +349,7 @@ deserialise bs_ = do
   return $ evalDecoder dec bs
 {-# INLINE deserialise #-}
 
--- | Deserialise a 'serialise'd 'B.Bytestring'.
+-- | Deserialise a 'serialise'd 'B.Bytestring' using an 'Extractor'.
 deserialiseBy :: Extractor a -> B.ByteString -> Either StrategyError a
 deserialiseBy e bs_ = do
   (sch, bs) <- splitSchema bs_
@@ -331,6 +357,8 @@ deserialiseBy e bs_ = do
   return $ evalDecoder dec bs
 
 -- | Serialise a value without its schema.
+--
+-- /"Any unsaved progress will be lost."/
 serialiseOnly :: Serialise a => a -> B.ByteString
 serialiseOnly = BL.toStrict . BB.toLazyByteString . toBuilder
 {-# INLINE serialiseOnly #-}
@@ -866,6 +894,10 @@ gdecodeCurrentRecord :: (GSerialiseRecord (Rep a), Generic a) => Decoder a
 gdecodeCurrentRecord = to <$> recordDecoder
 {-# INLINE gdecodeCurrentRecord #-}
 
+-- | The 'Serialise' instance is generically defined for records.
+--
+-- /"Remember thee! Yea, from the table of my memory I'll wipe away all trivial
+-- fond records."/
 newtype WineryRecord a = WineryRecord { unWineryRecord :: a }
 
 instance (GEncodeProduct (Rep a), GSerialiseRecord (Rep a), Generic a, Typeable a) => Serialise (WineryRecord a) where
@@ -960,6 +992,9 @@ instance (GSerialiseProduct f, GSerialiseProduct g) => GSerialiseProduct (f :*: 
   productExtractor = liftA2 (:*:) <$> productExtractor <*> productExtractor
   productDecoder = (:*:) <$> productDecoder <*> productDecoder
 
+-- | Serialise a value as a product (omits field names).
+--
+-- /"I get ideas about what's essential when packing my suitcase."/
 newtype WineryProduct a = WineryProduct { unWineryProduct :: a }
 
 instance (GEncodeProduct (Rep a), GSerialiseProduct (Rep a), Generic a, Typeable a) => Serialise (WineryProduct a) where
@@ -1008,6 +1043,9 @@ extractorProduct' sch
     strip _ = Nothing
 extractorProduct' sch = unexpectedSchema' "extractorProduct'" "a product" sch
 
+-- | The 'Serialise' instance is generically defined for variants.
+--
+-- /"The one so like the other as could not be distinguish'd but by names."/
 newtype WineryVariant a = WineryVariant { unWineryVariant :: a }
 
 instance (GSerialiseVariant (Rep a), Generic a, Typeable a) => Serialise (WineryVariant a) where
