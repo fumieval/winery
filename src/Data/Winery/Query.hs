@@ -48,8 +48,8 @@ instance Alternative (Query a) where
   Query f <|> Query g = Query $ \d -> (++) <$> f d <*> g d
 
 -- | Throw an error.
-invalid :: StrategyError -> Query a b
-invalid = Query . const . Extractor . Plan . const . errorStrategy
+invalid :: WineryException -> Query a b
+invalid = Query . const . Extractor . Plan . const . throwStrategy
 
 -- | Takes a list and traverses on it.
 list :: Typeable a => Query a a

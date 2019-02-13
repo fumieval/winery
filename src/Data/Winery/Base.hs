@@ -24,15 +24,17 @@ module Data.Winery.Base
   , isBigSchema
   , currentSchemaVersion
   , bootstrapSchema
-  , unexpectedSchema'
   , Term(..)
   , Extractor(..)
   , Strategy'
   , Plan(..)
-  , unwrapExtractor)
+  , unwrapExtractor
+  , WineryException(..)
+  , prettyWineryException)
   where
 
 import Control.Applicative
+import Control.Exception
 import Data.Aeson as J
 import qualified Data.ByteString as B
 import Data.Dynamic
@@ -43,6 +45,7 @@ import qualified Data.Text as T
 import Data.Text.Prettyprint.Doc hiding ((<>), SText, SChar)
 import Data.Text.Prettyprint.Doc.Render.Terminal
 import Data.Time
+import Data.Typeable
 import qualified Data.Vector as V
 import Data.Winery.Internal
 import Data.Word
@@ -177,12 +180,6 @@ bootstrapSchema 4 = SFix
   ,("SLet",SProduct [SVar 0, SVar 0])]
 bootstrapSchema n = error $ "Unsupported version: " <> show n
 
-unexpectedSchema' :: Doc AnsiStyle -> Doc AnsiStyle -> Schema -> Strategy' a
-unexpectedSchema' subject expected actual = errorStrategy
-  $ annotate bold subject
-  <+> "expects" <+> annotate (color Green <> bold) expected
-  <+> "but got " <+> pretty actual
-
 -- | Common representation for any winery data.
 -- Handy for prettyprinting winery-serialised data.
 data Term = TBool !Bool
@@ -271,7 +268,7 @@ instance Alternative Extractor where
   empty = Extractor empty
   Extractor f <|> Extractor g = Extractor $ f <|> g
 
-type Strategy' = Strategy (Either Schema Dynamic)
+type Strategy' = Strategy WineryException (Either Schema Dynamic)
 
 -- | Plan is a monad for computations which interpret 'Schema'.
 newtype Plan a = Plan { unPlan :: Schema -> Strategy' a }
@@ -295,3 +292,32 @@ instance Alternative Plan where
 unwrapExtractor :: Extractor a -> Schema -> Strategy' (Term -> a)
 unwrapExtractor (Extractor m) = unPlan m
 {-# INLINE unwrapExtractor #-}
+
+data WineryException = UnexpectedSchema !(Doc AnsiStyle) !(Doc AnsiStyle) !Schema
+  | FieldNotFound !(Doc AnsiStyle) !T.Text ![T.Text]
+  | TypeMismatch !Int !TypeRep !TypeRep
+  | ProductTooSmall !Int
+  | UnboundVariable !Int
+  | EmptyInput
+  | WineryMessage !(Doc AnsiStyle)
+  deriving Show
+
+instance Exception WineryException
+
+instance IsString WineryException where
+  fromString = WineryMessage . fromString
+
+prettyWineryException :: WineryException -> Doc AnsiStyle
+prettyWineryException = \case
+  UnexpectedSchema subject expected actual -> annotate bold subject
+    <+> "expects" <+> annotate (color Green <> bold) expected
+    <+> "but got " <+> pretty actual
+  FieldNotFound rep x xs -> rep <> ": field or constructor " <> pretty x <> " not found in " <> pretty xs
+  TypeMismatch i s t -> "A type mismatch in variable"
+    <+> pretty i <> ":"
+    <+> "expected" <> viaShow s
+    <+> "but got " <> viaShow t
+  ProductTooSmall i -> "The product is too small; expecting " <> pretty i
+  UnboundVariable i -> "Unbound variable: " <> pretty i
+  EmptyInput -> "Unexpected empty string"
+  WineryMessage a -> a

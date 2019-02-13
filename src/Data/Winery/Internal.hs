@@ -36,8 +36,7 @@ module Data.Winery.Internal
   , unsafeIndexV
   , lookupWithIndexV
   , Strategy(..)
-  , StrategyError
-  , errorStrategy
+  , throwStrategy
   , TransFusion(..)
   )where
 
@@ -51,8 +50,7 @@ import qualified Data.ByteString.Internal as B
 import qualified Data.ByteString.Builder.Prim.Internal as BPI
 import Data.Bits
 import Data.Monoid ((<>))
-import Data.Text.Prettyprint.Doc (Doc)
-import Data.Text.Prettyprint.Doc.Render.Terminal (AnsiStyle)
+import Data.String
 import qualified Data.Vector.Unboxed as U
 import qualified Data.Vector as V
 import Data.Word
@@ -203,36 +201,34 @@ indexDefault err xs i = case drop i xs of
   x : _ -> x
   _ -> err
 
-type StrategyError = Doc AnsiStyle
-
--- | A monad with @Reader [r]@ and @Either StrategyError@ combined, used internally
+-- | A monad with @Reader [r]@ and @Either WineryException@ combined, used internally
 -- to build an extractor.
 -- @r@ is used to share environment such as extractors for fixpoints.
-newtype Strategy r a = Strategy { unStrategy :: [r] -> Either StrategyError a }
+newtype Strategy e r a = Strategy { unStrategy :: [r] -> Either e a }
   deriving Functor
 
-instance Applicative (Strategy r) where
+instance Applicative (Strategy e r) where
   pure = return
   (<*>) = ap
 
-instance Monad (Strategy r) where
+instance Monad (Strategy e r) where
   return = Strategy . const . Right
   m >>= k = Strategy $ \decs -> case unStrategy m decs of
     Right a -> unStrategy (k a) decs
     Left e -> Left e
 
-instance Alternative (Strategy r) where
+instance IsString e => Alternative (Strategy e r) where
   empty = Strategy $ const $ Left "empty"
   Strategy a <|> Strategy b = Strategy $ \decs -> case a decs of
     Left _ -> b decs
     Right x -> Right x
 
-instance MonadFix (Strategy r) where
+instance MonadFix (Strategy e r) where
   mfix f = Strategy $ \r -> mfix $ \a -> unStrategy (f a) r
   {-# INLINE mfix #-}
 
-errorStrategy :: Doc AnsiStyle -> Strategy r a
-errorStrategy = Strategy . const . Left
+throwStrategy :: e -> Strategy e r a
+throwStrategy = Strategy . const . Left
 
 -- | A Bazaar (chain of indexed store comonad)-like structure which instead
 -- works for natural transformations.

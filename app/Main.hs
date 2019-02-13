@@ -41,9 +41,9 @@ options =
   , Option "J" ["JSON"] (NoArg $ \o -> o { outputJSON = True }) "print as JSON"
   ]
 
-getRight :: Either StrategyError a -> IO a
+getRight :: Either WineryException a -> IO a
 getRight (Left err) = do
-  hPutDoc stderr (err <> hardline)
+  hPutDoc stderr $ prettyWineryException err <> hardline
   exitFailure
 getRight (Right a) = return a
 

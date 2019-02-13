@@ -15,7 +15,7 @@ The interface is simple; `serialise` encodes a value with its schema, and
 class Serialise a
 
 serialise :: Serialise a => a -> B.ByteString
-deserialise :: Serialise a => B.ByteString -> Either String a
+deserialise :: Serialise a => B.ByteString -> Either WineryException a
 ```
 
 It's also possible to serialise schemata and data separately.
@@ -29,7 +29,7 @@ serialiseOnly :: Serialise a => a -> B.ByteString
 `getDecoder` gives you a deserialiser.
 
 ```haskell
-getDecoder :: Serialise a => Schema -> Either StrategyError (ByteString -> a)
+getDecoder :: Serialise a => Schema -> Either WineryException (ByteString -> a)
 ```
 
 For user-defined datatypes, you can derive
@@ -52,12 +52,14 @@ latter does constructor names.
 The definition of `Schema` is as follows:
 
 ```haskell
-data Schema = SFix Schema -- ^ binds a fixpoint
-  | SSelf !Word8 -- ^ @SSelf n@ refers to the n-th innermost fixpoint
-  | SVector !Schema
-  | SProduct [Schema]
-  | SRecord [(T.Text, Schema)]
-  | SVariant [(T.Text, Schema)]
+type Schema = SchemaP Int
+
+data SchemaP a = SFix !(SchemaP a)
+  | SVar !a
+  | SVector !(SchemaP a)
+  | SProduct !(V.Vector (SchemaP a))
+  | SRecord !(V.Vector (T.Text, SchemaP a))
+  | SVariant !(V.Vector (T.Text, SchemaP a))
   | SSchema !Word8
   | SBool
   | SChar
@@ -74,8 +76,9 @@ data Schema = SFix Schema -- ^ binds a fixpoint
   | SDouble
   | SBytes
   | SText
-  | SUTCTime
-  | STag Tag
+  | SUTCTime -- ^ nanoseconds from POSIX epoch
+  | STag !Tag !(SchemaP a)
+  | SLet !(SchemaP a) !(SchemaP a)
 ```
 
 The `Serialise` instance is derived by generics.

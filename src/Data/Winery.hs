@@ -67,7 +67,8 @@ module Data.Winery
   -- * Variable-length quantity
   , VarInt(..)
   -- * Internal
-  , StrategyError
+  , WineryException(..)
+  , prettyWineryException
   , unexpectedSchema
   , SchemaGen
   , getSchema
@@ -186,7 +187,7 @@ decodeTerm = go [] where
     SLet s t -> go (go points s : points) t
 
 -- | Deserialise a 'serialise'd 'B.Bytestring'.
-deserialiseTerm :: B.ByteString -> Either (Doc AnsiStyle) (Schema, Term)
+deserialiseTerm :: B.ByteString -> Either WineryException (Schema, Term)
 deserialiseTerm bs_ = do
   (sch, bs) <- splitSchema bs_
   return (sch, decodeTerm sch `evalDecoder` bs)
@@ -248,8 +249,8 @@ testSerialise x = case getDecoderBy extractor (schema (Proxy @ a)) of
 
 decodeCurrentDefault :: forall a. Serialise a => Decoder a
 decodeCurrentDefault = case getDecoderBy extractor (schema (Proxy @ a)) of
-  Left err -> error $ show $ "decodeCurrentDefault: failed to get a decoder from the current schema"
-    <+> parens err
+  Left err -> error $ "decodeCurrentDefault: failed to get a decoder from the current schema"
+    ++ show err
   Right a -> a
 
 -- | Obtain the schema of the datatype.
@@ -300,14 +301,14 @@ schema _ = bind (M.toList m) []
 -- | Obtain a decoder from a schema.
 --
 -- /"A reader lives a thousand lives before he dies... The man who never reads lives only one."/
-getDecoder :: forall a. Serialise a => Schema -> Either StrategyError (Decoder a)
+getDecoder :: forall a. Serialise a => Schema -> Either WineryException (Decoder a)
 getDecoder sch
   | sch == schema (Proxy @ a) = Right decodeCurrent
   | otherwise = getDecoderBy extractor sch
 {-# INLINE getDecoder #-}
 
 -- | Get a decoder from a `Extractor` and a schema.
-getDecoderBy :: Extractor a -> Schema -> Either StrategyError (Decoder a)
+getDecoderBy :: Extractor a -> Schema -> Either WineryException (Decoder a)
 getDecoderBy (Extractor plan) sch = (\f -> f <$> decodeTerm sch)
   <$> unPlan plan sch `unStrategy` []
 {-# INLINE getDecoderBy #-}
@@ -330,19 +331,19 @@ toBuilderWithSchema a = mappend (BB.word8 currentSchemaVersion)
   $ toBuilder (schema (Proxy @ a), a)
 {-# INLINE toBuilderWithSchema #-}
 
-splitSchema :: B.ByteString -> Either StrategyError (Schema, B.ByteString)
+splitSchema :: B.ByteString -> Either WineryException (Schema, B.ByteString)
 splitSchema bs_ = case B.uncons bs_ of
   Just (ver, bs) -> do
     m <- getDecoder $ SSchema ver
     return $ flip evalDecoder bs $ do
       sch <- m
       State $ \bs' -> ((sch, bs'), mempty)
-  Nothing -> Left "Unexpected empty string"
+  Nothing -> Left EmptyInput
 
 -- | Deserialise a 'serialise'd 'B.Bytestring'.
 --
 -- /"Old wood to burn! Old wine to drink! Old friends to trust! Old authors to read!"/
-deserialise :: Serialise a => B.ByteString -> Either StrategyError a
+deserialise :: Serialise a => B.ByteString -> Either WineryException a
 deserialise bs_ = do
   (sch, bs) <- splitSchema bs_
   dec <- getDecoder sch
@@ -350,7 +351,7 @@ deserialise bs_ = do
 {-# INLINE deserialise #-}
 
 -- | Deserialise a 'serialise'd 'B.Bytestring' using an 'Extractor'.
-deserialiseBy :: Extractor a -> B.ByteString -> Either StrategyError a
+deserialiseBy :: Extractor a -> B.ByteString -> Either WineryException a
 deserialiseBy e bs_ = do
   (sch, bs) <- splitSchema bs_
   dec <- getDecoderBy e sch
@@ -364,8 +365,8 @@ serialiseOnly = BL.toStrict . BB.toLazyByteString . toBuilder
 {-# INLINE serialiseOnly #-}
 
 unexpectedSchema :: forall f a. Serialise a => Doc AnsiStyle -> Schema -> Strategy' (f a)
-unexpectedSchema subject actual = unexpectedSchema' subject
-  (pretty $ schema (Proxy @ a)) actual
+unexpectedSchema subject actual = throwStrategy
+  $ UnexpectedSchema subject (pretty $ schema (Proxy @ a)) actual
 
 instance Serialise Tag where
   schemaGen = gschemaGenVariant
@@ -679,7 +680,7 @@ extractListBy (Extractor plan) = Extractor $ mkPlan $ \case
     return $ \case
       TVector xs -> V.map getItem xs
       t -> throw $ InvalidTerm t
-  s -> unexpectedSchema' "extractListBy ..." "[a]" s
+  s -> throwStrategy $ UnexpectedSchema "extractListBy ..." "[a]" s
 {-# INLINE extractListBy #-}
 
 instance (Ord k, Serialise k, Serialise v) => Serialise (M.Map k v) where
@@ -770,8 +771,8 @@ extractFieldBy (Extractor g) name = Extractor $ mkPlan $ \case
         return $ \case
           TRecord xs -> maybe (error msg) (m . snd) $ xs V.!? i
           t -> throw $ InvalidTerm t
-      _ -> errorStrategy $ rep <> ": field not found in " <> pretty (map fst $ V.toList schs)
-  s -> unexpectedSchema' rep "a record" s
+      _ -> throwStrategy $ FieldNotFound rep name (map fst $ V.toList schs)
+  s -> throwStrategy $ UnexpectedSchema rep "a record" s
   where
     rep = "extractFieldBy ... " <> dquotes (pretty name)
     msg = "Data.Winery.extractFieldBy ... " <> show name <> ": impossible"
@@ -783,12 +784,11 @@ mkPlan k = Plan $ \sch -> Strategy $ \decs -> case sch of
     | point : _ <- drop i decs -> case point of
       Left sch' -> unPlan (mkPlan k) sch' `unStrategy` decs
       Right dyn -> case fromDynamic dyn of
-        Nothing -> Left $ "A type mismatch in fixpoint"
-          <+> pretty i <> ":"
-          <+> "expected" <> viaShow (typeRep (Proxy @ (Term -> a)))
-          <+> "but got " <> viaShow (dynTypeRep dyn)
+        Nothing -> Left $ TypeMismatch i
+          (typeRep (Proxy @ (Term -> a)))
+          (dynTypeRep dyn)
         Just a -> Right a
-    | otherwise -> Left $ "Unbound variable: " <> pretty i
+    | otherwise -> Left $ UnboundVariable i
   SFix s -> mfix $ \a -> unPlan (mkPlan k) s `unStrategy` (Right (toDyn a) : decs)
   SLet s t -> unPlan (mkPlan k) t `unStrategy` (Left s : decs)
   s -> k s `unStrategy` decs
@@ -836,13 +836,13 @@ extractConstructorBy d name = Extractor $ mkPlan $ \case
   SVariant schs0 -> Strategy $ \decs -> do
     (j, dec) <- case lookupWithIndexV name schs0 of
       Just (i, s) -> fmap ((,) i) $ unwrapExtractor d s `unStrategy` decs
-      _ -> Left $ rep <> ": constructor not found in " <> pretty (map fst $ V.toList schs0)
+      _ -> Left $ FieldNotFound rep name (map fst $ V.toList schs0)
     return $ \case
       TVariant i _ v
         | i == j -> Just $ dec v
         | otherwise -> Nothing
       t -> throw $ InvalidTerm t
-  s -> unexpectedSchema' rep "a variant" s
+  s -> throwStrategy $ UnexpectedSchema rep "a variant" s
   where
     rep = "extractConstructorBy ... " <> dquotes (pretty name)
 
@@ -872,22 +872,22 @@ gextractorRecord def = Extractor $ mkPlan
 
 -- | Generic implementation of 'extractor' for a record.
 extractorRecord' :: (GSerialiseRecord f)
-  => StrategyError
+  => Doc AnsiStyle
   -> Maybe (f x) -- ^ default value (optional)
   -> Schema -> Strategy' (Term -> f x)
 extractorRecord' rep def (SRecord schs) = Strategy $ \decs -> do
-    let go :: FieldDecoder T.Text x -> Either StrategyError (Term -> x)
+    let go :: FieldDecoder T.Text x -> Either WineryException (Term -> x)
         go (FieldDecoder name def' p) = case lookupWithIndexV name schs of
           Nothing -> case def' of
             Just d -> Right (const d)
-            Nothing -> Left $ rep <> ": Default value not found for " <> pretty name
+            Nothing -> Left $ FieldNotFound rep name (map fst $ V.toList schs)
           Just (i, sch) -> case p `unPlan` sch `unStrategy` decs of
             Right getItem -> Right $ \case
               TRecord xs -> maybe (error (show rep)) (getItem . snd) $ xs V.!? i
               t -> throw $ InvalidTerm t
             Left e -> Left e
     unTransFusion (recordExtractor def) go
-extractorRecord' rep _ s = unexpectedSchema' rep "a record" s
+extractorRecord' rep _ s = throwStrategy $ UnexpectedSchema rep "a record" s
 {-# INLINE gextractorRecord #-}
 
 gdecodeCurrentRecord :: (GSerialiseRecord (Rep a), Generic a) => Decoder a
@@ -1026,11 +1026,11 @@ gdecodeCurrentProduct = to <$> productDecoder
 extractorProduct' :: GSerialiseProduct f => Schema -> Strategy' (Term -> f x)
 extractorProduct' sch
   | Just schs <- strip sch = Strategy $ \recs -> do
-    let go :: FieldDecoder Int x -> Either StrategyError (Term -> x)
+    let go :: FieldDecoder Int x -> Either WineryException (Term -> x)
         go (FieldDecoder i _ p) = do
           getItem <- if i < length schs
             then unPlan p (schs V.! i) `unStrategy` recs
-            else Left "Data.Winery.gextractorProduct: insufficient fields"
+            else Left $ ProductTooSmall $ length schs
           return $ \case
             TProduct xs -> getItem $ maybe (throw $ InvalidTerm (TProduct xs)) id
               $ xs V.!? i
@@ -1041,7 +1041,7 @@ extractorProduct' sch
     strip (SProduct xs) = Just xs
     strip (SRecord xs) = Just $ V.map snd xs
     strip _ = Nothing
-extractorProduct' sch = unexpectedSchema' "extractorProduct'" "a product" sch
+extractorProduct' sch = throwStrategy $ UnexpectedSchema "extractorProduct'" "a product" sch
 
 -- | The 'Serialise' instance is generically defined for variants.
 --
@@ -1069,12 +1069,12 @@ gextractorVariant :: forall a. (GSerialiseVariant (Rep a), Generic a, Typeable a
 gextractorVariant = Extractor $ mkPlan $ \case
   SVariant schs0 -> Strategy $ \decs -> do
     ds' <- traverse (\(name, sch) -> case lookup name variantExtractor of
-      Nothing -> Left $ rep <> ": Schema not found for " <> pretty name
+      Nothing -> Left $ FieldNotFound rep name (map fst $ V.toList schs0)
       Just f -> f sch `unStrategy` decs) schs0
     return $ \case
       TVariant i _ v -> to $ maybe (throw InvalidTag) ($ v) $ ds' V.!? i
       t -> throw $ InvalidTerm t
-  s -> unexpectedSchema' rep "a variant" s
+  s -> throwStrategy $ UnexpectedSchema rep "a variant" s
   where
     rep = "gextractorVariant :: Extractor "
       <> viaShow (typeRep (Proxy @ a))
@@ -1182,5 +1182,5 @@ instance Serialise a => Serialise (Complex a) where
 instance Serialise Void where
   schemaGen _ = pure $ SVariant V.empty
   toBuilder = mempty
-  extractor = Extractor $ Plan $ const $ errorStrategy "No extractor for Void"
+  extractor = Extractor $ Plan $ const $ throwStrategy "No extractor for Void"
   decodeCurrent = error "No decodeCurrent for Void"
