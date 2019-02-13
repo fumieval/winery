@@ -17,7 +17,7 @@ import System.Directory
 data Gender = Male | Female deriving (Show, Generic)
 
 instance Serialise Gender where
-  schemaVia = gschemaViaVariant
+  schemaGen = gschemaGenVariant
   toBuilder = gtoBuilderVariant
   extractor = gextractorVariant
   decodeCurrent = gdecodeCurrentVariant
@@ -36,7 +36,7 @@ data TestRec = TestRec
   } deriving (Show, Generic)
 
 instance Serialise TestRec where
-  schemaVia = gschemaViaRecord
+  schemaGen = gschemaGenRecord
   toBuilder = gtoBuilderRecord
   extractor = gextractorRecord Nothing
   decodeCurrent = gdecodeCurrentRecord
