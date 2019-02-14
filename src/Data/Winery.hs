@@ -196,18 +196,6 @@ deserialiseTerm bs_ = do
 data ExtractException = InvalidTerm !Term deriving Show
 instance Exception ExtractException
 
--- | Schema generator
-type SchemaGen = State (M.Map TypeRep (SchemaP TypeRep))
-
--- | Obtain a schema and memoise the result.
-getSchema :: forall proxy a. Serialise a => proxy a -> SchemaGen (SchemaP TypeRep)
-getSchema p = State $ \m -> case M.lookup rep m of
-  Just _ -> (SVar rep, m)
-  Nothing -> let (a, m') = runState (schemaGen (Proxy @ a)) m
-    in (SVar rep, M.insert rep a m')
-  where
-    rep = typeRep p
-
 -- | Serialisable datatype
 --
 class Typeable a => Serialise a where
@@ -253,49 +241,55 @@ decodeCurrentDefault = case getDecoderBy extractor (schema (Proxy @ a)) of
     ++ show err
   Right a -> a
 
+type SchemaMap = M.Map TypeRep (SchemaGen (SchemaP TypeRep))
+
+newtype SchemaGen a = SchemaGen { unSchemaGen :: State SchemaMap a }
+  deriving (Functor, Applicative, Monad)
+
+getSchema :: forall proxy a. Serialise a => proxy a -> SchemaGen (SchemaP TypeRep)
+getSchema p = SchemaGen $ State $ \m -> case M.lookup rep m of
+  Just _ -> (SVar rep, m)
+  Nothing -> (SVar rep, M.insert rep (schemaGen (Proxy @ a)) m)
+  where
+    rep = typeRep p
+
 -- | Obtain the schema of the datatype.
 --
 -- /"Tell me what you drink, and I will tell you what you are."/
 schema :: forall proxy a. Serialise a => proxy a -> Schema
-schema _ = bind (M.toList m) []
+schema _ = fst $ runState (unSchemaGen (go [] s0)) m0
   where
-    bind ((rep, sch) : xs) ts
-      | isBigSchema sch = SLet (go ts sch) (bind xs (rep : ts))
-      | otherwise = bind xs ts
-    bind [] ts = go ts s0
-
-    go :: [TypeRep] -> SchemaP TypeRep -> Schema
+    go :: [TypeRep] -> SchemaP TypeRep -> SchemaGen Schema
     go ts (SVar rep)
-      | Just i <- elemIndex rep ts = SVar i
-      | Just a <- M.lookup rep m = if elem rep a
-        then SFix $ go (rep : ts) a
-        else go ts a
-      | otherwise = error $ "Data.Winery.Schema: panic! unbound " ++ show rep
-    go ts (SFix s) = SFix $ go ts s
-    go ts (SLet s t) = SLet (go ts s) (go ts t)
-    go ts (SVector s) = SVector $ go ts s
-    go ts (SProduct v) = SProduct $ fmap (go ts) v
-    go ts (SRecord v) = SRecord $ fmap (fmap (go ts)) v
-    go ts (SVariant v) = SVariant $ fmap (fmap (go ts)) v
-    go _ (SSchema v) = SSchema v
-    go _ SBool = SBool
-    go _ SChar = SChar
-    go _ SWord8 = SWord8
-    go _ SWord16 = SWord16
-    go _ SWord32 = SWord32
-    go _ SWord64 = SWord64
-    go _ SInt8 = SInt8
-    go _ SInt16 = SInt16
-    go _ SInt32 = SInt32
-    go _ SInt64 = SInt64
-    go _ SInteger = SInteger
-    go _ SFloat = SFloat
-    go _ SDouble = SDouble
-    go _ SBytes = SBytes
-    go _ SText = SText
-    go _ SUTCTime = SUTCTime
-    go ts (STag t s) = STag t (go ts s)
-    (s0, m) = runState (schemaGen (Proxy @ a)) M.empty
+      | Just i <- elemIndex rep ts = pure $ SVar i
+      | otherwise = SchemaGen $ State $ \m -> case M.lookup rep m of
+        Just gen -> runState (unSchemaGen $ gen >>= go ts) m
+        _ -> error $ "Data.Winery.Schema: panic! unbound " ++ show rep
+    go ts (SFix s) = SFix <$> go ts s
+    go ts (SLet s t) = SLet <$> go ts s <*> go ts t
+    go ts (SVector s) = SVector <$> go ts s
+    go ts (SProduct v) = SProduct <$> traverse (go ts) v
+    go ts (SRecord v) = SRecord <$> traverse (traverse (go ts)) v
+    go ts (SVariant v) = SVariant <$> traverse (traverse (go ts)) v
+    go _ (SSchema v) = pure $ SSchema v
+    go _ SBool = pure SBool
+    go _ SChar = pure SChar
+    go _ SWord8 = pure SWord8
+    go _ SWord16 = pure SWord16
+    go _ SWord32 = pure SWord32
+    go _ SWord64 = pure SWord64
+    go _ SInt8 = pure SInt8
+    go _ SInt16 = pure SInt16
+    go _ SInt32 = pure SInt32
+    go _ SInt64 = pure SInt64
+    go _ SInteger = pure SInteger
+    go _ SFloat = pure SFloat
+    go _ SDouble = pure SDouble
+    go _ SBytes = pure SBytes
+    go _ SText = pure SText
+    go _ SUTCTime = pure SUTCTime
+    go ts (STag t s) = STag t <$> go ts s
+    (s0, m0) = runState (unSchemaGen $ schemaGen (Proxy @ a)) M.empty
 {-# INLINE schema #-}
 
 -- | Obtain a decoder from a schema.
