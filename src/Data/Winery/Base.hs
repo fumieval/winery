@@ -137,13 +137,15 @@ instance Pretty a => Pretty (SchemaP a) where
     SUTCTime -> "UTCTime"
     SVector s -> "[" <> pretty s <> "]"
     SProduct ss -> tupled $ map pretty (V.toList ss)
-    SRecord ss -> align $ encloseSep "{ " " }" ", " [pretty k <+> "::" <+> pretty v | (k, v) <- V.toList ss]
-    SVariant ss -> align $ encloseSep "( " " )" (flatAlt "| " " | ")
-      [ nest 2 $ sep [pretty k, pretty vs] | (k, vs) <- V.toList ss]
+    SRecord ss -> align $ encloseSep "{ " " }" ", " [group $ nest 2 $ sep [pretty k, "::" <+> pretty v] | (k, v) <- V.toList ss]
+    SVariant ss -> align $ encloseSep "" "" (flatAlt "| " " | ")
+      [ nest 2 $ sep $ pretty k : case vs of
+        SProduct xs -> map pretty $ V.toList xs
+        SRecord xs -> [pretty (SRecord xs)] | (k, vs) <- V.toList ss]
     SFix sch -> group $ nest 2 $ sep ["μ", pretty sch]
-    SVar i -> "Self" <+> pretty i
+    SVar i -> "Var" <+> pretty i
     STag t s -> nest 2 $ sep [pretty t <> ":", pretty s]
-    SLet s t -> nest 2 $ sep ["let" <+> pretty s, pretty t]
+    SLet s t -> sep ["let" <+> pretty s, pretty t]
 
 bootstrapSchema :: Word8 -> Schema
 bootstrapSchema 4 = SFix
