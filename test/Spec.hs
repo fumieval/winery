@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -Wno-missing-signatures#-}
@@ -21,6 +22,7 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
 import qualified Data.Vector.Unboxed as UV
+import GHC.Generics (Generic)
 import Test.QuickCheck
 import Test.QuickCheck.Instances ()
 
@@ -66,6 +68,21 @@ prop_Tuple3 = testSerialise @ (Bool, Int, Text)
 prop_Tuple4 = testSerialise @ (Bool, Int, Text, Double)
 prop_Either_String_Int = testSerialise @ (Either String Int)
 prop_Ordering = testSerialise @ Ordering
+
+data TList a = TCons a (TList a) | TNil deriving (Show, Eq, Generic)
+
+instance Serialise a => Serialise (TList a) where
+  schemaGen = gschemaGenVariant
+  toBuilder = gtoBuilderVariant
+  extractor = gextractorVariant
+  decodeCurrent = gdecodeCurrentVariant
+
+instance Arbitrary a => Arbitrary (TList a) where
+  arbitrary = sized $ \n -> if n <= 0
+    then pure TNil
+    else TCons <$> arbitrary <*> scale pred arbitrary
+
+prop_TList_Int = testSerialise @ (TList Int)
 
 return []
 main = void $ $quickCheckAll
