@@ -141,7 +141,8 @@ instance Pretty a => Pretty (SchemaP a) where
     SVariant ss -> align $ encloseSep "" "" (flatAlt "| " " | ")
       [ nest 2 $ sep $ pretty k : case vs of
         SProduct xs -> map pretty $ V.toList xs
-        SRecord xs -> [pretty (SRecord xs)] | (k, vs) <- V.toList ss]
+        SRecord xs -> [pretty (SRecord xs)]
+        s -> [pretty s] | (k, vs) <- V.toList ss]
     SFix sch -> group $ nest 2 $ sep ["μ", pretty sch]
     SVar i -> "Var" <+> pretty i
     STag t s -> nest 2 $ sep [pretty t <> ":", pretty s]

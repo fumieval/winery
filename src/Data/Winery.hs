@@ -243,9 +243,13 @@ decodeCurrentDefault = case getDecoderBy extractor (schema (Proxy @ a)) of
 
 type SchemaMap = M.Map TypeRep (SchemaGen (SchemaP TypeRep))
 
+-- | Schema generator; internally, it maintains a map from types to schemata.
 newtype SchemaGen a = SchemaGen { unSchemaGen :: State SchemaMap a }
   deriving (Functor, Applicative, Monad)
 
+-- | Obtain a schema on 'SchemaGen', memoising the resulting schema.
+-- If you are hand-rolling a definition of 'schemaGen', you should call this
+-- instead of 'schemaGen'.
 getSchema :: forall proxy a. Serialise a => proxy a -> SchemaGen (SchemaP TypeRep)
 getSchema p = SchemaGen $ State $ \m -> case M.lookup rep m of
   Just _ -> (SVar rep, m)

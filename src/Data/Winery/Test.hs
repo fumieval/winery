@@ -108,8 +108,8 @@ ppTest a = showString "testCase "
 -- It is recommended to use the generic default methods.
 class Typeable a => TestGen a where
   -- | A list of values that can be used as test cases.
-  -- It should contain at least one value as long as there exists a
-  -- non-bottom.
+  -- It should contain at least one value as long as there is a non-bottom value
+  -- in the type.
   genTestCases :: [a]
 
   -- | Inherited set of test cases for each type it involves.
