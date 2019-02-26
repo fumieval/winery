@@ -200,7 +200,7 @@ instance Exception ExtractException
 --
 class Typeable a => Serialise a where
   -- | Obtain the schema of the datatype.
-  schemaGen :: Proxy a -> SchemaGen (SchemaP TypeRep)
+  schemaGen :: Proxy a -> SchemaGen Schema
 
   -- | Serialise a value.
   toBuilder :: a -> BB.Builder
@@ -241,60 +241,22 @@ decodeCurrentDefault = case getDecoderBy extractor (schema (Proxy @ a)) of
     ++ show err
   Right a -> a
 
-type SchemaMap = M.Map TypeRep (SchemaGen (SchemaP TypeRep))
-
 -- | Schema generator; internally, it maintains a map from types to schemata.
-newtype SchemaGen a = SchemaGen { unSchemaGen :: State SchemaMap a }
+newtype SchemaGen a = SchemaGen { unSchemaGen :: [TypeRep] -> a }
   deriving (Functor, Applicative, Monad)
 
 -- | Obtain a schema on 'SchemaGen', memoising the resulting schema.
 -- If you are hand-rolling a definition of 'schemaGen', you should call this
 -- instead of 'schemaGen'.
-getSchema :: forall proxy a. Serialise a => proxy a -> SchemaGen (SchemaP TypeRep)
-getSchema p = SchemaGen $ State $ \m -> case M.lookup rep m of
-  Just _ -> (SVar rep, m)
-  Nothing -> (SVar rep, M.insert rep (schemaGen (Proxy @ a)) m)
+getSchema :: forall proxy a. Serialise a => proxy a -> SchemaGen Schema
+getSchema p = SchemaGen $ \xs -> case elemIndex rep xs of
+  Just i -> SVar i
+  Nothing -> SFix $ unSchemaGen (schemaGen (Proxy @ a)) (rep : xs)
   where
     rep = typeRep p
 
--- | Obtain the schema of the datatype.
---
--- /"Tell me what you drink, and I will tell you what you are."/
 schema :: forall proxy a. Serialise a => proxy a -> Schema
-schema _ = fst $ runState (unSchemaGen (go [] s0)) m0
-  where
-    go :: [TypeRep] -> SchemaP TypeRep -> SchemaGen Schema
-    go ts (SVar rep)
-      | Just i <- elemIndex rep ts = pure $ SVar i
-      | otherwise = SchemaGen $ State $ \m -> case M.lookup rep m of
-        Just gen -> runState (unSchemaGen $ gen >>= go ts) m
-        _ -> error $ "Data.Winery.Schema: panic! unbound " ++ show rep
-    go ts (SFix s) = SFix <$> go ts s
-    go ts (SLet s t) = SLet <$> go ts s <*> go ts t
-    go ts (SVector s) = SVector <$> go ts s
-    go ts (SProduct v) = SProduct <$> traverse (go ts) v
-    go ts (SRecord v) = SRecord <$> traverse (traverse (go ts)) v
-    go ts (SVariant v) = SVariant <$> traverse (traverse (go ts)) v
-    go _ (SSchema v) = pure $ SSchema v
-    go _ SBool = pure SBool
-    go _ SChar = pure SChar
-    go _ SWord8 = pure SWord8
-    go _ SWord16 = pure SWord16
-    go _ SWord32 = pure SWord32
-    go _ SWord64 = pure SWord64
-    go _ SInt8 = pure SInt8
-    go _ SInt16 = pure SInt16
-    go _ SInt32 = pure SInt32
-    go _ SInt64 = pure SInt64
-    go _ SInteger = pure SInteger
-    go _ SFloat = pure SFloat
-    go _ SDouble = pure SDouble
-    go _ SBytes = pure SBytes
-    go _ SText = pure SText
-    go _ SUTCTime = pure SUTCTime
-    go ts (STag t s) = STag t <$> go ts s
-    (s0, m0) = runState (unSchemaGen $ schemaGen (Proxy @ a)) M.empty
-{-# INLINE schema #-}
+schema p = SFix $ unSchemaGen (schemaGen (Proxy @ a)) [typeRep p]
 
 -- | Obtain a decoder from a schema.
 --
@@ -849,7 +811,7 @@ extractConstructor = extractConstructorBy extractor
 {-# INLINE extractConstructor #-}
 
 -- | Generic implementation of 'schemaGen' for a record.
-gschemaGenRecord :: forall proxy a. (GSerialiseRecord (Rep a), Generic a, Typeable a) => proxy a -> SchemaGen (SchemaP TypeRep)
+gschemaGenRecord :: forall proxy a. (GSerialiseRecord (Rep a), Generic a, Typeable a) => proxy a -> SchemaGen Schema
 gschemaGenRecord _ = SRecord . V.fromList <$> recordSchema (Proxy @ (Rep a))
 
 -- | Generic implementation of 'toBuilder' for a record.
@@ -928,7 +890,7 @@ instance GEncodeProduct f => GEncodeProduct (D1 c f) where
   {-# INLINE productEncoder #-}
 
 class GSerialiseRecord f where
-  recordSchema :: proxy f -> SchemaGen [(T.Text, SchemaP TypeRep)]
+  recordSchema :: proxy f -> SchemaGen [(T.Text, Schema)]
   recordExtractor :: Maybe (f x) -> TransFusion (FieldDecoder T.Text) ((->) Term) (Term -> f x)
   recordDecoder :: Decoder (f x)
 
@@ -964,7 +926,7 @@ instance (GSerialiseRecord f) => GSerialiseRecord (D1 c f) where
   recordDecoder = M1 <$> recordDecoder
 
 class GSerialiseProduct f where
-  productSchema :: proxy f -> SchemaGen [SchemaP TypeRep]
+  productSchema :: proxy f -> SchemaGen [Schema]
   productExtractor :: Compose (State Int) (TransFusion (FieldDecoder Int) ((->) Term)) (Term -> f x)
   productDecoder :: Decoder (f x)
 
@@ -1001,7 +963,7 @@ instance (GEncodeProduct (Rep a), GSerialiseProduct (Rep a), Generic a, Typeable
   extractor = WineryProduct <$> gextractorProduct
   decodeCurrent = WineryProduct <$> gdecodeCurrentProduct
 
-gschemaGenProduct :: forall proxy a. (Generic a, GSerialiseProduct (Rep a)) => proxy a -> SchemaGen (SchemaP TypeRep)
+gschemaGenProduct :: forall proxy a. (Generic a, GSerialiseProduct (Rep a)) => proxy a -> SchemaGen Schema
 gschemaGenProduct _ = SProduct . V.fromList <$> productSchema (Proxy @ (Rep a))
 {-# INLINE gschemaGenProduct #-}
 
@@ -1053,7 +1015,7 @@ instance (GSerialiseVariant (Rep a), Generic a, Typeable a) => Serialise (Winery
   decodeCurrent = WineryVariant <$> gdecodeCurrentVariant
 
 -- | Generic implementation of 'schemaGen' for an ADT.
-gschemaGenVariant :: forall proxy a. (GSerialiseVariant (Rep a), Typeable a, Generic a) => proxy a -> SchemaGen (SchemaP TypeRep)
+gschemaGenVariant :: forall proxy a. (GSerialiseVariant (Rep a), Typeable a, Generic a) => proxy a -> SchemaGen Schema
 gschemaGenVariant _ = SVariant . V.fromList <$> variantSchema (Proxy @ (Rep a))
 
 -- | Generic implementation of 'toBuilder' for an ADT.
@@ -1084,7 +1046,7 @@ gdecodeCurrentVariant = decodeVarInt >>= maybe (throw InvalidTag) (fmap to) . (d
 
 class GSerialiseVariant f where
   variantCount :: proxy f -> Int
-  variantSchema :: proxy f -> SchemaGen [(T.Text, SchemaP TypeRep)]
+  variantSchema :: proxy f -> SchemaGen [(T.Text, Schema)]
   variantEncoder :: Int -> f x -> BB.Builder
   variantExtractor :: [(T.Text, Schema -> Strategy' (Term -> f x))]
   variantDecoder :: [Decoder (f x)]
