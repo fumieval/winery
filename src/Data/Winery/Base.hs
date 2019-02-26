@@ -27,6 +27,8 @@ module Data.Winery.Base
   , Term(..)
   , Extractor(..)
   , Strategy'
+  , StrategyBind(..)
+  , StrategyEnv(..)
   , Plan(..)
   , unwrapExtractor
   , WineryException(..)
@@ -271,7 +273,13 @@ instance Alternative Extractor where
   empty = Extractor empty
   Extractor f <|> Extractor g = Extractor $ f <|> g
 
-type Strategy' = Strategy WineryException (Either Schema Dynamic)
+data StrategyBind = DynDecoder !Dynamic -- ^ A fixpoint of a decoder
+    | BoundSchema !Int !Schema
+    -- ^ schema bound by 'SLet'. 'Int' is a basis of the variables
+
+data StrategyEnv = StrategyEnv !Int ![StrategyBind]
+
+type Strategy' = Strategy WineryException StrategyEnv
 
 -- | Plan is a monad for computations which interpret 'Schema'.
 newtype Plan a = Plan { unPlan :: Schema -> Strategy' a }

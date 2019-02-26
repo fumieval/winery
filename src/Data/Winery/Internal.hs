@@ -204,7 +204,7 @@ indexDefault err xs i = case drop i xs of
 -- | A monad with @Reader [r]@ and @Either WineryException@ combined, used internally
 -- to build an extractor.
 -- @r@ is used to share environment such as extractors for fixpoints.
-newtype Strategy e r a = Strategy { unStrategy :: [r] -> Either e a }
+newtype Strategy e r a = Strategy { unStrategy :: r -> Either e a }
   deriving Functor
 
 instance Applicative (Strategy e r) where

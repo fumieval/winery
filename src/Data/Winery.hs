@@ -308,7 +308,7 @@ getDecoder sch
 -- | Get a decoder from a `Extractor` and a schema.
 getDecoderBy :: Extractor a -> Schema -> Either WineryException (Decoder a)
 getDecoderBy (Extractor plan) sch = (\f -> f <$> decodeTerm sch)
-  <$> unPlan plan sch `unStrategy` []
+  <$> unPlan plan sch `unStrategy` StrategyEnv 0 []
 {-# INLINE getDecoderBy #-}
 
 -- | Serialise a value along with its schema.
@@ -777,19 +777,19 @@ extractFieldBy (Extractor g) name = Extractor $ mkPlan $ \case
 
 -- | Construct a plan, expanding fixpoints and let bindings.
 mkPlan :: forall a. Typeable a => (Schema -> Strategy' (Term -> a)) -> Plan (Term -> a)
-mkPlan k = Plan $ \sch -> Strategy $ \decs -> case sch of
+mkPlan k = Plan $ \sch -> Strategy $ \(StrategyEnv ofs decs) -> case sch of
   SVar i
     | point : _ <- drop i decs -> case point of
-      Left sch' -> unPlan (mkPlan k) sch' `unStrategy` decs
-      Right dyn -> case fromDynamic dyn of
+      BoundSchema ofs' sch' -> unPlan (mkPlan k) sch' `unStrategy` StrategyEnv ofs' (drop (ofs - ofs') decs)
+      DynDecoder dyn -> case fromDynamic dyn of
         Nothing -> Left $ TypeMismatch i
           (typeRep (Proxy @ (Term -> a)))
           (dynTypeRep dyn)
         Just a -> Right a
     | otherwise -> Left $ UnboundVariable i
-  SFix s -> mfix $ \a -> unPlan (mkPlan k) s `unStrategy` (Right (toDyn a) : decs)
-  SLet s t -> unPlan (mkPlan k) t `unStrategy` (Left s : decs)
-  s -> k s `unStrategy` decs
+  SFix s -> mfix $ \a -> unPlan (mkPlan k) s `unStrategy` StrategyEnv (ofs + 1) (DynDecoder (toDyn a) : decs)
+  SLet s t -> unPlan (mkPlan k) t `unStrategy` StrategyEnv (ofs + 1) (BoundSchema ofs s : decs)
+  s -> k s `unStrategy` StrategyEnv ofs decs
 
 instance (Serialise a, Serialise b) => Serialise (a, b) where
   schemaGen = gschemaGenProduct
