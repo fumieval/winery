@@ -69,6 +69,22 @@ prop_Tuple4 = testSerialise @ (Bool, Int, Text, Double)
 prop_Either_String_Int = testSerialise @ (Either String Int)
 prop_Ordering = testSerialise @ Ordering
 
+data TRec = TRec
+  { foo :: !Int
+  , bar :: !Text
+  } deriving (Show, Eq, Generic)
+
+instance Arbitrary TRec where
+  arbitrary = TRec <$> arbitrary <*> arbitrary
+
+instance Serialise TRec where
+  schemaGen = gschemaGenRecord
+  toBuilder = gtoBuilderRecord
+  extractor = gextractorRecord Nothing
+  decodeCurrent = gdecodeCurrentRecord
+
+prop_TRec = testSerialise @ TRec
+
 data TList a = TCons a (TList a) | TNil deriving (Show, Eq, Generic)
 
 instance Serialise a => Serialise (TList a) where
