@@ -88,7 +88,6 @@ data SchemaP a = SFix !(SchemaP a) -- ^ binds a fixpoint
   | SProduct !(V.Vector (SchemaP a))
   | SRecord !(V.Vector (T.Text, SchemaP a))
   | SVariant !(V.Vector (T.Text, SchemaP a))
-  | SSchema !Word8
   | SBool
   | SChar
   | SWord8
@@ -111,7 +110,6 @@ data SchemaP a = SFix !(SchemaP a) -- ^ binds a fixpoint
 
 instance Pretty a => Pretty (SchemaP a) where
   pretty = \case
-    SSchema v -> "Schema " <> pretty v
     SProduct [] -> "()"
     SBool -> "Bool"
     SChar -> "Char"
@@ -151,7 +149,6 @@ bootstrapSchema 4 = SFix
   ,("SProduct",SProduct [SVector (SVar 0)])
   ,("SRecord",SProduct [SVector (SProduct [SText,SVar 0])])
   ,("SVariant",SProduct [SVector (SProduct [SText,SVar 0])])
-  ,("SSchema",SProduct [SWord8])
   ,("SBool",SProduct [])
   ,("SChar",SProduct [])
   ,("SWord8",SProduct [])
