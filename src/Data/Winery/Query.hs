@@ -67,7 +67,7 @@ field name = Query $ \d -> buildExtractor $ extractFieldBy d name
 
 -- | Takes a variant and returns a value when the constructor matches.
 con :: Typeable a => T.Text -> Query a a
-con name = Query $ \d -> buildExtractor $ maybe [] id <$> extractConstructorBy d name
+con name = Query $ \d -> buildExtractor $ extractConstructorBy (d, name, id) (pure [])
 
 -- | Propagate values if the supplied 'Query' doesn't return False.
 select :: Query a Bool -> Query a a

@@ -63,6 +63,7 @@ module Data.Winery
   , extractFieldBy
   , extractConstructor
   , extractConstructorBy
+  , extractVoid
   , ExtractException(..)
   -- * Variable-length quantity
   , VarInt(..)
@@ -796,24 +797,37 @@ instance (Serialise a, Serialise b) => Serialise (Either a b) where
 
 -- | Tries to extract a specific constructor of a variant. Useful for
 -- implementing backward-compatible extractors.
-extractConstructorBy :: Typeable a => Extractor a -> T.Text -> Subextractor (Maybe a)
-extractConstructorBy d name = Subextractor $ Extractor $ mkPlan $ \case
+extractConstructorBy :: Typeable a => (Extractor a, T.Text, a -> r) -> Subextractor r -> Subextractor r
+extractConstructorBy (d, name, f) cont = Subextractor $ Extractor $ Plan $ \case
   SVariant schs0 -> Strategy $ \decs -> do
+    let run :: Extractor x -> Schema -> Either WineryException (Term -> x)
+        run e s = unwrapExtractor e s `unStrategy` decs
     (j, dec) <- case lookupWithIndexV name schs0 of
-      Just (i, s) -> fmap ((,) i) $ unwrapExtractor d s `unStrategy` decs
+      Just (i, SProduct [s]) -> fmap ((,) i) $ run d s
+      Just (i, s) -> fmap ((,) i) $ run d s
       _ -> Left $ FieldNotFound rep name (map fst $ V.toList schs0)
+    let rest = SVariant $ V.filter ((/=name) . fst) schs0
+    k <- run (unSubextractor cont) rest
     return $ \case
       TVariant i _ v
-        | i == j -> Just $ dec v
-        | otherwise -> Nothing
-      t -> throw $ InvalidTerm t
+        | i == j -> f $ dec v
+      t -> k t
   s -> throwStrategy $ UnexpectedSchema rep "a variant" s
   where
     rep = "extractConstructorBy ... " <> dquotes (pretty name)
 
-extractConstructor :: (Serialise a) => T.Text -> Subextractor (Maybe a)
-extractConstructor = extractConstructorBy extractor
+extractConstructor :: (Serialise a) => (T.Text, a -> r) -> Subextractor r -> Subextractor r
+extractConstructor (name, f) = extractConstructorBy (extractor, name, f)
 {-# INLINE extractConstructor #-}
+
+extractVoid :: Typeable r => Subextractor r
+extractVoid = Subextractor $ Extractor $ mkPlan $ \case
+  SVariant schs0
+    | V.null schs0 -> return $ throw . InvalidTerm
+  s -> throwStrategy $ UnexpectedSchema "extractVoid" "no constructors" s
+
+infixr 1 `extractConstructorBy`
+infixr 1 `extractConstructor`
 
 -- | Generic implementation of 'schemaGen' for a record.
 gschemaGenRecord :: forall proxy a. (GSerialiseRecord (Rep a), Generic a, Typeable a) => proxy a -> SchemaGen Schema
