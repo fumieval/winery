@@ -719,6 +719,7 @@ instance Serialise Scientific where
 
 buildExtractor :: Typeable a => Subextractor a -> Extractor a
 buildExtractor (Subextractor e) = Extractor $ mkPlan $ unwrapExtractor e
+{-# INLINE buildExtractor #-}
 
 newtype Subextractor a = Subextractor { unSubextractor :: Extractor a }
   deriving (Functor, Applicative, Alternative)
