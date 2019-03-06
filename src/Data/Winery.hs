@@ -192,7 +192,7 @@ deserialiseTerm bs_ = do
   (sch, bs) <- splitSchema bs_
   return (sch, decodeTerm sch `evalDecoder` bs)
 
--- | This may be thrown if illegal 'Term' is passes to an extractor.
+-- | This may be thrown if illegal 'Term' is passed to an extractor.
 data ExtractException = InvalidTerm !Term deriving Show
 instance Exception ExtractException
 

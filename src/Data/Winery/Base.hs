@@ -21,7 +21,6 @@ module Data.Winery.Base
   ( Tag(..)
   , Schema
   , SchemaP(..)
-  , isBigSchema
   , currentSchemaVersion
   , bootstrapSchema
   , Term(..)
@@ -109,13 +108,6 @@ data SchemaP a = SFix !(SchemaP a) -- ^ binds a fixpoint
   | STag !Tag !(SchemaP a)
   | SLet !(SchemaP a) !(SchemaP a)
   deriving (Show, Read, Eq, Generic, Functor, Foldable, Traversable)
-
--- | Somewhat arbitrary predicate that a schema should be floated out
-isBigSchema :: SchemaP a -> Bool
-isBigSchema (SProduct _) = True
-isBigSchema (SRecord _) = True
-isBigSchema (SVariant _) = True
-isBigSchema _ = False
 
 instance Pretty a => Pretty (SchemaP a) where
   pretty = \case
