@@ -280,7 +280,7 @@ newtype Plan a = Plan { unPlan :: Schema -> Strategy' a }
 instance Applicative Plan where
   pure = Plan . const . pure
   m <*> k = Plan $ \sch -> Strategy $ \decs -> case unStrategy (unPlan m sch) decs of
-    Right f -> fmap f $ unStrategy (unPlan k sch) decs
+    Right f -> f <$> unStrategy (unPlan k sch) decs
     Left e -> Left e
 
 instance Monad Plan where

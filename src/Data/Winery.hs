@@ -4,7 +4,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -18,7 +17,6 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE StandaloneDeriving #-}
 ----------------------------------------------------------------------------
 -- |
@@ -646,7 +644,7 @@ extractListBy (Extractor plan) = Extractor $ mkPlan $ \case
 instance (Ord k, Serialise k, Serialise v) => Serialise (M.Map k v) where
   schemaGen _ = schemaGen (Proxy @ [(k, v)])
   toBuilder m = toBuilder (M.size m)
-    <> M.foldMapWithKey (\k v -> toBuilder (k, v)) m
+    <> M.foldMapWithKey (curry toBuilder) m
   {-# INLINE toBuilder #-}
   extractor = M.fromList <$> extractor
   decodeCurrent = M.fromList <$> decodeCurrent
@@ -662,7 +660,7 @@ instance (Eq k, Hashable k, Serialise k, Serialise v) => Serialise (HM.HashMap k
 instance (Serialise v) => Serialise (IM.IntMap v) where
   schemaGen _ = schemaGen (Proxy @ [(Int, v)])
   toBuilder m = toBuilder (IM.size m)
-    <> IM.foldMapWithKey (\k v -> toBuilder (k, v)) m
+    <> IM.foldMapWithKey (curry toBuilder) m
   {-# INLINE toBuilder #-}
   extractor = IM.fromList <$> extractor
   decodeCurrent = IM.fromList <$> decodeCurrent
@@ -724,14 +722,13 @@ extractField = extractFieldBy extractor
 -- | Extract a field using the supplied 'Extractor'.
 extractFieldBy :: Typeable a => Extractor a -> T.Text -> Extractor a
 extractFieldBy (Extractor g) name = Extractor $ mkPlan $ \case
-  SRecord schs -> do
-    case lookupWithIndexV name schs of
-      Just (i, sch) -> do
-        m <- unPlan g sch
-        return $ \case
-          TRecord xs -> maybe (error msg) (m . snd) $ xs V.!? i
-          t -> throw $ InvalidTerm t
-      _ -> throwStrategy $ FieldNotFound rep name (map fst $ V.toList schs)
+  SRecord schs -> case lookupWithIndexV name schs of
+    Just (i, sch) -> do
+      m <- unPlan g sch
+      return $ \case
+        TRecord xs -> maybe (error msg) (m . snd) $ xs V.!? i
+        t -> throw $ InvalidTerm t
+    _ -> throwStrategy $ FieldNotFound rep name (map fst $ V.toList schs)
   s -> throwStrategy $ UnexpectedSchema rep "a record" s
   where
     rep = "extractFieldBy ... " <> dquotes (pretty name)
@@ -995,8 +992,7 @@ extractorProduct' sch
             TProduct xs -> getItem $ maybe (throw $ InvalidTerm (TProduct xs)) id
               $ xs V.!? i
             t -> throw $ InvalidTerm t
-    m <- unTransFusion (getCompose productExtractor `evalState` 0) go
-    return m
+    unTransFusion (getCompose productExtractor `evalState` 0) go
   where
     strip (SProduct xs) = Just xs
     strip (SRecord xs) = Just $ V.map snd xs

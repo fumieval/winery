@@ -5,7 +5,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE Rank2Types #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 ----------------------------------------------------------------------------
 -- |
@@ -77,7 +76,7 @@ varInt n
 {-# INLINEABLE[1] varInt #-}
 
 varIntFinite :: Int -> BB.Builder
-varIntFinite n = BB.primBounded (BPI.boudedPrim 10 writeIntFinite) n
+varIntFinite = BB.primBounded (BPI.boudedPrim 10 writeIntFinite)
 
 writeWord8 :: Word8 -> Ptr Word8 -> IO (Ptr Word8)
 writeWord8 w p = do
@@ -192,8 +191,8 @@ unsafeIndexV err xs i
 {-# INLINE unsafeIndexV #-}
 
 lookupWithIndexV :: Eq k => k -> V.Vector (k, v) -> Maybe (Int, v)
-lookupWithIndexV k v = fmap (\i -> (i, snd $ V.unsafeIndex v i))
-  $ V.findIndex ((k==) . fst) v
+lookupWithIndexV k v = (\i -> (i, snd $ V.unsafeIndex v i))
+  <$> V.findIndex ((k==) . fst) v
 {-# INLINE lookupWithIndexV #-}
 
 indexDefault :: a -> [a] -> Int -> a
