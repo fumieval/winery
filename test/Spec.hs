@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -Wno-missing-signatures#-}
 import Control.Monad
 import Data.ByteString (ByteString)
@@ -24,7 +25,9 @@ import qualified Data.Vector.Storable as SV
 import qualified Data.Vector.Unboxed as UV
 import GHC.Generics (Generic)
 import Test.QuickCheck
+import qualified Test.QuickCheck.Gen as Gen
 import Test.QuickCheck.Instances ()
+import Control.Applicative ((<|>))
 
 prop_VarInt :: Int -> Property
 prop_VarInt i = evalDecoder decodeVarInt
@@ -99,6 +102,44 @@ instance Arbitrary a => Arbitrary (TList a) where
     else TCons <$> arbitrary <*> scale pred arbitrary
 
 prop_TList_Int = testSerialise @ (TList Int)
+
+data Tree
+  = Leaf
+  | Branch Node
+  deriving (Show, Eq, Generic)
+
+data Node = Node { left :: !Tree, value :: !Int, right :: !Tree }
+  deriving (Show, Eq, Generic)
+
+instance Arbitrary Tree where
+  arbitrary = sized $ \n -> if n <= 0
+    then pure Leaf
+    else Branch <$> arbitrary
+
+instance Arbitrary Node where
+  arbitrary = sized $ \n -> do
+    leftSize <- Gen.choose (0, n - 1)
+    let rightSize = n - 1 - leftSize
+    Node <$> resize leftSize arbitrary <*> arbitrary <*> resize rightSize arbitrary
+
+instance Serialise Tree where
+  schemaGen = gschemaGenVariant
+  toBuilder = gtoBuilderVariant
+  extractor = gextractorVariant
+  decodeCurrent = gdecodeCurrentVariant
+
+instance Serialise Node where
+  schemaGen = gschemaGenRecord
+  toBuilder = gtoBuilderRecord
+  extractor = Node
+    <$> (extractField "left" <|> extractField "leftChild")
+    <*> extractField "value"
+    <*> (extractField "right" <|> extractField "rightChild")
+  --extractor = gextractorRecord Nothing
+  decodeCurrent = gdecodeCurrentRecord
+
+prop_tree = testSerialise @ Tree
+prop_node = testSerialise @ Node
 
 return []
 main = void $ $quickCheckAll
