@@ -118,8 +118,8 @@ instance Arbitrary Tree where
 
 instance Arbitrary Node where
   arbitrary = sized $ \n -> do
-    leftSize <- Gen.choose (0, n - 1)
-    let rightSize = n - 1 - leftSize
+    leftSize <- Gen.choose (0, max 0 $ n - 1)
+    let rightSize = max 0 $ n - 1 - leftSize
     Node <$> resize leftSize arbitrary <*> arbitrary <*> resize rightSize arbitrary
 
 instance Serialise Tree where
@@ -131,7 +131,7 @@ instance Serialise Tree where
 instance Serialise Node where
   schemaGen = gschemaGenRecord
   toBuilder = gtoBuilderRecord
-  extractor = Node
+  extractor = buildExtractor $ Node
     <$> (extractField "left" <|> extractField "leftChild")
     <*> extractField "value"
     <*> (extractField "right" <|> extractField "rightChild")

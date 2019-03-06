@@ -56,6 +56,8 @@ module Data.Winery
   , getDecoderBy
   -- * Decoding combinators
   , Term(..)
+  , Subextractor(..)
+  , buildExtractor
   , extractListBy
   , extractField
   , extractFieldBy
@@ -714,14 +716,20 @@ instance Serialise Scientific where
       f c = unwrapExtractor (c <$> extractor)
   decodeCurrent = decodeCurrentDefault
 
+buildExtractor :: Typeable a => Subextractor a -> Extractor a
+buildExtractor (Subextractor e) = Extractor $ mkPlan $ unwrapExtractor e
+
+newtype Subextractor a = Subextractor { unSubextractor :: Extractor a }
+  deriving (Functor, Applicative, Alternative)
+
 -- | Extract a field of a record.
-extractField :: Serialise a => T.Text -> Extractor a
+extractField :: Serialise a => T.Text -> Subextractor a
 extractField = extractFieldBy extractor
 {-# INLINE extractField #-}
 
 -- | Extract a field using the supplied 'Extractor'.
-extractFieldBy :: Typeable a => Extractor a -> T.Text -> Extractor a
-extractFieldBy (Extractor g) name = Extractor $ mkPlan $ \case
+extractFieldBy :: Extractor a -> T.Text -> Subextractor a
+extractFieldBy (Extractor g) name = Subextractor $ Extractor $ Plan $ \case
   SRecord schs -> case lookupWithIndexV name schs of
     Just (i, sch) -> do
       m <- unPlan g sch
@@ -788,8 +796,8 @@ instance (Serialise a, Serialise b) => Serialise (Either a b) where
 
 -- | Tries to extract a specific constructor of a variant. Useful for
 -- implementing backward-compatible extractors.
-extractConstructorBy :: Typeable a => Extractor a -> T.Text -> Extractor (Maybe a)
-extractConstructorBy d name = Extractor $ mkPlan $ \case
+extractConstructorBy :: Typeable a => Extractor a -> T.Text -> Subextractor (Maybe a)
+extractConstructorBy d name = Subextractor $ Extractor $ mkPlan $ \case
   SVariant schs0 -> Strategy $ \decs -> do
     (j, dec) <- case lookupWithIndexV name schs0 of
       Just (i, s) -> fmap ((,) i) $ unwrapExtractor d s `unStrategy` decs
@@ -803,7 +811,7 @@ extractConstructorBy d name = Extractor $ mkPlan $ \case
   where
     rep = "extractConstructorBy ... " <> dquotes (pretty name)
 
-extractConstructor :: (Serialise a) => T.Text -> Extractor (Maybe a)
+extractConstructor :: (Serialise a) => T.Text -> Subextractor (Maybe a)
 extractConstructor = extractConstructorBy extractor
 {-# INLINE extractConstructor #-}
 
