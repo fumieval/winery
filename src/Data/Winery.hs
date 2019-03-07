@@ -803,20 +803,26 @@ extractConstructorBy (d, name, f) cont = Subextractor $ Extractor $ Plan $ \case
   SVariant schs0 -> Strategy $ \decs -> do
     let run :: Extractor x -> Schema -> Either WineryException (Term -> x)
         run e s = unwrapExtractor e s `unStrategy` decs
-    (j, dec) <- case lookupWithIndexV name schs0 of
-      Just (i, SProduct [s]) -> fmap ((,) i) $ run d s
-      Just (i, s) -> fmap ((,) i) $ run d s
-      _ -> Left $ FieldNotFound rep name (map fst $ V.toList schs0)
-    let rest = SVariant $ V.filter ((/=name) . fst) schs0
-    k <- run (unSubextractor cont) rest
-    return $ \case
-      TVariant i _ v
-        | i == j -> f $ dec v
-      t -> k t
+    case lookupWithIndexV name schs0 of
+      Just (i, s) -> do
+        (j, dec) <- fmap ((,) i) $ run d $ case s of
+          SProduct [s'] -> s'
+          s' -> s'
+        let rest = SVariant $ V.filter ((/=name) . fst) schs0
+        k <- run (unSubextractor cont) rest
+        return $ \case
+          TVariant tag _ v
+            | tag == j -> f $ dec v
+          t -> k t
+      _ -> run (unSubextractor cont) (SVariant schs0)
   s -> throwStrategy $ UnexpectedSchema rep "a variant" s
   where
     rep = "extractConstructorBy ... " <> dquotes (pretty name)
 
+-- | Tries to match on a constructor. If it doesn't match (or constructor
+-- doesn't exist at all), leave it to the successor.
+--
+-- @extractor = ("Just", Just) `extractConstructor` ("Nothing", \() -> Nothing) `extractConstructor` extractVoid@
 extractConstructor :: (Serialise a) => (T.Text, a -> r) -> Subextractor r -> Subextractor r
 extractConstructor (name, f) = extractConstructorBy (extractor, name, f)
 {-# INLINE extractConstructor #-}
