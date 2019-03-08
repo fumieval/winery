@@ -244,21 +244,45 @@ decodeCurrentDefault = case getDecoderBy extractor (schema (Proxy @ a)) of
   Right a -> a
 
 -- | Schema generator; internally, it maintains a map from types to schemata.
-newtype SchemaGen a = SchemaGen { unSchemaGen :: [TypeRep] -> a }
-  deriving (Functor, Applicative, Monad)
+newtype SchemaGen a = SchemaGen { unSchemaGen :: S.Set TypeRep -> Either (TypeRep, [TypeRep] -> a) a }
+
+instance Functor SchemaGen where
+  fmap f m = SchemaGen $ \s -> case unSchemaGen m s of
+    Left (rep, k) -> Left (rep, f . k)
+    Right a -> Right (f a)
+
+instance Applicative SchemaGen where
+  pure = return
+  (<*>) = ap
+
+instance Monad SchemaGen where
+  return = SchemaGen . const . Right
+  m >>= k = SchemaGen $ \s -> case unSchemaGen m s of
+    Left (rep, f) -> Left $ (,) rep $ \xs -> case unSchemaGen (k (f xs)) s of
+      Left (_, g) -> g xs
+      Right a -> a
+    Right a -> unSchemaGen (k a) s
 
 -- | Obtain a schema on 'SchemaGen', memoising the resulting schema.
 -- If you are hand-rolling a definition of 'schemaGen', you should call this
 -- instead of 'schemaGen'.
 getSchema :: forall proxy a. Serialise a => proxy a -> SchemaGen Schema
-getSchema p = SchemaGen $ \xs -> case elemIndex rep xs of
-  Just i -> SVar i
-  Nothing -> SFix $ unSchemaGen (schemaGen (Proxy @ a)) (rep : xs)
+getSchema p = SchemaGen $ \seen -> if S.member rep seen
+  then Left (rep, \xs -> case elemIndex rep xs of
+    Just i -> SVar i
+    Nothing -> error "getSchema: impossible")
+  else case unSchemaGen (schemaGen (Proxy @ a)) (S.insert rep seen) of
+    Left (rep', f) | rep == rep' -> Left (rep, \xs -> SFix $ f (rep : xs))
+    a -> a
   where
     rep = typeRep p
 
 schema :: forall proxy a. Serialise a => proxy a -> Schema
-schema p = SFix $ unSchemaGen (schemaGen (Proxy @ a)) [typeRep p]
+schema p = case unSchemaGen (schemaGen (Proxy @ a)) (S.singleton rep) of
+  Left (_, f) -> SFix $ f [rep]
+  Right a -> a
+  where
+    rep = typeRep p
 
 -- | Obtain a decoder from a schema.
 --
