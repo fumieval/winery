@@ -88,7 +88,6 @@ data SchemaP a = SFix !(SchemaP a) -- ^ binds a fixpoint
   | SProduct !(V.Vector (SchemaP a))
   | SRecord !(V.Vector (T.Text, SchemaP a))
   | SVariant !(V.Vector (T.Text, SchemaP a))
-  | SSchema !Word8
   | SBool
   | SChar
   | SWord8
@@ -111,7 +110,6 @@ data SchemaP a = SFix !(SchemaP a) -- ^ binds a fixpoint
 
 instance Pretty a => Pretty (SchemaP a) where
   pretty = \case
-    SSchema v -> "Schema " <> pretty v
     SProduct [] -> "()"
     SBool -> "Bool"
     SChar -> "Char"
@@ -137,44 +135,13 @@ instance Pretty a => Pretty (SchemaP a) where
         SProduct xs -> map pretty $ V.toList xs
         SRecord xs -> [pretty (SRecord xs)]
         s -> [pretty s] | (k, vs) <- V.toList ss]
-    SFix sch -> group $ nest 2 $ sep ["μ", pretty sch]
-    SVar i -> "Var" <+> pretty i
+    SFix sch -> group $ nest 2 $ sep ["μ", enclose "{ " " }" $ pretty sch]
+    SVar i -> "$" <> pretty i
     STag t s -> nest 2 $ sep [pretty t <> ":", pretty s]
     SLet s t -> sep ["let" <+> pretty s, pretty t]
 
 bootstrapSchema :: Word8 -> Schema
-bootstrapSchema 4 = SFix
-  $ SVariant
-  [("SFix",SProduct [SVar 0])
-  ,("SVar",SProduct [SInteger])
-  ,("SVector",SProduct [SVar 0])
-  ,("SProduct",SProduct [SVector (SVar 0)])
-  ,("SRecord",SProduct [SVector (SProduct [SText,SVar 0])])
-  ,("SVariant",SProduct [SVector (SProduct [SText,SVar 0])])
-  ,("SSchema",SProduct [SWord8])
-  ,("SBool",SProduct [])
-  ,("SChar",SProduct [])
-  ,("SWord8",SProduct [])
-  ,("SWord16",SProduct [])
-  ,("SWord32",SProduct [])
-  ,("SWord64",SProduct [])
-  ,("SInt8",SProduct [])
-  ,("SInt16",SProduct [])
-  ,("SInt32",SProduct [])
-  ,("SInt64",SProduct [])
-  ,("SInteger",SProduct [])
-  ,("SFloat",SProduct [])
-  ,("SDouble",SProduct [])
-  ,("SBytes",SProduct [])
-  ,("SText",SProduct [])
-  ,("SUTCTime",SProduct [])
-  ,("STag",SProduct
-    [SFix $ SVariant
-      [("TagInt",SProduct [SInteger])
-      ,("TagStr",SProduct [SText])
-      ,("TagList",SProduct [SVector (SVar 0)])]
-    ,SVar 0])
-  ,("SLet",SProduct [SVar 0, SVar 0])]
+bootstrapSchema 4 = SFix (SVariant [("SFix",SProduct [SVar 0]),("SVar",SProduct [SInteger]),("SVector",SProduct [SVar 0]),("SProduct",SProduct [SVector (SVar 0)]),("SRecord",SProduct [SVector (SProduct [SText,SVar 0])]),("SVariant",SProduct [SVector (SProduct [SText,SVar 0])]),("SBool",SProduct []),("SChar",SProduct []),("SWord8",SProduct []),("SWord16",SProduct []),("SWord32",SProduct []),("SWord64",SProduct []),("SInt8",SProduct []),("SInt16",SProduct []),("SInt32",SProduct []),("SInt64",SProduct []),("SInteger",SProduct []),("SFloat",SProduct []),("SDouble",SProduct []),("SBytes",SProduct []),("SText",SProduct []),("SUTCTime",SProduct []),("STag",SProduct [SFix (SVariant [("TagInt",SProduct [SInteger]),("TagStr",SProduct [SText]),("TagList",SProduct [SVector (SVar 0)])]),SVar 0]),("SLet",SProduct [SVar 0,SVar 0])])
 bootstrapSchema n = error $ "Unsupported version: " <> show n
 
 -- | Common representation for any winery data.

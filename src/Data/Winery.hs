@@ -47,6 +47,8 @@ module Data.Winery
   , splitSchema
   , writeFileSerialise
   -- * Separate serialisation
+  , serialiseSchema
+  , deserialiseSchema
   , Extractor(..)
   , unwrapExtractor
   , Decoder
@@ -155,7 +157,6 @@ import qualified Test.QuickCheck as QC
 decodeTerm :: Schema -> Decoder Term
 decodeTerm = go [] where
   go points = \case
-    SSchema ver -> go points (bootstrapSchema ver)
     SBool -> TBool <$> decodeCurrent
     W.SChar -> TChar <$> decodeCurrent
     SWord8 -> TWord8 <$> getWord8
@@ -295,11 +296,16 @@ toBuilderWithSchema a = mappend (BB.word8 currentSchemaVersion)
 splitSchema :: B.ByteString -> Either WineryException (Schema, B.ByteString)
 splitSchema bs_ = case B.uncons bs_ of
   Just (ver, bs) -> do
-    m <- getDecoder $ SSchema ver
+    m <- getDecoder $ bootstrapSchema ver
     return $ flip evalDecoder bs $ do
       sch <- m
       State $ \bs' -> ((sch, bs'), mempty)
   Nothing -> Left EmptyInput
+
+-- | Serialise a schema.
+serialiseSchema :: Schema -> B.ByteString
+serialiseSchema = BL.toStrict . BB.toLazyByteString
+  . mappend (BB.word8 currentSchemaVersion) . toBuilder
 
 -- | Deserialise a 'serialise'd 'B.Bytestring'.
 --
@@ -317,6 +323,14 @@ deserialiseBy e bs_ = do
   (sch, bs) <- splitSchema bs_
   dec <- getDecoderBy e sch
   return $ evalDecoder dec bs
+
+-- | Serialise a schema.
+deserialiseSchema :: B.ByteString -> Either WineryException Schema
+deserialiseSchema bs_ = case B.uncons bs_ of
+  Just (ver, bs) -> do
+    m <- getDecoder $ bootstrapSchema ver
+    return $ evalDecoder m bs
+  Nothing -> Left EmptyInput
 
 -- | Serialise a value without its schema.
 --
@@ -336,11 +350,9 @@ instance Serialise Tag where
   decodeCurrent = gdecodeCurrentVariant
 
 instance Serialise Schema where
-  schemaGen _ = pure $ SSchema currentSchemaVersion
+  schemaGen = gschemaGenVariant
   toBuilder = gtoBuilderVariant
-  extractor = Extractor $ mkPlan $ \case
-    SSchema n -> unwrapExtractor gextractorVariant (bootstrapSchema n)
-    s -> unwrapExtractor gextractorVariant s
+  extractor = gextractorVariant
   decodeCurrent = gdecodeCurrentVariant
 
 instance Serialise () where
