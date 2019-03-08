@@ -243,7 +243,7 @@ decodeCurrentDefault = case getDecoderBy extractor (schema (Proxy @ a)) of
     ++ show err
   Right a -> a
 
--- | Schema generator; internally, it maintains a map from types to schemata.
+-- | Schema generator. Internally it maintains a set the types
 newtype SchemaGen a = SchemaGen { unSchemaGen :: S.Set TypeRep -> Either (TypeRep, [TypeRep] -> a) a }
 
 instance Functor SchemaGen where
@@ -263,7 +263,7 @@ instance Monad SchemaGen where
       Right a -> a
     Right a -> unSchemaGen (k a) s
 
--- | Obtain a schema on 'SchemaGen', memoising the resulting schema.
+-- | Obtain a schema on 'SchemaGen', binding a fixpoint when necessary.
 -- If you are hand-rolling a definition of 'schemaGen', you should call this
 -- instead of 'schemaGen'.
 getSchema :: forall proxy a. Serialise a => proxy a -> SchemaGen Schema
@@ -271,12 +271,17 @@ getSchema p = SchemaGen $ \seen -> if S.member rep seen
   then Left (rep, \xs -> case elemIndex rep xs of
     Just i -> SVar i
     Nothing -> error "getSchema: impossible")
+    -- request a fixpoint for rep when it detects a recursion
   else case unSchemaGen (schemaGen (Proxy @ a)) (S.insert rep seen) of
     Left (rep', f) | rep == rep' -> Left (rep, \xs -> SFix $ f (rep : xs))
+    -- bind a fixpoint when requested
     a -> a
   where
     rep = typeRep p
 
+-- | Obtain the schema of the datatype.
+--
+-- /"Tell me what you drink, and I will tell you what you are."/
 schema :: forall proxy a. Serialise a => proxy a -> Schema
 schema p = case unSchemaGen (schemaGen (Proxy @ a)) (S.singleton rep) of
   Left (_, f) -> SFix $ f [rep]
