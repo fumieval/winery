@@ -54,6 +54,7 @@ main = do
   values :: [TestRec] <- return $ B.decode $ BL.fromStrict binary
   let aValue = head values
   temp <- getTemporaryDirectory
+  let serialisedInts = serialiseOnly [floor (2**x) :: Int | x <- [0 :: Double, 0.5..62]]
   deepseq values $ defaultMain
     [ bgroup "serialise/list"
       [ bench "winery" $ nf serialiseOnly values
@@ -74,5 +75,8 @@ main = do
       [ bench "winery" $ nf (fromRight undefined . deserialise :: B.ByteString -> [TestRec]) winery
       , bench "binary" $ nf (B.decode . BL.fromStrict :: B.ByteString -> [TestRec]) binary
       , bench "serialise" $ nf (CBOR.deserialise . BL.fromStrict :: B.ByteString -> [TestRec]) cbor
+      ]
+    , bgroup "deserialise/Int"
+      [ bench "winery" $ nf (evalDecoder decodeCurrent :: B.ByteString -> [Int]) serialisedInts
       ]
     ]

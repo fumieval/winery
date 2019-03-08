@@ -511,7 +511,7 @@ instance Serialise Int where
       TInteger i -> fromIntegral i
       t -> throw $ InvalidTerm t
     s -> unexpectedSchema "Serialise Int" s
-  decodeCurrent = decodeVarInt
+  decodeCurrent = decodeVarIntFinite
 
 instance Serialise Float where
   schemaGen _ = pure SFloat

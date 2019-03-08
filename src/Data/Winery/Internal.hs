@@ -5,6 +5,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 ----------------------------------------------------------------------------
 -- |
@@ -26,6 +27,7 @@ module Data.Winery.Internal
   , State(..)
   , evalState
   , decodeVarInt
+  , decodeVarIntFinite
   , getWord8
   , getWord16
   , getWord32
@@ -146,18 +148,23 @@ getWord8 = State $ \bs -> case B.uncons bs of
 {-# INLINE getWord8 #-}
 
 data DecodeException = InsufficientInput
+  | IntegerOverflow
   | InvalidTag deriving (Eq, Show, Read)
 instance Exception DecodeException
 
-decodeVarInt :: (Num a, Bits a) => Decoder a
-decodeVarInt = getWord8 >>= \case
+decodeVarIntBase :: (Num a, Bits a) => Decoder a -> Decoder a
+decodeVarIntBase body = getWord8 >>= \case
   n | testBit n 7 -> do
-      m <- getWord8 >>= go
+      m <- body
       if testBit n 6
         then return $! negate $ unsafeShiftL m 6 .|. fromIntegral n .&. 0x3f
         else return $! unsafeShiftL m 6 .|. clearBit (fromIntegral n) 7
     | testBit n 6 -> return $ negate $ fromIntegral $ clearBit n 6
     | otherwise -> return $ fromIntegral n
+{-# INLINE decodeVarIntBase #-}
+
+decodeVarInt :: (Num a, Bits a) => Decoder a
+decodeVarInt = decodeVarIntBase $ getWord8 >>= go
   where
     go n
       | testBit n 7 = do
@@ -165,6 +172,18 @@ decodeVarInt = getWord8 >>= \case
         return $! unsafeShiftL m 7 .|. clearBit (fromIntegral n) 7
       | otherwise = return $ fromIntegral n
 {-# INLINE decodeVarInt #-}
+
+decodeVarIntFinite :: forall a. (Num a, FiniteBits a) => Decoder a
+decodeVarIntFinite = decodeVarIntBase $ getWord8 >>= go (finiteBitSize (0 :: a) - 7)
+  where
+    go w n
+      | testBit n 7 = do
+        m <- getWord8 >>= go (w - 7)
+        return $! unsafeShiftL m 7 .|. clearBit (fromIntegral n) 7
+      | w > countTrailingZeros n = return $ fromIntegral n
+      | otherwise = throw IntegerOverflow
+{-# INLINABLE[1] decodeVarIntFinite #-}
+{-# SPECIALISE decodeVarIntFinite :: Decoder Int #-}
 
 getWord16 :: Decoder Word16
 getWord16 = State $ \(B.PS fp ofs len) -> if len >= 2
