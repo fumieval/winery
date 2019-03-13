@@ -69,6 +69,11 @@ executable winery
       aeson
     , base >=4.7 && <5
     , winery
+    , megaparsec
+    , text
+    , prettyprinter
+    , prettyprinter-ansi-terminal
+    , bytestring
   default-language: Haskell2010
 
 test-suite spec
