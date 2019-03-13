@@ -1,21 +1,15 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.31.1.
---
--- see: https://github.com/sol/hpack
---
--- hash: 9de019995cf39df30ccab1ea472fefdcb8fd2378b7f4c50b93d68f17ea159db4
-
 name:           winery
 version:        1
 synopsis:       Sustainable serialisation library
-description:    Please see the README on Github at <https://github.com/fumieval/winery#readme>
+description:    Please see the README on GitHub at <https://github.com/fumieval/winery#readme>
 category:       Data, Codec, Parsing, Serialization
 homepage:       https://github.com/fumieval/winery#readme
 bug-reports:    https://github.com/fumieval/winery/issues
 author:         Fumiaki Kinoshita
 maintainer:     fumiexcel@gmail.com
-copyright:      Copyright (c) 2018 Fumiaki Kinoshita
+copyright:      Copyright (c) 2019 Fumiaki Kinoshita
 license:        BSD3
 license-file:   LICENSE
 tested-with:    GHC == 8.4.4, GHC == 8.6.3
@@ -74,22 +68,6 @@ executable winery
   build-depends:
       aeson
     , base >=4.7 && <5
-    , bytestring
-    , containers
-    , cpu
-    , fast-builder
-    , hashable
-    , megaparsec >=6.0.0
-    , mtl
-    , prettyprinter
-    , prettyprinter-ansi-terminal
-    , scientific
-    , semigroups
-    , text
-    , time
-    , transformers
-    , unordered-containers
-    , vector
     , winery
   default-language: Haskell2010
 
@@ -103,26 +81,17 @@ test-suite spec
       test
   build-depends:
       QuickCheck
-    , aeson
     , base >=4.7 && <5
-    , bytestring
-    , containers
-    , cpu
-    , fast-builder
-    , hashable
-    , megaparsec >=6.0.0
-    , mtl
-    , prettyprinter
-    , prettyprinter-ansi-terminal
     , quickcheck-instances
-    , scientific
-    , semigroups
-    , text
-    , time
-    , transformers
-    , unordered-containers
-    , vector
     , winery
+    , vector
+    , unordered-containers
+    , fast-builder
+    , time
+    , text
+    , containers
+    , scientific
+    , bytestring
   default-language: Haskell2010
 
 benchmark bench-winery
@@ -132,31 +101,15 @@ benchmark bench-winery
       Paths_winery
   hs-source-dirs:
       benchmarks
-  ghc-options: -O2
+  ghc-options: -O2 -Wall -Wcompat
   build-depends:
-      aeson
-    , base >=4.7 && <5
-    , binary
-    , bytestring
-    , cassava
-    , containers
-    , cpu
-    , deepseq
-    , directory
-    , fast-builder
+      base >=4.7 && <5
     , gauge
-    , hashable
-    , megaparsec >=6.0.0
-    , mtl
-    , prettyprinter
-    , prettyprinter-ansi-terminal
-    , scientific
-    , semigroups
+    , winery
+    , binary
     , serialise
     , text
-    , time
-    , transformers
-    , unordered-containers
-    , vector
-    , winery
+    , bytestring
+    , deepseq
+    , directory
   default-language: Haskell2010

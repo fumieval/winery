@@ -5,13 +5,10 @@ import qualified Data.ByteString as B
 import qualified Data.Binary as B
 import Data.Either
 import Data.Winery
-import Data.Word
 import Data.Text (Text)
-import qualified Data.Vector as V
 import GHC.Generics (Generic)
 import Gauge.Main
 import qualified Codec.Serialise as CBOR
-import qualified Data.Csv as CSV
 import System.Directory
 
 data Gender = Male | Female deriving (Show, Generic)
@@ -47,6 +44,7 @@ instance NFData TestRec where
 instance B.Binary TestRec
 instance CBOR.Serialise TestRec
 
+main :: IO ()
 main = do
   winery <- B.readFile "benchmarks/data.winery"
   binary <- B.readFile "benchmarks/data.binary"
