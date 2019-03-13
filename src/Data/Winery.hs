@@ -1,3 +1,4 @@
+{-# LANGUAGE ApplicativeDo #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -243,39 +244,32 @@ decodeCurrentDefault = case getDecoderBy extractor (schema (Proxy @ a)) of
     ++ show err
   Right a -> a
 
--- | Schema generator. Internally it maintains a set the types
-newtype SchemaGen a = SchemaGen { unSchemaGen :: S.Set TypeRep -> Either (TypeRep, [TypeRep] -> a) a }
+-- | Schema generator
+newtype SchemaGen a = SchemaGen { unSchemaGen :: S.Set TypeRep -> (S.Set TypeRep, [TypeRep] -> a) }
 
 instance Functor SchemaGen where
   fmap f m = SchemaGen $ \s -> case unSchemaGen m s of
-    Left (rep, k) -> Left (rep, f . k)
-    Right a -> Right (f a)
+    (rep, k) -> (rep, f . k)
 
 instance Applicative SchemaGen where
-  pure = return
-  (<*>) = ap
-
-instance Monad SchemaGen where
-  return = SchemaGen . const . Right
-  m >>= k = SchemaGen $ \s -> case unSchemaGen m s of
-    Left (rep, f) -> Left $ (,) rep $ \xs -> case unSchemaGen (k (f xs)) s of
-      Left (_, g) -> g xs
-      Right a -> a
-    Right a -> unSchemaGen (k a) s
+  pure a = SchemaGen $ const (S.empty, const a)
+  m <*> n = SchemaGen $ \s -> case unSchemaGen m s of
+    (rep, f) -> case unSchemaGen n s of
+      (rep', g) -> (mappend rep rep', f <*> g)
 
 -- | Obtain a schema on 'SchemaGen', binding a fixpoint when necessary.
 -- If you are hand-rolling a definition of 'schemaGen', you should call this
 -- instead of 'schemaGen'.
 getSchema :: forall proxy a. Serialise a => proxy a -> SchemaGen Schema
 getSchema p = SchemaGen $ \seen -> if S.member rep seen
-  then Left (rep, \xs -> case elemIndex rep xs of
+  then (S.singleton rep, \xs -> case elemIndex rep xs of
     Just i -> SVar i
-    Nothing -> error "getSchema: impossible")
+    Nothing -> error $ "getSchema: impossible " ++ show (rep, seen, xs))
     -- request a fixpoint for rep when it detects a recursion
   else case unSchemaGen (schemaGen (Proxy @ a)) (S.insert rep seen) of
-    Left (rep', f) | rep == rep' -> Left (rep, \xs -> SFix $ f (rep : xs))
-    -- bind a fixpoint when requested
-    a -> a
+    (reps, f)
+      | S.member rep reps -> (reps, \xs -> SFix $ f (rep : xs))
+      | otherwise -> (reps, f)
   where
     rep = typeRep p
 
@@ -284,8 +278,9 @@ getSchema p = SchemaGen $ \seen -> if S.member rep seen
 -- /"Tell me what you drink, and I will tell you what you are."/
 schema :: forall proxy a. Serialise a => proxy a -> Schema
 schema p = case unSchemaGen (schemaGen (Proxy @ a)) (S.singleton rep) of
-  Left (_, f) -> SFix $ f [rep]
-  Right a -> a
+  (reps, f)
+    | S.member rep reps -> SFix $ f [rep]
+    | otherwise -> f []
   where
     rep = typeRep p
 
