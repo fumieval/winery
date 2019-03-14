@@ -174,13 +174,13 @@ decodeVarInt = decodeVarIntBase $ getWord8 >>= go
 {-# INLINE decodeVarInt #-}
 
 decodeVarIntFinite :: forall a. (Num a, FiniteBits a) => Decoder a
-decodeVarIntFinite = decodeVarIntBase $ getWord8 >>= go (finiteBitSize (0 :: a) - 7)
+decodeVarIntFinite = decodeVarIntBase $ getWord8 >>= go 7
   where
     go w n
       | testBit n 7 = do
-        m <- getWord8 >>= go (w - 7)
+        m <- getWord8 >>= go (w + 7)
         return $! unsafeShiftL m 7 .|. clearBit (fromIntegral n) 7
-      | w > countTrailingZeros n = return $ fromIntegral n
+      | w + 7 - countLeadingZeros n < finiteBitSize (0 :: a) = return $ fromIntegral n
       | otherwise = throw IntegerOverflow
 {-# INLINABLE[1] decodeVarIntFinite #-}
 {-# SPECIALISE decodeVarIntFinite :: Decoder Int #-}
