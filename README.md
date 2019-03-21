@@ -157,10 +157,10 @@ data TestRec = TestRec
 
 Here's the result:
 
-|           | encode 1 | encode 1000 | decode  |
-|-----------|----------|-------------|---------|
-| winery    | __0.28 μs__  | __0.26 ms__ | __0.81 ms__ |
-| cereal    | 0.82 μs  | 0.78 ms     | 0.90 ms |
-| binary    | 1.7 μs   | 1.7 ms      | 2.0 ms  |
-| serialise | 0.61 μs  | 0.50 ms     | 1.4 ms  |
-| aeson     | 9.9 μs   | 9.7 ms      | 17 ms   |
+|           | encode 1 | encode 1000 | decode  | length  |
+|-----------|----------|-------------|---------| ------- |
+| winery    | __0.28 μs__  | __0.26 ms__ | __0.81 ms__ | __58662__ |
+| cereal    | 0.82 μs  | 0.78 ms     | 0.90 ms | 91709  |
+| binary    | 1.7 μs   | 1.7 ms      | 2.0 ms  | 125709 |
+| serialise | 0.61 μs  | 0.50 ms     | 1.4 ms  | 65437  |
+| aeson     | 9.9 μs   | 9.7 ms      | 17 ms   | 160558 |
