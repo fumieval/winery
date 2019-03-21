@@ -98,6 +98,11 @@ module Data.Winery
   , gdecodeCurrentVariant
   , gextractorProduct
   , gdecodeCurrentProduct
+  -- * Bundles
+  , BundleSerialise(..)
+  , bundleRecord
+  , bundleRecordDefault
+  , bundleVariant
   -- * Preset schema
   , bootstrapSchema
   )where
@@ -204,9 +209,13 @@ instance Exception ExtractException
 class Typeable a => Serialise a where
   -- | Obtain the schema of the datatype.
   schemaGen :: Proxy a -> SchemaGen Schema
+  schemaGen = bundleSchemaGen bundleSerialise
+  {-# INLINE schemaGen #-}
 
   -- | Serialise a value.
   toBuilder :: a -> BB.Builder
+  toBuilder = bundleToBuilder bundleSerialise
+  {-# INLINE toBuilder #-}
 
   -- | A value of 'Extractor a' interprets a schema and builds a function from
   -- 'Term' to @a@. This must be equivalent to 'decodeCurrent' when the schema
@@ -221,11 +230,68 @@ class Typeable a => Serialise a where
   -- where @d@ is equivalent to 'decodeCurrent'.
   --
   extractor :: Extractor a
+  extractor = bundleExtractor bundleSerialise
+  {-# INLINE extractor #-}
 
   -- | Decode a value with the current schema.
   --
   -- @'decodeCurrent' `evalDecoder` 'toBuilder' x@ ≡ x
   decodeCurrent :: Decoder a
+  decodeCurrent = bundleDecodeCurrent bundleSerialise
+  {-# INLINE decodeCurrent #-}
+
+  -- | Instead of the four methods above, you can supply a bundle.
+  bundleSerialise :: BundleSerialise a
+  bundleSerialise = BundleSerialise
+    { bundleSchemaGen = schemaGen
+    , bundleToBuilder = toBuilder
+    , bundleExtractor = extractor
+    , bundleDecodeCurrent = decodeCurrent
+    }
+
+  {-# MINIMAL schemaGen, toBuilder, extractor, decodeCurrent | bundleSerialise #-}
+
+-- | A bundle of 'Serialise' methods
+data BundleSerialise a = BundleSerialise
+  { bundleSchemaGen :: Proxy a -> SchemaGen Schema
+  , bundleToBuilder :: a -> BB.Builder
+  , bundleExtractor :: Extractor a
+  , bundleDecodeCurrent :: Decoder a
+  }
+
+bundleRecord :: (GEncodeProduct (Rep a), GSerialiseRecord (Rep a), Generic a, Typeable a)
+  => (Extractor a -> Extractor a) -- extractor modifier
+  -> BundleSerialise a
+bundleRecord f = BundleSerialise
+  { bundleSchemaGen = gschemaGenRecord
+  , bundleToBuilder = gtoBuilderRecord
+  , bundleExtractor = f $ gextractorRecord Nothing
+  , bundleDecodeCurrent = gdecodeCurrentRecord
+  }
+{-# INLINE bundleRecord #-}
+
+bundleRecordDefault :: (GEncodeProduct (Rep a), GSerialiseRecord (Rep a), Generic a, Typeable a)
+  => a -- default value
+  -> (Extractor a -> Extractor a) -- extractor modifier
+  -> BundleSerialise a
+bundleRecordDefault def f = BundleSerialise
+  { bundleSchemaGen = gschemaGenRecord
+  , bundleToBuilder = gtoBuilderRecord
+  , bundleExtractor = f $ gextractorRecord $ Just def
+  , bundleDecodeCurrent = gdecodeCurrentRecord
+  }
+{-# INLINE bundleRecordDefault #-}
+
+bundleVariant :: (GSerialiseVariant (Rep a), Generic a, Typeable a)
+  => (Extractor a -> Extractor a) -- extractor modifier
+  -> BundleSerialise a
+bundleVariant f = BundleSerialise
+  { bundleSchemaGen = gschemaGenVariant
+  , bundleToBuilder = gtoBuilderVariant
+  , bundleExtractor = f $ gextractorVariant
+  , bundleDecodeCurrent = gdecodeCurrentVariant
+  }
+{-# INLINE bundleVariant #-}
 
 -- | Check the integrity of a Serialise instance.
 --
