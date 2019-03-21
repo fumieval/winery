@@ -110,6 +110,8 @@ benchmark bench-winery
   build-depends:
       base >=4.7 && <5
     , gauge
+    , aeson
+    , cereal
     , winery
     , binary
     , serialise

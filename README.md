@@ -134,3 +134,33 @@ At the moment, the following queries are supported:
 * `.[i:j]` enumerate i-th to j-th items
 * `.foo` Get a field named `foo`
 * `F | G` compose queries (left to right)
+
+## Performance
+
+A useful library should also be fast. Benchmarking encoding/decoding of the
+following datatype.
+
+```haskell
+data Gender = Male | Female
+
+data TestRec = TestRec
+  { id_ :: !Int
+  , first_name :: !Text
+  , last_name :: !Text
+  , email :: !Text
+  , gender :: !Gender
+  , num :: !Int
+  , latitude :: !Double
+  , longitude :: !Double
+  }
+```
+
+Here's the result:
+
+|           | encode 1 | encode 1000 | decode  |
+|-----------|----------|-------------|---------|
+| winery    | __0.28 μs__  | __0.26 ms__ | __0.81 ms__ |
+| cereal    | 0.82 μs  | 0.78 ms     | 0.90 ms |
+| binary    | 1.7 μs   | 1.7 ms      | 2.0 ms  |
+| serialise | 0.61 μs  | 0.50 ms     | 1.4 ms  |
+| aeson     | 9.9 μs   | 9.7 ms      | 17 ms   |
