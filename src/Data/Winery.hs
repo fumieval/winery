@@ -98,6 +98,7 @@ module Data.Winery
   , gdecodeCurrentVariant
   , gextractorProduct
   , gdecodeCurrentProduct
+  , decodeCurrentDefault
   -- * Bundles
   , BundleSerialise(..)
   , bundleRecord
@@ -259,6 +260,7 @@ data BundleSerialise a = BundleSerialise
   , bundleDecodeCurrent :: Decoder a
   }
 
+-- | A bundle of generic implementations for records
 bundleRecord :: (GEncodeProduct (Rep a), GSerialiseRecord (Rep a), Generic a, Typeable a)
   => (Extractor a -> Extractor a) -- extractor modifier
   -> BundleSerialise a
@@ -270,6 +272,7 @@ bundleRecord f = BundleSerialise
   }
 {-# INLINE bundleRecord #-}
 
+-- | A bundle of generic implementations for records, with a default value
 bundleRecordDefault :: (GEncodeProduct (Rep a), GSerialiseRecord (Rep a), Generic a, Typeable a)
   => a -- default value
   -> (Extractor a -> Extractor a) -- extractor modifier
@@ -282,6 +285,7 @@ bundleRecordDefault def f = BundleSerialise
   }
 {-# INLINE bundleRecordDefault #-}
 
+-- | A bundle of generic implementations for variants
 bundleVariant :: (GSerialiseVariant (Rep a), Generic a, Typeable a)
   => (Extractor a -> Extractor a) -- extractor modifier
   -> BundleSerialise a
@@ -414,7 +418,7 @@ deserialiseBy e bs_ = do
   dec <- getDecoderBy e sch
   return $ evalDecoder dec bs
 
--- | Serialise a schema.
+-- | Deserialise a schema.
 deserialiseSchema :: B.ByteString -> Either WineryException Schema
 deserialiseSchema bs_ = case B.uncons bs_ of
   Just (ver, bs) -> do
@@ -819,10 +823,13 @@ instance Serialise Scientific where
       f c = unwrapExtractor (c <$> extractor)
   decodeCurrent = decodeCurrentDefault
 
+-- | Build an extractor from a 'Subextractor'.
 buildExtractor :: Typeable a => Subextractor a -> Extractor a
 buildExtractor (Subextractor e) = Extractor $ mkPlan $ unwrapExtractor e
 {-# INLINE buildExtractor #-}
 
+-- | An extractor for individual fields. This distinction is required for
+-- handling recursions correctly.
 newtype Subextractor a = Subextractor { unSubextractor :: Extractor a }
   deriving (Functor, Applicative, Alternative)
 
@@ -929,6 +936,7 @@ extractConstructor :: (Serialise a) => (T.Text, a -> r) -> Subextractor r -> Sub
 extractConstructor (name, f) = extractConstructorBy (extractor, name, f)
 {-# INLINE extractConstructor #-}
 
+-- | No constructors remaining.
 extractVoid :: Typeable r => Subextractor r
 extractVoid = Subextractor $ Extractor $ mkPlan $ \case
   SVariant schs0
@@ -984,8 +992,7 @@ gdecodeCurrentRecord = to <$> recordDecoder
 
 -- | The 'Serialise' instance is generically defined for records.
 --
--- /"Remember thee! Yea, from the table of my memory I'll wipe away all trivial
--- fond records."/
+-- /"Remember thee! Yea, from the table of my memory I'll wipe away all trivial fond records."/
 newtype WineryRecord a = WineryRecord { unWineryRecord :: a }
 
 instance (GEncodeProduct (Rep a), GSerialiseRecord (Rep a), Generic a, Typeable a) => Serialise (WineryRecord a) where
