@@ -1,10 +1,23 @@
 # winery
 
-winery is a serialisation library for Haskell.
+winery is a serialisation library focusing on __performance__, __compactness__
+and __compatibility__. The primary feature is that metadata (types, field names,
+etc) are packed into one schema.
 
-* __Fast encoding__: can create a bytestring or write to a handle efficiently
-* __Compact representation__: uses VLQ by default. Separates schemata and contents
-* __Inspectable__: data can be read without the original instance
+A number of formats, like JSON and CBOR, attach metadata for each value:
+
+`[{"id": 0, "name": "Alice"}, {"id": 1, "name": "Bob"}]`
+
+In contrast, winery stores them separately, eliminating redundancy while
+guaranteeing well-typedness:
+
+```
+0402 0402 0269 6410 046e 616d 6514  [{ id :: Integer, name :: Text }]
+0200 0541 6c69 6365 0103 426f 62    [(0, "Alice"), (1, "Bob")]
+```
+
+Unlike `binary` or `cereal` which doesn't preserve metadata at all, winery also
+allows readers to decode values regardless of the current implementation.
 
 ## Interface
 
@@ -39,16 +52,17 @@ evalDecoder :: Decoder a -> B.ByteString -> a
 
 ## Deriving an instance
 
-The recommended way to create an instance of `Serialise` is `DerivingVia`.
-For user-defined datatypes, you can derive
+The recommended way to create an instance of `Serialise` is to use `DerivingVia`.
 
 ```haskell
+  deriving Generic
   deriving Serialise via WineryRecord Foo
 ```
 
 for single-constructor records, or just
 
 ```haskell
+  deriving Generic
   deriving Serialise via WineryVariant Foo
 ```
 
@@ -71,10 +85,13 @@ default value to `gextractorRecord`:
   extractor = gextractorRecord $ Just $ Foo "" 42 0
 ```
 
-You can also build a custom deserialiser using combinators such as `extractField`, `extractConstructor`, etc.
+You can also build an extractor using combinators such as `extractField`, `extractConstructor`, etc.
 
 ```haskell
-buildExtractor $ ("None", \() -> Nothing) `extractConstructor` ("Some", Just) `extractConstructor` extractVoid
+buildExtractor
+  $ ("None", \() -> Nothing)
+  `extractConstructor` ("Some", Just)
+  `extractConstructor` extractVoid
   :: Extractor (Maybe a)
 ```
 
