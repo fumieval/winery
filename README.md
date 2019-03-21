@@ -12,26 +12,34 @@ The interface is simple; `serialise` encodes a value with its schema, and
 `deserialise` decodes a ByteString using the schema in it.
 
 ```haskell
-class Serialise a
+class Serialise a where
+  schema :: Serialise a => proxy a -> Schema
 
 serialise :: Serialise a => a -> B.ByteString
 deserialise :: Serialise a => B.ByteString -> Either WineryException a
 ```
 
-It's also possible to serialise schemata and data separately.
+It's also possible to serialise schemata and data separately. `serialiseSchema`
+encodes a schema and its version number into a ByteString, and
+`serialiseOnly` serialises a value without a schema.
 
 ```haskell
--- Note that 'Schema' is an instance of 'Serialise'
-schema :: Serialise a => proxy a -> Schema
+serialiseSchema :: Schema -> B.ByteString
 serialiseOnly :: Serialise a => a -> B.ByteString
 ```
 
-`getDecoder` gives you a deserialiser.
+In order to decode data generated this way, pass the result of `deserialiseSchema`
+to `getDecoder`. Finally run `evalDecoder` to deserialise them.
 
 ```haskell
-getDecoder :: Serialise a => Schema -> Either WineryException (ByteString -> a)
+deserialiseSchema :: B.ByteString -> Either WineryException Schema
+getDecoder :: Serialise a => Schema -> Either WineryException (Decoder a)
+evalDecoder :: Decoder a -> B.ByteString -> a
 ```
 
+## Deriving an instance
+
+The recommended way to create an instance of `Serialise` is `DerivingVia`.
 For user-defined datatypes, you can derive
 
 ```haskell
@@ -47,56 +55,14 @@ for single-constructor records, or just
 for any ADT. The former explicitly describes field names in the schema, and the
 latter does constructor names.
 
-## The schema
-
-The definition of `Schema` is as follows:
-
-```haskell
-type Schema = SchemaP Int
-
-data SchemaP a = SFix !(SchemaP a)
-  | SVar !a
-  | SVector !(SchemaP a)
-  | SProduct !(V.Vector (SchemaP a))
-  | SRecord !(V.Vector (T.Text, SchemaP a))
-  | SVariant !(V.Vector (T.Text, SchemaP a))
-  | SSchema !Word8
-  | SBool
-  | SChar
-  | SWord8
-  | SWord16
-  | SWord32
-  | SWord64
-  | SInt8
-  | SInt16
-  | SInt32
-  | SInt64
-  | SInteger
-  | SFloat
-  | SDouble
-  | SBytes
-  | SText
-  | SUTCTime -- ^ nanoseconds from POSIX epoch
-  | STag !Tag !(SchemaP a)
-  | SLet !(SchemaP a) !(SchemaP a)
-```
-
-The `Serialise` instance is derived by generics.
-
-There are some special schemata:
-
-* `SSchema n` is a schema of schema. The winery library stores the concrete schema of `Schema` for each version, so it can deserialise data even if the schema changes.
-* `SFix` binds a fixpoint.
-* `SSelf n` refers to the n-th innermost fixpoint bound by `SFix`. This allows it to provide schemata for inductive datatypes.
-* `STag` attaches a tag to a schema which can aid backward compatibility and/or inspectability.
-
-```haskell
-data Tag = TagInt !Int
-  | TagStr !T.Text
-  | TagList ![Tag]
-```
-
 ## Backward compatibility
+
+If the representation is not the same as the current version (i.e. the schema
+ is different), the data cannot be decoded directly. This is where extractors
+come in.
+
+`Extractor` parses a schema and returns a function which gives a value back from
+a `Term`.
 
 If having default values for missing fields is sufficient, you can pass a
 default value to `gextractorRecord`:
@@ -105,7 +71,15 @@ default value to `gextractorRecord`:
   extractor = gextractorRecord $ Just $ Foo "" 42 0
 ```
 
-You can also build a custom deserialiser using the Alternative instance and combinators such as `extractField`, `extractConstructor`, etc.
+You can also build a custom deserialiser using combinators such as `extractField`, `extractConstructor`, etc.
+
+```haskell
+buildExtractor $ ("None", \() -> Nothing) `extractConstructor` ("Some", Just) `extractConstructor` extractVoid
+  :: Extractor (Maybe a)
+```
+
+`Extractor` is Alternative, meaning that multiple extractors (such as a default
+generic implementation and fallback plans) can be combined into one.
 
 ## Pretty-printing
 
