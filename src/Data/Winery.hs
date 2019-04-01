@@ -28,8 +28,6 @@
 --
 -- Maintainer  :  Fumiaki Kinoshita <fumiexcel@gmail.com>
 --
--- The standard interface of winery serialisation library
---
 -----------------------------------------------------------------------------
 module Data.Winery
   ( Schema
@@ -308,6 +306,7 @@ testSerialise x = case getDecoderBy extractor (schema (Proxy @ a)) of
   where
     b = serialiseOnly x
 
+-- | 'decodeCurrent' in terms of 'extractor'; note that it's very slow.
 decodeCurrentDefault :: forall a. Serialise a => Decoder a
 decodeCurrentDefault = case getDecoderBy extractor (schema (Proxy @ a)) of
   Left err -> error $ "decodeCurrentDefault: failed to get a decoder from the current schema"
@@ -830,6 +829,8 @@ buildExtractor (Subextractor e) = Extractor $ mkPlan $ unwrapExtractor e
 
 -- | An extractor for individual fields. This distinction is required for
 -- handling recursions correctly.
+--
+-- Recommended extension: ApplicativeDo
 newtype Subextractor a = Subextractor { unSubextractor :: Extractor a }
   deriving (Functor, Applicative, Alternative)
 
