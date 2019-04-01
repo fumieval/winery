@@ -1,8 +1,8 @@
 cabal-version: 1.12
 
 name:           winery
-version:        1.0.1
-synopsis:       Sustainable serialisation library
+version:        1.0.2
+synopsis:       A binary serialisation format that grants compatibility
 description:    Please see the README on GitHub at <https://github.com/fumieval/winery#readme>
 category:       Data, Codec, Parsing, Serialization
 homepage:       https://github.com/fumieval/winery#readme
@@ -15,8 +15,9 @@ license-file:   LICENSE
 tested-with:    GHC == 8.4.4, GHC == 8.6.3
 build-type:     Simple
 extra-source-files:
-    README.md
-    ChangeLog.md
+  README.md
+  ChangeLog.md
+  .travis.yml
 
 source-repository head
   type: git
