@@ -42,10 +42,13 @@ import Data.Proxy
 import qualified Data.Sequence as S
 import Data.Typeable
 import Data.Winery
+import Data.Word
+import Data.Void
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as UV
 import GHC.Generics
 import Text.Show
+import qualified Data.Text as T
 
 -- | Construct a test case.
 testCase :: (Show a, Eq a, Serialise a)
@@ -74,20 +77,31 @@ class TestGen a => Tested a where
   testCases :: [Test]
 
 -- these are already covered by the QuickCheck tests from winery
+instance Tested Void where testCases = []
 instance Tested Bool where testCases = []
 instance Tested Int where testCases = []
+instance Tested Word8 where testCases = []
+instance Tested Word16 where testCases = []
+instance Tested Word32 where testCases = []
+instance Tested Word64 where testCases = []
+instance Tested Float where testCases = []
 instance Tested Double where testCases = []
 instance Tested () where testCases = []
 instance Tested Char where testCases = []
+instance Tested T.Text where testCases = []
+instance Tested B.ByteString where testCases = []
 instance Tested a => Tested (Identity a) where
   testCases = testCases @ a
 instance Tested a => Tested (S.Seq a) where testCases = []
 instance Tested a => Tested [a] where testCases = []
 instance (Tested a, Tested b) => Tested (Either a b) where testCases = []
 instance (Tested a, Tested b) => Tested (a, b) where testCases = []
+instance (Tested a, Tested b, Tested c) => Tested (a, b, c) where testCases = []
+instance (Tested a, Tested b, Tested c, Tested d) => Tested (a, b, c, d) where testCases = []
 instance Tested a => Tested (V.Vector a) where testCases = []
 instance (UV.Unbox a, Tested a) => Tested (UV.Vector a) where testCases = []
 instance (Hashable k, Tested k, Tested a) => Tested (HM.HashMap k a) where testCases = []
+instance (Ord k, Tested k, Tested a) => Tested (M.Map k a) where testCases = []
 
 -- | Generate test cases and print them to the standard output.
 printTests :: forall a. (TestGen a, Serialise a, Show a) => IO ()
@@ -186,8 +200,36 @@ instance (Hashable k, Tested k, Tested a) => TestGen (HM.HashMap k a) where
   genTestCases = HM.singleton <$> genTestCases <*> genTestCases
   inheritedTests _ = allTests @ k `mappend` allTests @ a
 
+instance (Ord k, Tested k, Tested a) => TestGen (M.Map k a) where
+  genTestCases = [M.empty]
+  inheritedTests _ = allTests @ k `mappend` allTests @ a
+
+instance TestGen Void where
+  genTestCases = []
+  inheritedTests = mempty
+
 instance TestGen Int where
   genTestCases = [42]
+  inheritedTests = mempty
+
+instance TestGen Word8 where
+  genTestCases = [42]
+  inheritedTests = mempty
+
+instance TestGen Word16 where
+  genTestCases = [42]
+  inheritedTests = mempty
+
+instance TestGen Word32 where
+  genTestCases = [42]
+  inheritedTests = mempty
+
+instance TestGen Word64 where
+  genTestCases = [42]
+  inheritedTests = mempty
+
+instance TestGen Float where
+  genTestCases = [pi]
   inheritedTests = mempty
 
 instance TestGen Double where
@@ -196,4 +238,12 @@ instance TestGen Double where
 
 instance TestGen Char where
   genTestCases = ['X']
+  inheritedTests = mempty
+
+instance TestGen T.Text where
+  genTestCases = [mempty]
+  inheritedTests = mempty
+
+instance TestGen B.ByteString where
+  genTestCases = [mempty]
   inheritedTests = mempty
