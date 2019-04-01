@@ -390,7 +390,7 @@ toBuilderWithSchema a = mappend (BB.word8 currentSchemaVersion)
 splitSchema :: B.ByteString -> Either WineryException (Schema, B.ByteString)
 splitSchema bs_ = case B.uncons bs_ of
   Just (ver, bs) -> do
-    m <- getDecoder $ bootstrapSchema ver
+    m <- bootstrapSchema ver >>= getDecoder
     return $ flip evalDecoder bs $ do
       sch <- m
       State $ \bs' -> ((sch, bs'), mempty)
@@ -422,7 +422,7 @@ deserialiseBy e bs_ = do
 deserialiseSchema :: B.ByteString -> Either WineryException Schema
 deserialiseSchema bs_ = case B.uncons bs_ of
   Just (ver, bs) -> do
-    m <- getDecoder $ bootstrapSchema ver
+    m <- bootstrapSchema ver >>= getDecoder
     return $ evalDecoder m bs
   Nothing -> Left EmptyInput
 
