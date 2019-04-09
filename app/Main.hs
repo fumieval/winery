@@ -7,9 +7,9 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import Data.Text.Prettyprint.Doc
 import Data.Text.Prettyprint.Doc.Render.Terminal
-import qualified Data.Winery.Query as Q
-import Data.Winery.Query.Parser
-import Data.Winery
+import qualified Codec.Winery.Query as Q
+import Codec.Winery.Query.Parser
+import Codec.Winery
 import System.Console.GetOpt
 import System.Environment
 import System.Exit

@@ -14,8 +14,8 @@ import Data.Sequence (Seq)
 import Data.Set (Set)
 import Data.Text (Text)
 import Data.Time (UTCTime, NominalDiffTime)
-import Data.Winery
-import Data.Winery.Internal
+import Codec.Winery
+import Codec.Winery.Internal
 import Data.Word
 import qualified Data.ByteString.FastBuilder as B
 import qualified Data.ByteString.Lazy as BL

@@ -7,7 +7,7 @@
 {-# LANGUAGE DeriveTraversable #-}
 ----------------------------------------------------------------------------
 -- |
--- Module      :  Data.Winery.Base
+-- Module      :  Codec.Winery.Base
 -- Copyright   :  (c) Fumiaki Kinoshita 2019
 -- License     :  BSD3
 -- Stability   :  Provisional
@@ -17,7 +17,7 @@
 -- Basic types
 --
 -----------------------------------------------------------------------------
-module Data.Winery.Base
+module Codec.Winery.Base
   ( Tag(..)
   , Schema
   , SchemaP(..)
@@ -48,7 +48,7 @@ import Data.Text.Prettyprint.Doc.Render.Terminal
 import Data.Time
 import Data.Typeable
 import qualified Data.Vector as V
-import Data.Winery.Internal
+import Codec.Winery.Internal
 import Data.Word
 import GHC.Generics (Generic)
 import GHC.Exts (IsList(..))

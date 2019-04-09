@@ -25,11 +25,13 @@ source-repository head
 
 library
   exposed-modules:
+      Codec.Winery
+      Codec.Winery.Base
+      Codec.Winery.Internal
+      Codec.Winery.Query
+      Codec.Winery.Query.Parser
+      Codec.Winery.Test
       Data.Winery
-      Data.Winery.Base
-      Data.Winery.Internal
-      Data.Winery.Query
-      Data.Winery.Query.Parser
       Data.Winery.Test
   other-modules:
       Paths_winery

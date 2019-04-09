@@ -1,7 +1,7 @@
 {-# LANGUAGE DeriveFunctor #-}
 ----------------------------------------------------------------------------
 -- |
--- Module      :  Data.Winery.Query
+-- Module      :  Codec.Winery.Query
 -- Copyright   :  (c) Fumiaki Kinoshita 2019
 -- License     :  BSD3
 -- Stability   :  Experimental
@@ -11,7 +11,7 @@
 -- Building blocks for winery queries.
 --
 -----------------------------------------------------------------------------
-module Data.Winery.Query (Query(..)
+module Codec.Winery.Query (Query(..)
   , invalid
   , list
   , range
@@ -22,8 +22,8 @@ module Data.Winery.Query (Query(..)
 import Prelude hiding ((.), id)
 import Control.Applicative
 import Control.Category
-import Data.Winery
-import Data.Winery.Internal
+import Codec.Winery
+import Codec.Winery.Internal
 import Data.Typeable
 import qualified Data.Text as T
 import qualified Data.Vector as V

@@ -5,7 +5,7 @@
 {-# LANGUAGE GADTs #-}
 ----------------------------------------------------------------------------
 -- |
--- Module      :  Data.Winery.Query.Parser
+-- Module      :  Codec.Winery.Query.Parser
 -- Copyright   :  (c) Fumiaki Kinoshita 2019
 -- License     :  BSD3
 -- Stability   :  Experimental
@@ -17,11 +17,11 @@
 -- See the Pretty-printing section of README.md for examples.
 --
 -----------------------------------------------------------------------------
-module Data.Winery.Query.Parser (parseQuery) where
+module Codec.Winery.Query.Parser (parseQuery) where
 
 import Prelude hiding ((.), id)
 import Control.Category
-import Data.Winery.Query
+import Codec.Winery.Query
 import Text.Megaparsec
 import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L

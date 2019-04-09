@@ -6,7 +6,7 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString as B
 import qualified Data.Binary as B
 import Data.Either
-import Data.Winery
+import Codec.Winery
 import Data.Text (Text)
 import qualified Data.Text.Encoding as TE
 import qualified Data.Serialize as C

@@ -9,7 +9,7 @@
 {-# LANGUAGE TypeFamilies #-}
 ----------------------------------------------------------------------------
 -- |
--- Module      :  Data.Winery.Internal
+-- Module      :  Codec.Winery.Internal
 -- Copyright   :  (c) Fumiaki Kinoshita 2019
 -- License     :  BSD3
 -- Stability   :  Experimental
@@ -19,7 +19,7 @@
 -- Internal functions and datatypes
 --
 -----------------------------------------------------------------------------
-module Data.Winery.Internal
+module Codec.Winery.Internal
   ( unsignedVarInt
   , varInt
   , Decoder
