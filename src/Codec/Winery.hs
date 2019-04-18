@@ -386,14 +386,10 @@ toBuilderWithSchema a = mappend (BB.word8 currentSchemaVersion)
   $ toBuilder (schema (Proxy @ a), a)
 {-# INLINE toBuilderWithSchema #-}
 
-splitSchema :: B.ByteString -> Either WineryException (Schema, B.ByteString)
-splitSchema bs_ = case B.uncons bs_ of
-  Just (ver, bs) -> do
-    m <- bootstrapSchema ver >>= getDecoder
-    return $ flip evalDecoder bs $ do
-      sch <- m
-      State $ \bs' -> ((sch, bs'), mempty)
-  Nothing -> Left EmptyInput
+splitSchema :: (Schema -> Either WineryException (Decoder a)) -> Decoder (Either WineryException a)
+splitSchema k = do
+  ver <- getWord8
+  either (pure . Left) k $ bootstrapSchema ver >>= getDecoder
 
 -- | Serialise a schema.
 serialiseSchema :: Schema -> B.ByteString
@@ -404,18 +400,12 @@ serialiseSchema = BL.toStrict . BB.toLazyByteString
 --
 -- /"Old wood to burn! Old wine to drink! Old friends to trust! Old authors to read!"/
 deserialise :: Serialise a => B.ByteString -> Either WineryException a
-deserialise bs_ = do
-  (sch, bs) <- splitSchema bs_
-  dec <- getDecoder sch
-  return $ evalDecoder dec bs
+deserialise bs = flip evalDecoder bs $ splitSchema getDecoder
 {-# INLINE deserialise #-}
 
 -- | Deserialise a 'serialise'd 'B.Bytestring' using an 'Extractor'.
 deserialiseBy :: Extractor a -> B.ByteString -> Either WineryException a
-deserialiseBy e bs_ = do
-  (sch, bs) <- splitSchema bs_
-  dec <- getDecoderBy e sch
-  return $ evalDecoder dec bs
+deserialiseBy e bs = flip evalDecoder bs $ splitSchema getDecoder
 
 -- | Deserialise a schema.
 deserialiseSchema :: B.ByteString -> Either WineryException Schema
@@ -610,7 +600,7 @@ instance Serialise T.Text where
     s -> unexpectedSchema "Serialise Text" s
   decodeCurrent = do
     len <- decodeVarInt
-    T.decodeUtf8With T.lenientDecode <$> State (B.splitAt len)
+    T.decodeUtf8With T.lenientDecode <$> getBytes len
 
 -- | Encoded in variable-length quantity.
 newtype VarInt a = VarInt { getVarInt :: a } deriving (Show, Read, Eq, Ord, Enum
@@ -668,7 +658,7 @@ instance Serialise B.ByteString where
     s -> unexpectedSchema "Serialise ByteString" s
   decodeCurrent = do
     len <- decodeVarInt
-    State (B.splitAt len)
+    getBytes len
 
 instance Serialise BL.ByteString where
   schemaGen _ = pure SBytes

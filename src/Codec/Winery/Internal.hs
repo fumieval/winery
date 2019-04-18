@@ -32,6 +32,7 @@ module Codec.Winery.Internal
   , getWord16
   , getWord32
   , getWord64
+  , getBytes
   , DecodeException(..)
   , indexDefault
   , unsafeIndexV
@@ -135,16 +136,43 @@ instance Monad (State s) where
 instance MonadFix (State s) where
   mfix f = State $ \s -> fix $ \ ~(a, _) -> runState (f a) s
 
-type Decoder = State B.ByteString
+data DecoderState = DSBuffer {-# UNPACK #-} !(Ptr Word8) {-# UNPACK #-} !Int
+  | DSBuild !(ForeignPtr Word8) !Int {-# UNPACK #-} !(Ptr Word8) {-# UNPACK #-} !Int
+
+data DecoderResult a = More !DecoderState
+  | Straddle !DecoderState
+  | Done a !DecoderState
+  deriving Functor
+
+newtype Decoder a = Decoder { unDecoder :: DecoderState -> IO (DecoderResult a) }
+  deriving Functor
+
+instance Applicative Decoder where
+  pure a = Decoder $ \s -> pure $ Done a s
+  (<*>) = ap
+
+instance Monad Decoder where
+  m >>= k = Decoder $ \s -> unDecoder m s >>= \case
+    Done a s' -> unDecoder (k a) s'
+    Straddle s' -> pure $ Straddle s'
+    More s' -> pure $ More s'
 
 evalDecoder :: Decoder a -> B.ByteString -> a
-evalDecoder = evalState
+evalDecoder dec (B.PS fp ofs len) = B.accursedUnutterablePerformIO
+  $ withForeignPtr fp
+  $ \ptr -> unDecoder dec (DSBuffer (plusPtr ptr ofs) len) >>= \case
+    Done a _ -> pure a
+    _ -> throwIO InsufficientInput
 {-# INLINE evalDecoder #-}
 
 getWord8 :: Decoder Word8
-getWord8 = State $ \bs -> case B.uncons bs of
-  Nothing -> throw InsufficientInput
-  Just (x, bs') -> (x, bs')
+getWord8 = Decoder $ \case
+  DSBuild _ _ _ _ -> error "getWord8: unexpected DSBuild"
+  DSBuffer ptr len
+    | len <= 0 -> pure $ More (DSBuffer nullPtr 0)
+    | otherwise -> do
+      x <- peek ptr
+      pure $ Done x $ DSBuffer (plusPtr ptr 1) (len - 1)
 {-# INLINE getWord8 #-}
 
 data DecodeException = InsufficientInput
@@ -186,22 +214,59 @@ decodeVarIntFinite = decodeVarIntBase $ getWord8 >>= go 7
 {-# SPECIALISE decodeVarIntFinite :: Decoder Int #-}
 
 getWord16 :: Decoder Word16
-getWord16 = State $ \(B.PS fp ofs len) -> if len >= 2
-  then (B.accursedUnutterablePerformIO $ withForeignPtr fp
-    $ \ptr -> fromLE16 <$> peekByteOff ptr ofs, B.PS fp (ofs + 2) (len - 2))
-  else throw InsufficientInput
+getWord16 = Decoder $ \case
+  DSBuffer ptr len
+    | len < 2 -> do
+      fp <- B.mallocByteString 2
+      withForeignPtr fp $ \dest -> B.memcpy dest ptr len
+      pure $ More $ DSBuild fp 0 nullPtr 0
+    | otherwise -> do
+      x <- fromLE16 <$> peek (castPtr ptr)
+      pure $ Done x $ DSBuffer (plusPtr ptr 2) (len - 2)
+  DSBuild fp _ _ _-> withForeignPtr fp $ \ptr -> do
+    x <- fromLE16 <$> peek (castPtr ptr)
+    pure $ Done x (DSBuffer nullPtr 0)
 
 getWord32 :: Decoder Word32
-getWord32 = State $ \(B.PS fp ofs len) -> if len >= 4
-  then (B.accursedUnutterablePerformIO $ withForeignPtr fp
-    $ \ptr -> fromLE32 <$> peekByteOff ptr ofs, B.PS fp (ofs + 4) (len - 4))
-  else throw InsufficientInput
+getWord32 = Decoder $ \case
+  DSBuffer ptr len
+    | len < 4 -> do
+      fp <- B.mallocByteString 4
+      withForeignPtr fp $ \dest -> B.memcpy dest ptr len
+      pure $ More $ DSBuild fp 0 nullPtr 0
+    | otherwise -> do
+      x <- fromLE32 <$> peek (castPtr ptr)
+      pure $ Done x $ DSBuffer (plusPtr ptr 4) (len - 4)
+  DSBuild fp _ _ _ -> withForeignPtr fp $ \ptr -> do
+    x <- fromLE32 <$> peek (castPtr ptr)
+    pure $ Done x (DSBuffer nullPtr 0)
 
 getWord64 :: Decoder Word64
-getWord64 = State $ \(B.PS fp ofs len) -> if len >= 8
-  then (B.accursedUnutterablePerformIO $ withForeignPtr fp
-    $ \ptr -> fromLE64 <$> peekByteOff ptr ofs, B.PS fp (ofs + 8) (len - 8))
-  else throw InsufficientInput
+getWord64 = Decoder $ \case
+  DSBuffer ptr len
+    | len < 8 -> do
+      fp <- B.mallocByteString 8
+      withForeignPtr fp $ \dest -> B.memcpy dest ptr len
+      pure $ More $ DSBuild fp 0 nullPtr 0
+    | otherwise -> do
+      x <- fromLE64 <$> peek (castPtr ptr)
+      pure $ Done x $ DSBuffer (plusPtr ptr 8) (len - 8)
+  DSBuild fp _ _ _ -> withForeignPtr fp $ \ptr -> do
+    x <- fromLE64 <$> peek (castPtr ptr)
+    pure $ Done x (DSBuffer nullPtr 0)
+
+getBytes :: Int -> Decoder B.ByteString
+getBytes n = Decoder $ \case
+  DSBuffer ptr len -> do
+    fp <- B.mallocByteString n
+    cont fp 0 ptr len
+  DSBuild fp ofs ptr len -> cont fp ofs ptr len
+  where
+    cont fp ofs ptr len = do
+      withForeignPtr fp $ \dest -> B.memcpy (plusPtr dest ofs) ptr (min len n)
+      if len <= n
+        then pure $ More $ DSBuild fp 0 nullPtr 0
+        else pure $ Done (B.PS fp 0 n) (DSBuffer (plusPtr ptr n) (len - n))
 
 unsafeIndexV :: U.Unbox a => String -> U.Vector a -> Int -> a
 unsafeIndexV err xs i
