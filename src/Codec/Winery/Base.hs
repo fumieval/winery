@@ -73,6 +73,7 @@ instance Pretty Tag where
   pretty (TagStr s) = pretty s
   pretty (TagList xs) = list (map pretty xs)
 
+-- | The current version of the schema
 currentSchemaVersion :: Word8
 currentSchemaVersion = 4
 
@@ -82,6 +83,7 @@ currentSchemaVersion = 4
 -- /"Yeah, it’s just a memento. Just, you know, from the first time we met."/
 type Schema = SchemaP Int
 
+-- | The basic schema datatype
 data SchemaP a = SFix !(SchemaP a) -- ^ binds a fixpoint
   | SVar !a -- ^ @SVar n@ refers to the n-th innermost fixpoint
   | SVector !(SchemaP a)
@@ -140,6 +142,7 @@ instance Pretty a => Pretty (SchemaP a) where
     STag t s -> nest 2 $ sep [pretty t <> ":", pretty s]
     SLet s t -> sep ["let" <+> pretty s, pretty t]
 
+-- | Obtain the schema of the schema corresponding to the specified version.
 bootstrapSchema :: Word8 -> Either WineryException Schema
 bootstrapSchema 4 = Right
   $ SFix $ SVariant [("SFix",SProduct [SVar 0]),("SVar",SProduct [SInteger]),("SVector",SProduct [SVar 0]),("SProduct",SProduct [SVector (SVar 0)]),("SRecord",SProduct [SVector (SProduct [SText,SVar 0])]),("SVariant",SProduct [SVector (SProduct [SText,SVar 0])]),("SBool",SProduct []),("SChar",SProduct []),("SWord8",SProduct []),("SWord16",SProduct []),("SWord32",SProduct []),("SWord64",SProduct []),("SInt8",SProduct []),("SInt16",SProduct []),("SInt32",SProduct []),("SInt64",SProduct []),("SInteger",SProduct []),("SFloat",SProduct []),("SDouble",SProduct []),("SBytes",SProduct []),("SText",SProduct []),("SUTCTime",SProduct []),("STag",SProduct [SFix (SVariant [("TagInt",SProduct [SInteger]),("TagStr",SProduct [SText]),("TagList",SProduct [SVector (SVar 0)])]),SVar 0]),("SLet",SProduct [SVar 0,SVar 0])]
@@ -260,10 +263,12 @@ instance Alternative Plan where
   empty = Plan $ const empty
   Plan a <|> Plan b = Plan $ \s -> a s <|> b s
 
+-- | Run an 'Extractor'.
 unwrapExtractor :: Extractor a -> Schema -> Strategy' (Term -> a)
 unwrapExtractor (Extractor m) = unPlan m
 {-# INLINE unwrapExtractor #-}
 
+-- | Exceptions thrown when by an extractor
 data WineryException = UnexpectedSchema !(Doc AnsiStyle) !(Doc AnsiStyle) !Schema
   | FieldNotFound !(Doc AnsiStyle) !T.Text ![T.Text]
   | TypeMismatch !Int !TypeRep !TypeRep
@@ -279,6 +284,7 @@ instance Exception WineryException
 instance IsString WineryException where
   fromString = WineryMessage . fromString
 
+-- | Pretty-print 'WineryException'
 prettyWineryException :: WineryException -> Doc AnsiStyle
 prettyWineryException = \case
   UnexpectedSchema subject expected actual -> annotate bold subject

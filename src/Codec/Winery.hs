@@ -375,17 +375,19 @@ serialise :: Serialise a => a -> B.ByteString
 serialise = BL.toStrict . BB.toLazyByteString . toBuilderWithSchema
 {-# INLINE serialise #-}
 
--- | Serialise a value along with its schema.
+-- | 'serialise' then write it to a file.
 writeFileSerialise :: Serialise a => FilePath -> a -> IO ()
 writeFileSerialise path a = withBinaryFile path WriteMode
   $ \h -> BB.hPutBuilder h $ toBuilderWithSchema a
 {-# INLINE writeFileSerialise #-}
 
+-- | Serialise a value with the schema.
 toBuilderWithSchema :: forall a. Serialise a => a -> BB.Builder
 toBuilderWithSchema a = mappend (BB.word8 currentSchemaVersion)
   $ toBuilder (schema (Proxy @ a), a)
 {-# INLINE toBuilderWithSchema #-}
 
+-- | Split a 'Schema' from a 'B.ByteString'.
 splitSchema :: B.ByteString -> Either WineryException (Schema, B.ByteString)
 splitSchema bs_ = case B.uncons bs_ of
   Just (ver, bs) -> do
@@ -1002,6 +1004,7 @@ instance (GEncodeProduct (Rep a), GSerialiseRecord (Rep a), Generic a, Typeable 
   extractor = WineryRecord <$> gextractorRecord Nothing
   decodeCurrent = WineryRecord <$> gdecodeCurrentRecord
 
+-- | Encode all the fields
 class GEncodeProduct f where
   productEncoder :: f x -> BB.Builder
 

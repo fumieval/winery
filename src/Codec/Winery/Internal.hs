@@ -135,8 +135,10 @@ instance Monad (State s) where
 instance MonadFix (State s) where
   mfix f = State $ \s -> fix $ \ ~(a, _) -> runState (f a) s
 
+-- | The Decoder monad
 type Decoder = State B.ByteString
 
+-- | Run a 'Decoder'
 evalDecoder :: Decoder a -> B.ByteString -> a
 evalDecoder = evalState
 {-# INLINE evalDecoder #-}
@@ -147,6 +149,7 @@ getWord8 = State $ \bs -> case B.uncons bs of
   Just (x, bs') -> (x, bs')
 {-# INLINE getWord8 #-}
 
+-- | Exceptions thrown by a 'Decoder'
 data DecodeException = InsufficientInput
   | IntegerOverflow
   | InvalidTag deriving (Eq, Show, Read)
