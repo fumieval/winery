@@ -1,3 +1,7 @@
+## 1.1
+
+* Renamed `Data.Winery` to `Codec.Winery`
+
 ## 1.0.2
 
 * `bootstrapSchema` returns `UnsupportedSchemaVersion` rather than an error
