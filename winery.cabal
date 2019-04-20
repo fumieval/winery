@@ -2,8 +2,11 @@ cabal-version: 1.12
 
 name:           winery
 version:        1.0.2
-synopsis:       A binary serialisation format that grants compatibility
-description:    Please see the README on GitHub at <https://github.com/fumieval/winery#readme>
+synopsis:       A compact, well-typed seralisation format for Haskell values
+description:
+  <<https://i.imgur.com/lTosHnE.png>>
+  .
+  Please see the README on GitHub at <https://github.com/fumieval/winery#readme>
 category:       Data, Codec, Parsing, Serialization
 homepage:       https://github.com/fumieval/winery#readme
 bug-reports:    https://github.com/fumieval/winery/issues
@@ -18,6 +21,8 @@ extra-source-files:
   README.md
   ChangeLog.md
   .travis.yml
+  art/logo.png
+  art/logo.svg
 
 source-repository head
   type: git
