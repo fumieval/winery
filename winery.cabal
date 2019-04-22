@@ -123,6 +123,7 @@ benchmark bench-winery
     , winery
     , binary
     , serialise
+    , store
     , text
     , bytestring
     , deepseq

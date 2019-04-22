@@ -167,4 +167,5 @@ Here's the result:
 | cereal    | 0.82 μs  | 0.78 ms     | 0.90 ms | 91709  |
 | binary    | 1.7 μs   | 1.7 ms      | 2.0 ms  | 125709 |
 | serialise | 0.61 μs  | 0.50 ms     | 1.4 ms  | 65437  |
+| store     | 54 ns    | 56 μs       | 0.13 ms | 126410 |
 | aeson     | 9.9 μs   | 9.7 ms      | 17 ms   | 160558 |

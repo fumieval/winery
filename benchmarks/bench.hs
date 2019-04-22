@@ -5,6 +5,7 @@ import qualified Data.Aeson as J
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString as B
 import qualified Data.Binary as B
+import qualified Data.Store as S
 import Data.Either
 import Codec.Winery
 import Data.Text (Text)
@@ -24,6 +25,7 @@ instance B.Binary Gender
 instance C.Serialize Gender
 instance J.FromJSON Gender
 instance J.ToJSON Gender
+instance S.Store Gender
 
 data TestRec = TestRec
   { id_ :: !Int
@@ -47,6 +49,7 @@ instance C.Serialize TestRec
 instance CBOR.Serialise TestRec
 instance J.FromJSON TestRec
 instance J.ToJSON TestRec
+instance S.Store TestRec
 
 instance C.Serialize Text where
     put = C.put . TE.encodeUtf8
@@ -61,6 +64,9 @@ main = do
   json <- B.readFile "benchmarks/data.json"
   values :: [TestRec] <- return $ B.decode $ BL.fromStrict binary
   let aValue = head values
+  B.writeFile "benchmarks/data.store" $ S.encode values
+
+  store <- B.readFile "benchmarks/data.store"
   let serialisedInts = serialiseOnly [floor (2**x) :: Int | x <- [0 :: Double, 0.5..62]]
   deepseq values $ defaultMain
     [ bgroup "serialise/list"
@@ -68,6 +74,7 @@ main = do
       , bench "binary" $ nf (BL.toStrict . B.encode) values
       , bench "cereal" $ nf C.encode values
       , bench "serialise" $ nf (BL.toStrict . CBOR.serialise) values
+      , bench "store" $ nf S.encode values
       , bench "aeson" $ nf (BL.toStrict . J.encode) values
       ]
     , bgroup "serialise/item"
@@ -75,6 +82,7 @@ main = do
       , bench "binary" $ nf (BL.toStrict . B.encode) aValue
       , bench "cereal" $ nf C.encode aValue
       , bench "serialise" $ nf (BL.toStrict . CBOR.serialise) aValue
+      , bench "store" $ nf S.encode aValue
       , bench "aeson" $ nf (BL.toStrict . J.encode) aValue
       ]
     , bgroup "deserialise"
@@ -82,6 +90,7 @@ main = do
       , bench "binary" $ nf (B.decode . BL.fromStrict :: B.ByteString -> [TestRec]) binary
       , bench "cereal" $ nf (C.decode :: B.ByteString -> Either String [TestRec]) cereal
       , bench "serialise" $ nf (CBOR.deserialise . BL.fromStrict :: B.ByteString -> [TestRec]) cbor
+      , bench "store" $ nf (S.decodeEx :: B.ByteString -> [TestRec]) store
       , bench "aeson" $ nf (J.decode . BL.fromStrict :: B.ByteString -> Maybe [TestRec]) json
       ]
     , bgroup "deserialise/Int"
