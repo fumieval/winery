@@ -394,7 +394,7 @@ splitSchema bs_ = case B.uncons bs_ of
     m <- bootstrapSchema ver >>= getDecoder
     return $ flip evalDecoder bs $ do
       sch <- m
-      State $ \bs' -> ((sch, bs'), mempty)
+      Decoder $ \bs' i -> DecoderResult (B.length bs') (sch, B.drop i bs')
   Nothing -> Left EmptyInput
 
 -- | Serialise a schema.
@@ -612,7 +612,7 @@ instance Serialise T.Text where
     s -> unexpectedSchema "Serialise Text" s
   decodeCurrent = do
     len <- decodeVarInt
-    T.decodeUtf8With T.lenientDecode <$> State (B.splitAt len)
+    T.decodeUtf8With T.lenientDecode <$> getBytes len
 
 -- | Encoded in variable-length quantity.
 newtype VarInt a = VarInt { getVarInt :: a } deriving (Show, Read, Eq, Ord, Enum
@@ -668,9 +668,7 @@ instance Serialise B.ByteString where
       TBytes bs -> bs
       t -> throw $ InvalidTerm t
     s -> unexpectedSchema "Serialise ByteString" s
-  decodeCurrent = do
-    len <- decodeVarInt
-    State (B.splitAt len)
+  decodeCurrent = decodeVarInt >>= getBytes
 
 instance Serialise BL.ByteString where
   schemaGen _ = pure SBytes
@@ -1213,6 +1211,7 @@ instance (GSerialiseProduct f, GEncodeProduct f, GDecodeProduct f, KnownSymbol n
   variantEncoder i (M1 a) = varInt i <> productEncoder a
   variantExtractor = [(T.pack $ symbolVal (Proxy @ name), fmap (fmap M1) . extractorProduct') ]
   variantDecoder = [M1 <$> productDecoder]
+  {-# INLINE variantDecoder #-}
 
 instance (GSerialiseRecord f, GEncodeProduct f, GDecodeProduct f, KnownSymbol name) => GSerialiseVariant (C1 ('MetaCons name fixity 'True) f) where
   variantCount _ = 1
