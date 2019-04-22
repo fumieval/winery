@@ -83,17 +83,19 @@ module Codec.Winery
   -- * Generic implementations (for old GHC / custom instances)
   , GSerialiseRecord
   , gschemaGenRecord
-  , GEncodeProduct
   , gtoBuilderRecord
   , gextractorRecord
   , gdecodeCurrentRecord
   , GSerialiseVariant
+  , GDecodeVariant
   , gschemaGenVariant
   , gtoBuilderVariant
   , gextractorVariant
+  , gdecodeCurrentVariant
+  , GEncodeProduct
+  , GDecodeProduct
   , gschemaGenProduct
   , gtoBuilderProduct
-  , gdecodeCurrentVariant
   , gextractorProduct
   , gdecodeCurrentProduct
   , decodeCurrentDefault
@@ -284,7 +286,7 @@ bundleRecordDefault def f = BundleSerialise
 {-# INLINE bundleRecordDefault #-}
 
 -- | A bundle of generic implementations for variants
-bundleVariant :: (GSerialiseVariant (Rep a), Generic a, Typeable a)
+bundleVariant :: (GSerialiseVariant (Rep a), GDecodeVariant (Rep a), Generic a, Typeable a)
   => (Extractor a -> Extractor a) -- extractor modifier
   -> BundleSerialise a
 bundleVariant f = BundleSerialise
@@ -1151,7 +1153,7 @@ extractorProduct' sch = throwStrategy $ UnexpectedSchema "extractorProduct'" "a 
 -- /"The one so like the other as could not be distinguish'd but by names."/
 newtype WineryVariant a = WineryVariant { unWineryVariant :: a }
 
-instance (GSerialiseVariant (Rep a), Generic a, Typeable a) => Serialise (WineryVariant a) where
+instance (GSerialiseVariant (Rep a), GDecodeVariant (Rep a), Generic a, Typeable a) => Serialise (WineryVariant a) where
   schemaGen _ = gschemaGenVariant (Proxy @ a)
   toBuilder = gtoBuilderVariant . unWineryVariant
   extractor = WineryVariant <$> gextractorVariant
@@ -1182,59 +1184,79 @@ gextractorVariant = Extractor $ mkPlan $ \case
     rep = "gextractorVariant :: Extractor "
       <> viaShow (typeRep (Proxy @ a))
 
-gdecodeCurrentVariant :: (GSerialiseVariant (Rep a), Generic a) => Decoder a
-gdecodeCurrentVariant = decodeVarInt >>= maybe (throw InvalidTag) (fmap to) . (decs V.!?)
-  where
-    decs = V.fromList variantDecoder
+gdecodeCurrentVariant :: forall a. (GSerialiseVariant (Rep a), GDecodeVariant (Rep a), Generic a) => Decoder a
+gdecodeCurrentVariant = decodeVarInt >>= fmap to . variantDecoder (variantCount (Proxy :: Proxy (Rep a)))
+{-# INLINE gdecodeCurrentVariant #-}
+
+class GDecodeVariant f where
+  variantDecoder :: Int -> Int -> Decoder (f x)
+
+instance (GDecodeVariant f, GDecodeVariant g) => GDecodeVariant (f :+: g) where
+  variantDecoder len i
+    | i < len' = L1 <$> variantDecoder len' i
+    | otherwise = R1 <$> variantDecoder (len - len') (i - len')
+    where
+      len' = unsafeShiftR len 1
+  {-# INLINE variantDecoder #-}
+
+instance GDecodeProduct f => GDecodeVariant (C1 i f) where
+  variantDecoder _ _ = M1 <$> productDecoder
+  {-# INLINE variantDecoder #-}
+
+instance GDecodeVariant f => GDecodeVariant (S1 i f) where
+  variantDecoder len i = M1 <$> variantDecoder len i
+  {-# INLINE variantDecoder #-}
+
+instance GDecodeVariant f => GDecodeVariant (D1 i f) where
+  variantDecoder len i = M1 <$> variantDecoder len i
+  {-# INLINE variantDecoder #-}
 
 class GSerialiseVariant f where
   variantCount :: proxy f -> Int
   variantSchema :: proxy f -> SchemaGen [(T.Text, Schema)]
   variantEncoder :: Int -> f x -> BB.Builder
   variantExtractor :: [(T.Text, Schema -> Strategy' (Term -> f x))]
-  variantDecoder :: [Decoder (f x)]
 
 instance (GSerialiseVariant f, GSerialiseVariant g) => GSerialiseVariant (f :+: g) where
   variantCount _ = variantCount (Proxy @ f) + variantCount (Proxy @ g)
+  {-# INLINE variantCount #-}
   variantSchema _ = (++) <$> variantSchema (Proxy @ f) <*> variantSchema (Proxy @ g)
   variantEncoder i (L1 f) = variantEncoder i f
   variantEncoder i (R1 g) = variantEncoder (i + variantCount (Proxy @ f)) g
   variantExtractor = fmap (fmap (fmap (fmap (fmap L1)))) variantExtractor
     ++ fmap (fmap (fmap (fmap (fmap R1)))) variantExtractor
-  variantDecoder = fmap (fmap L1) variantDecoder ++ fmap (fmap R1) variantDecoder
 
-instance (GSerialiseProduct f, GEncodeProduct f, GDecodeProduct f, KnownSymbol name) => GSerialiseVariant (C1 ('MetaCons name fixity 'False) f) where
+instance (GSerialiseProduct f, GEncodeProduct f, KnownSymbol name) => GSerialiseVariant (C1 ('MetaCons name fixity 'False) f) where
   variantCount _ = 1
+  {-# INLINE variantCount #-}
   variantSchema _ = do
     s <- productSchema (Proxy @ f)
     return [(T.pack $ symbolVal (Proxy @ name), SProduct $ V.fromList s)]
   variantEncoder i (M1 a) = varInt i <> productEncoder a
   variantExtractor = [(T.pack $ symbolVal (Proxy @ name), fmap (fmap M1) . extractorProduct') ]
-  variantDecoder = [M1 <$> productDecoder]
-  {-# INLINE variantDecoder #-}
 
 instance (GSerialiseRecord f, GEncodeProduct f, GDecodeProduct f, KnownSymbol name) => GSerialiseVariant (C1 ('MetaCons name fixity 'True) f) where
   variantCount _ = 1
+  {-# INLINE variantCount #-}
   variantSchema _ = do
     s <- recordSchema (Proxy @ f)
     return [(T.pack $ symbolVal (Proxy @ name), SRecord $ V.fromList s)]
   variantEncoder i (M1 a) = varInt i <> productEncoder a
   variantExtractor = [(T.pack $ symbolVal (Proxy @ name), fmap (fmap M1) . extractorRecord' "" Nothing) ]
-  variantDecoder = [M1 <$> productDecoder]
 
 instance (GSerialiseVariant f) => GSerialiseVariant (S1 c f) where
   variantCount _ = variantCount (Proxy @ f)
+  {-# INLINE variantCount #-}
   variantSchema _ = variantSchema (Proxy @ f)
   variantEncoder i (M1 a) = variantEncoder i a
   variantExtractor = fmap (fmap (fmap (fmap M1))) <$> variantExtractor
-  variantDecoder = fmap M1 <$> variantDecoder
 
 instance (GSerialiseVariant f) => GSerialiseVariant (D1 c f) where
   variantCount _ = variantCount (Proxy @ f)
+  {-# INLINE variantCount #-}
   variantSchema _ = variantSchema (Proxy @ f)
   variantEncoder i (M1 a) = variantEncoder i a
   variantExtractor = fmap (fmap (fmap (fmap M1))) <$> variantExtractor
-  variantDecoder = fmap M1 <$> variantDecoder
 
 instance Serialise Ordering where
   schemaGen = gschemaGenVariant
