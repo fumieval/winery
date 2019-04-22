@@ -1,3 +1,7 @@
+## 1.1.1
+
+* Changed the internal representation of `Decoder`
+
 ## 1.1
 
 * Renamed `Data.Winery` to `Codec.Winery`
