@@ -47,6 +47,7 @@ module Codec.Winery
   , getDecoderBy
   -- * Decoding combinators
   , Term(..)
+  , encodeTerm
   , Subextractor(..)
   , buildExtractor
   , extractListBy
@@ -153,6 +154,29 @@ decodeTerm = go [] where
     SFix s' -> fix $ \a -> go (a : points) s'
     STag _ s -> go points s
     SLet s t -> go (go points s : points) t
+
+encodeTerm :: Term -> BB.Builder
+encodeTerm = \case
+  TBool b -> toBuilder b
+  TChar x -> toBuilder x
+  TWord8 x -> toBuilder x
+  TWord16 x -> toBuilder x
+  TWord32 x -> toBuilder x
+  TWord64 x -> toBuilder x
+  TInt8 x -> toBuilder x
+  TInt16 x -> toBuilder x
+  TInt32 x -> toBuilder x
+  TInt64 x -> toBuilder x
+  TInteger x -> toBuilder x
+  TFloat x -> toBuilder x
+  TDouble x -> toBuilder x
+  TBytes x -> toBuilder x
+  TText x -> toBuilder x
+  TUTCTime x -> toBuilder x
+  TVector xs -> foldMap encodeTerm xs
+  TProduct xs -> foldMap encodeTerm xs
+  TRecord xs -> foldMap (encodeTerm . snd) xs
+  TVariant tag _ t -> toBuilder tag <> encodeTerm t
 
 -- | Deserialise a 'serialise'd 'B.Bytestring'.
 deserialiseTerm :: B.ByteString -> Either WineryException (Schema, Term)
