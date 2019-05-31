@@ -34,6 +34,7 @@ module Codec.Winery
   , deserialiseTerm
   , splitSchema
   , writeFileSerialise
+  , readFileDeserialise
   -- * Separate serialisation
   , serialiseSchema
   , deserialiseSchema
@@ -103,7 +104,7 @@ import Codec.Winery.Base as W
 import Codec.Winery.Class
 import Codec.Winery.Internal
 import Control.Applicative
-import Control.Exception (throw)
+import Control.Exception (throw, throwIO)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.FastBuilder as BB
 import qualified Data.ByteString.Lazy as BL
@@ -242,6 +243,10 @@ deserialiseBy e bs_ = do
   (sch, bs) <- splitSchema bs_
   dec <- getDecoderBy e sch
   return $ evalDecoder dec bs
+
+-- | Deserialise a file. Throws 'WineryException'
+readFileDeserialise :: Serialise a => FilePath -> IO a
+readFileDeserialise path = B.readFile path >>= either throwIO pure . deserialise
 
 -- | Deserialise a schema.
 deserialiseSchema :: B.ByteString -> Either WineryException Schema
