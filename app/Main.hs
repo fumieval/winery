@@ -7,6 +7,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import Data.Text.Prettyprint.Doc
 import Data.Text.Prettyprint.Doc.Render.Terminal
+import Data.Word (Word64)
 import qualified Codec.Winery.Query as Q
 import Codec.Winery.Query.Parser
 import Codec.Winery
@@ -35,8 +36,8 @@ defaultOptions = Options
 
 options :: [OptDescr (Options -> Options)]
 options =
-  [ Option "s" ["stream"] (NoArg $ \o -> o { streamInput = True }) "stream input"
-  , Option "S" ["separate-schema"] (OptArg (\s o -> o { separateSchema = Just s }) "PATH") "the schema is separated"
+  [ Option "s" ["stream"] (NoArg $ \o -> o { streamInput = True }) "streaming input: each payload is prefixed by little-endian Word64"
+  , Option "S" ["separate-schema"] (OptArg (\s o -> o { separateSchema = Just s }) "PATH") "the schema is stored separately on PATH"
   , Option "" ["print-schema"] (NoArg $ \o -> o { printSchema = True }) "print the schema"
   , Option "J" ["JSON"] (NoArg $ \o -> o { outputJSON = True }) "print as JSON"
   ]
@@ -50,6 +51,11 @@ getRight (Right a) = return a
 putTerm :: Doc AnsiStyle -> IO ()
 putTerm t = putDoc $ t <> hardline
 
+getLengthPrefixed :: Handle -> IO B.ByteString
+getLengthPrefixed h = do
+  str <- B.hGet h 8
+  B.hGet h (fromIntegral (evalDecoder decodeCurrent str :: Word64))
+
 app :: Options -> Q.Query (Doc AnsiStyle) (Doc AnsiStyle) -> Handle -> IO ()
 app o q h = do
   let p
@@ -59,7 +65,7 @@ app o q h = do
 
   printer <- case separateSchema o of
     Just mpath -> do
-      bs <- maybe (readLn >>= B.hGet h) B.readFile mpath
+      bs <- maybe (getLengthPrefixed h) B.readFile mpath
       sch <- getRight $ deserialise bs
       when (printSchema o) $ putDoc $ pretty sch <> hardline
       dec <- getDec sch
@@ -72,9 +78,7 @@ app o q h = do
 
   case streamInput o of
     False -> B.hGetContents h >>= printer
-    True -> forever $ do
-      n <- readLn
-      B.hGet h n >>= printer
+    True -> forever $ getLengthPrefixed h >>= printer
 
 main :: IO ()
 main = getOpt Permute options <$> getArgs >>= \case
