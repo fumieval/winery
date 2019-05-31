@@ -32,6 +32,7 @@ library
   exposed-modules:
       Codec.Winery
       Codec.Winery.Base
+      Codec.Winery.Class
       Codec.Winery.Internal
       Codec.Winery.Query
       Codec.Winery.Query.Parser

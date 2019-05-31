@@ -21,9 +21,11 @@ module Codec.Winery.Base
   ( Tag(..)
   , Schema
   , SchemaP(..)
+  , SchemaGen(..)
   , currentSchemaVersion
   , bootstrapSchema
   , Term(..)
+  , ExtractException(..)
   , Extractor(..)
   , Strategy'
   , StrategyBind(..)
@@ -31,7 +33,8 @@ module Codec.Winery.Base
   , Plan(..)
   , unwrapExtractor
   , WineryException(..)
-  , prettyWineryException)
+  , prettyWineryException
+  )
   where
 
 import Control.Applicative
@@ -46,6 +49,7 @@ import qualified Data.Text as T
 import Data.Text.Prettyprint.Doc hiding ((<>), SText, SChar)
 import Data.Text.Prettyprint.Doc.Render.Terminal
 import Data.Time
+import qualified Data.Set as S
 import Data.Typeable
 import qualified Data.Vector as V
 import Codec.Winery.Internal
@@ -142,6 +146,19 @@ instance Pretty a => Pretty (SchemaP a) where
     STag t s -> nest 2 $ sep [pretty t <> ":", pretty s]
     SLet s t -> sep ["let" <+> pretty s, pretty t]
 
+-- | Schema generator
+newtype SchemaGen a = SchemaGen { unSchemaGen :: S.Set TypeRep -> (S.Set TypeRep, [TypeRep] -> a) }
+
+instance Functor SchemaGen where
+  fmap f m = SchemaGen $ \s -> case unSchemaGen m s of
+    (rep, k) -> (rep, f . k)
+
+instance Applicative SchemaGen where
+  pure a = SchemaGen $ const (S.empty, const a)
+  m <*> n = SchemaGen $ \s -> case unSchemaGen m s of
+    (rep, f) -> case unSchemaGen n s of
+      (rep', g) -> (mappend rep rep', f <*> g)
+
 -- | Obtain the schema of the schema corresponding to the specified version.
 bootstrapSchema :: Word8 -> Either WineryException Schema
 bootstrapSchema 4 = Right
@@ -218,6 +235,10 @@ instance Pretty Term where
   pretty (TVariant _ tag (TProduct xs)) = group $ nest 2 $ sep $ pretty tag : map pretty (V.toList xs)
   pretty (TVariant _ tag x) = group $ nest 2 $ sep [pretty tag, pretty x]
   pretty (TUTCTime t) = pretty (show t)
+
+-- | This may be thrown if illegal 'Term' is passed to an extractor.
+data ExtractException = InvalidTerm !Term deriving Show
+instance Exception ExtractException
 
 -- | 'Extractor' is a 'Plan' that creates a function to extract a value from Term.
 --
