@@ -15,6 +15,9 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
+#if __GLASGOW_HASKELL__ < 806
+{-# LANGUAGE TypeInType #-}
+#endif
 module Codec.Winery.Class (Serialise(..)
   , VarInt(..)
   , BundleSerialise(..)
