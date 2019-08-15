@@ -109,7 +109,6 @@ import Control.Applicative
 import Control.Exception (throw, throwIO)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.FastBuilder as BB
-import qualified Data.ByteString.Lazy as BL
 import Data.Function (fix)
 import qualified Data.Text as T
 import Data.Text.Prettyprint.Doc (pretty, dquotes)
@@ -222,7 +221,7 @@ getDecoderBy (Extractor plan) sch = (\f -> f <$> decodeTerm sch)
 --
 -- /"Write the vision, and make it plain upon tables, that he may run that readeth it."/
 serialise :: Serialise a => a -> B.ByteString
-serialise = BL.toStrict . BB.toLazyByteString . toBuilderWithSchema
+serialise = BB.toStrictByteString . toBuilderWithSchema
 {-# INLINE serialise #-}
 
 -- | 'serialise' then write it to a file.
@@ -249,7 +248,7 @@ splitSchema bs_ = case B.uncons bs_ of
 
 -- | Serialise a schema (prefix with the version number only).
 serialiseSchema :: Schema -> B.ByteString
-serialiseSchema = BL.toStrict . BB.toLazyByteString . schemaToBuilder
+serialiseSchema = BB.toStrictByteString . schemaToBuilder
 
 schemaToBuilder :: Schema -> BB.Builder
 schemaToBuilder = mappend (BB.word8 currentSchemaVersion) . toBuilder
@@ -287,7 +286,7 @@ deserialiseSchema bs_ = case B.uncons bs_ of
 --
 -- /"Any unsaved progress will be lost."/
 serialiseOnly :: Serialise a => a -> B.ByteString
-serialiseOnly = BL.toStrict . BB.toLazyByteString . toBuilder
+serialiseOnly = BB.toStrictByteString . toBuilder
 {-# INLINE serialiseOnly #-}
 
 -- | Build an extractor from a 'Subextractor'.
