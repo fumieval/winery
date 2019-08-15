@@ -37,6 +37,7 @@ module Codec.Winery
   , readFileDeserialise
   -- * Separate serialisation
   , serialiseSchema
+  , schemaToBuilder
   , deserialiseSchema
   , Extractor(..)
   , unwrapExtractor
@@ -246,10 +247,12 @@ splitSchema bs_ = case B.uncons bs_ of
       Decoder $ \bs' i -> DecoderResult (B.length bs') (sch, B.drop i bs')
   Nothing -> Left EmptyInput
 
--- | Serialise a schema.
+-- | Serialise a schema (prefix with the version number only).
 serialiseSchema :: Schema -> B.ByteString
-serialiseSchema = BL.toStrict . BB.toLazyByteString
-  . mappend (BB.word8 currentSchemaVersion) . toBuilder
+serialiseSchema = BL.toStrict . BB.toLazyByteString . schemaToBuilder
+
+schemaToBuilder :: Schema -> BB.Builder
+schemaToBuilder = mappend (BB.word8 currentSchemaVersion) . toBuilder
 
 -- | Deserialise a 'serialise'd 'B.Bytestring'.
 --
