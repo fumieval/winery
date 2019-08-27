@@ -945,6 +945,8 @@ instance (GDecodeVariant f, GDecodeVariant g) => GDecodeVariant (f :+: g) where
     | i < len' = L1 <$> variantDecoder len' i
     | otherwise = R1 <$> variantDecoder (len - len') (i - len')
     where
+      -- Nested ':+:' are balanced
+      -- cf. https://github.com/GaloisInc/cereal/blob/cereal-0.5.8.1/src/Data/Serialize.hs#L659
       len' = unsafeShiftR len 1
   {-# INLINE variantDecoder #-}
 
@@ -963,6 +965,8 @@ instance (GEncodeVariant f, GEncodeVariant g) => GEncodeVariant (f :+: g) where
   variantEncoder len i (L1 f) = variantEncoder (unsafeShiftR len 1) i f
   variantEncoder len i (R1 g) = variantEncoder (len - len') (i + len') g
     where
+      -- Nested ':+:' are balanced
+      -- cf. https://github.com/GaloisInc/cereal/blob/cereal-0.5.8.1/src/Data/Serialize.hs#L659
       len' = unsafeShiftR len 1
   {-# INLINE variantEncoder #-}
 

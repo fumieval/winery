@@ -20,7 +20,7 @@ guaranteeing well-typedness:
 0200 0541 6c69 6365 0103 426f 62    [(0, "Alice"), (1, "Bob")]
 ```
 
-Unlike `binary` or `cereal` which doesn't preserve metadata at all, winery also
+Unlike other libraries that don't preserve metadata (e.g.` binary`, `cereal`, `store`) at all, winery also
 allows readers to decode values regardless of the current implementation.
 
 ## Interface
