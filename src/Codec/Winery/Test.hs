@@ -7,6 +7,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE OverloadedStrings #-}
 ----------------------------------------------------------------------------
 -- |
 -- Module      :  Codec.Winery.Test
@@ -24,6 +25,7 @@ module Codec.Winery.Test
   ( -- * Generating tests
   TestGen(..)
   , printTests
+  , buildTestGroups
   -- * Test cases
   , Tested(..)
   , testCase
@@ -39,6 +41,7 @@ import qualified Data.ByteString as B
 import Data.Functor.Identity
 import Data.Hashable
 import Data.Proxy
+import qualified Data.Set as Set
 import qualified Data.Sequence as S
 import Data.Typeable
 import Codec.Winery
@@ -76,6 +79,13 @@ class TestGen a => Tested a where
   -- | List of test cases for the type.
   testCases :: [Test]
 
+  default testCases :: (Serialise a, Eq a, Show a) => [Test]
+  testCases = [testCase sch b a | (sch, xs) <- testGroups @ a, (b, a) <- xs]
+
+  testGroups :: [(Schema, [(B.ByteString, a)])]
+  testGroups = []
+  {-# MINIMAL testGroups | testCases #-}
+
 -- these are already covered by the QuickCheck tests from winery
 instance Tested Void where testCases = []
 instance Tested Bool where testCases = []
@@ -93,6 +103,7 @@ instance Tested B.ByteString where testCases = []
 instance Tested a => Tested (Identity a) where
   testCases = testCases @ a
 instance Tested a => Tested (S.Seq a) where testCases = []
+instance (Ord a, Tested a) => Tested (Set.Set a) where testCases = []
 instance Tested a => Tested [a] where testCases = []
 instance (Tested a, Tested b) => Tested (Either a b) where testCases = []
 instance (Tested a, Tested b) => Tested (a, b) where testCases = []
@@ -102,10 +113,15 @@ instance Tested a => Tested (V.Vector a) where testCases = []
 instance (UV.Unbox a, Tested a) => Tested (UV.Vector a) where testCases = []
 instance (Hashable k, Tested k, Tested a) => Tested (HM.HashMap k a) where testCases = []
 instance (Ord k, Tested k, Tested a) => Tested (M.Map k a) where testCases = []
+instance Tested a => TestGen (Maybe a)
+instance Tested a => Tested (Maybe a) where testCases = []
 
 -- | Generate test cases and print them to the standard output.
 printTests :: forall a. (TestGen a, Serialise a, Show a) => IO ()
 printTests = putStrLn $ showTests (genTestCases :: [a])
+
+buildTestGroups :: forall a. (TestGen a, Serialise a) => [(Schema, [(B.ByteString, a)])]
+buildTestGroups = [(schema (Proxy @ a), [(serialiseOnly a, a) | a <- genTestCases :: [a]])]
 
 showTests :: (Serialise a, Show a) => [a] -> String
 showTests xs = showListWith ppTest xs ""
@@ -184,6 +200,10 @@ instance Tested a => TestGen [a] where
   genTestCases = [[]]
   inheritedTests _ = allTests @ a
 
+instance (Ord a, Tested a) => TestGen (Set.Set a) where
+  genTestCases = [mempty]
+  inheritedTests _ = allTests @ a
+
 instance Tested a => TestGen (S.Seq a) where
   genTestCases = [mempty]
   inheritedTests _ = allTests @ a
@@ -213,27 +233,27 @@ instance TestGen Int where
   inheritedTests = mempty
 
 instance TestGen Word8 where
-  genTestCases = [42]
+  genTestCases = [8]
   inheritedTests = mempty
 
 instance TestGen Word16 where
-  genTestCases = [42]
+  genTestCases = [16]
   inheritedTests = mempty
 
 instance TestGen Word32 where
-  genTestCases = [42]
+  genTestCases = [32]
   inheritedTests = mempty
 
 instance TestGen Word64 where
-  genTestCases = [42]
+  genTestCases = [64]
   inheritedTests = mempty
 
 instance TestGen Float where
-  genTestCases = [pi]
-  inheritedTests = mempty
+  genTestCases = [0.1]
 
+  inheritedTests = mempty
 instance TestGen Double where
-  genTestCases = [pi]
+  genTestCases = [0.2]
   inheritedTests = mempty
 
 instance TestGen Char where
@@ -241,9 +261,9 @@ instance TestGen Char where
   inheritedTests = mempty
 
 instance TestGen T.Text where
-  genTestCases = [mempty]
+  genTestCases = ["葡"]
   inheritedTests = mempty
 
 instance TestGen B.ByteString where
-  genTestCases = [mempty]
+  genTestCases = ["B"]
   inheritedTests = mempty
