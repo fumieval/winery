@@ -1,3 +1,13 @@
+## 1.1.3
+
+* Added `schemaToBuilder`
+* Added `TestGen` and `Tested` instances for `Maybe a`
+
+## 1.1.2
+
+* Added `encodeTerm`
+* Split the `Codec.Winery` module
+
 ## 1.1.1
 
 * Changed the internal representation of `Decoder`
