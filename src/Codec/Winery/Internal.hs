@@ -48,7 +48,7 @@ import Control.Exception
 import Control.Monad
 import Control.Monad.Fix
 import qualified Data.ByteString as B
-import qualified Data.ByteString.FastBuilder as BB
+import qualified Mason.Builder as BB
 import qualified Data.ByteString.Internal as B
 import qualified Data.ByteString.Builder.Prim.Internal as BPI
 import Data.Bits
@@ -76,11 +76,12 @@ varInt n
       | otherwise -> BB.word8 (0xc0 .|. fromIntegral n') <> uvarInt (unsafeShiftR n' 6)
   | n < 0x40 = BB.word8 (fromIntegral n)
   | otherwise = BB.word8 (fromIntegral n `setBit` 7 `clearBit` 6) <> uvarInt (unsafeShiftR n 6)
-{-# RULES "varInt/Int" varInt = varIntFinite #-}
-{-# INLINEABLE[1] varInt #-}
+{-# RULES "varInt/Int" forall n. varInt n = varIntFinite n #-}
+{-# INLINE[1] varInt #-}
 
 varIntFinite :: Int -> BB.Builder
 varIntFinite = BB.primBounded (BPI.boudedPrim 10 writeIntFinite)
+{-# INLINE varIntFinite #-}
 
 writeWord8 :: Word8 -> Ptr Word8 -> IO (Ptr Word8)
 writeWord8 w p = do

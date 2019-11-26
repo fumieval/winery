@@ -57,7 +57,7 @@ import Control.Applicative
 import Control.Exception
 import Control.Monad.Reader
 import qualified Data.ByteString as B
-import qualified Data.ByteString.FastBuilder as BB
+import qualified Mason.Builder as BB
 import qualified Data.ByteString.Lazy as BL
 import Data.Bits
 import Data.Complex
@@ -405,7 +405,7 @@ instance Serialise Double where
 
 instance Serialise T.Text where
   schemaGen _ = pure SText
-  toBuilder = toBuilder . T.encodeUtf8
+  toBuilder = BB.encodeUtf8Builder
   {-# INLINE toBuilder #-}
   extractor = Extractor $ mkPlan $ \case
     SText -> pure $ \case

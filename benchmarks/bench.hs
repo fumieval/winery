@@ -40,6 +40,7 @@ data TestRec = TestRec
 
 instance Serialise TestRec where
   bundleSerialise = bundleRecord id
+  {-# INLINE bundleSerialise #-}
 
 instance NFData TestRec where
   rnf TestRec{} = ()
