@@ -109,7 +109,7 @@ import Codec.Winery.Internal
 import Control.Applicative
 import Control.Exception (throw, throwIO)
 import qualified Data.ByteString as B
-import qualified Data.ByteString.FastBuilder as BB
+import qualified Mason.Builder as BB
 import Data.Function (fix)
 import qualified Data.Text as T
 import Data.Text.Prettyprint.Doc (pretty, dquotes)

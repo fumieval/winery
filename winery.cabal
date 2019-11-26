@@ -47,7 +47,7 @@ library
     , bytestring
     , containers
     , cpu
-    , fast-builder
+    , mason
     , hashable
     , HUnit
     , megaparsec >=6.0.0
@@ -93,7 +93,7 @@ test-suite spec
     , winery
     , vector
     , unordered-containers
-    , fast-builder
+    , mason
     , time
     , text
     , containers
@@ -110,6 +110,7 @@ benchmark bench-winery
   build-depends:
       base >=4.7 && <5
     , gauge
+    , mason
     , aeson
     , cereal
     , winery

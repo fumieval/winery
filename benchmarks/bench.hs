@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveGeneric, OverloadedStrings, ScopedTypeVariables #-}
 {-# OPTIONS -Wno-orphans #-}
+{-# OPTIONS_GHC -ddump-simpl -ddump-to-file -dsuppress-all #-}
 import Control.DeepSeq
 import qualified Data.Aeson as J
 import qualified Data.ByteString.Lazy as BL
@@ -19,6 +20,7 @@ data Gender = Male | Female deriving (Show, Generic)
 
 instance Serialise Gender where
   bundleSerialise = bundleVariant id
+  {-# INLINE bundleSerialise #-}
 
 instance CBOR.Serialise Gender
 instance B.Binary Gender
@@ -40,6 +42,7 @@ data TestRec = TestRec
 
 instance Serialise TestRec where
   bundleSerialise = bundleRecord id
+  {-# INLINE bundleSerialise #-}
 
 instance NFData TestRec where
   rnf TestRec{} = ()
@@ -69,7 +72,7 @@ main = do
   store <- B.readFile "benchmarks/data.store"
   let serialisedInts = serialiseOnly [floor (2**x) :: Int | x <- [0 :: Double, 0.5..62]]
   deepseq values $ defaultMain
-    [ bgroup "serialise/list"
+    [bgroup "serialise/list"
       [ bench "winery" $ nf serialise values
       , bench "binary" $ nf (BL.toStrict . B.encode) values
       , bench "cereal" $ nf C.encode values

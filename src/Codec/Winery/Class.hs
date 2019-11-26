@@ -56,7 +56,7 @@ import Control.Applicative
 import Control.Exception
 import Control.Monad.Reader
 import qualified Data.ByteString as B
-import qualified Data.ByteString.FastBuilder as BB
+import qualified Mason.Builder as BB
 import qualified Data.ByteString.Lazy as BL
 import Data.Bits
 import Data.Complex
@@ -83,6 +83,7 @@ import Codec.Winery.Internal
 import qualified Data.Sequence as Seq
 import qualified Data.Set as S
 import qualified Data.Text as T
+import qualified Data.Text.Internal as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.Encoding.Error as T
 import qualified Data.Vector as V
@@ -371,7 +372,7 @@ instance Serialise Int64 where
 
 instance Serialise Int where
   schemaGen _ = pure SInteger
-  toBuilder = toBuilder . VarInt
+  toBuilder = varIntFinite
   {-# INLINE toBuilder #-}
   extractor = Extractor $ mkPlan $ \case
     SInteger -> pure $ \case
@@ -404,7 +405,7 @@ instance Serialise Double where
 
 instance Serialise T.Text where
   schemaGen _ = pure SText
-  toBuilder = toBuilder . T.encodeUtf8
+  toBuilder t@(T.Text _ _ count) = BB.lengthPrefixedWithin (3 * count) varIntFiniteB $ BB.encodeUtf8Builder t
   {-# INLINE toBuilder #-}
   extractor = Extractor $ mkPlan $ \case
     SText -> pure $ \case
@@ -462,7 +463,7 @@ instance Serialise a => Serialise (Maybe a) where
 
 instance Serialise B.ByteString where
   schemaGen _ = pure SBytes
-  toBuilder bs = varInt (B.length bs) <> BB.byteString bs
+  toBuilder bs = varIntFinite (B.length bs) <> BB.byteString bs
   {-# INLINE toBuilder #-}
   extractor = Extractor $ mkPlan $ \case
     SBytes -> pure $ \case
@@ -514,7 +515,7 @@ extractListBy (Extractor plan) = Extractor $ mkPlan $ \case
 
 instance Serialise a => Serialise [a] where
   schemaGen _ = SVector <$> getSchema (Proxy @ a)
-  toBuilder xs = varInt (length xs)
+  toBuilder xs = varIntFinite (length xs)
       <> foldMap toBuilder xs
   {-# INLINE toBuilder #-}
   extractor = V.toList <$> extractListBy extractor
@@ -524,7 +525,7 @@ instance Serialise a => Serialise [a] where
 
 instance Serialise a => Serialise (V.Vector a) where
   schemaGen _ = SVector <$> getSchema (Proxy @ a)
-  toBuilder xs = varInt (V.length xs)
+  toBuilder xs = varIntFinite (V.length xs)
     <> foldMap toBuilder xs
   {-# INLINE toBuilder #-}
   extractor = extractListBy extractor
@@ -970,7 +971,7 @@ instance (GEncodeVariant f, GEncodeVariant g) => GEncodeVariant (f :+: g) where
   {-# INLINE variantEncoder #-}
 
 instance (GEncodeProduct f) => GEncodeVariant (C1 i f) where
-  variantEncoder _ !i (M1 a) = varInt i <> productEncoder a
+  variantEncoder _ !i (M1 a) = varIntFinite i <> productEncoder a
   {-# INLINE variantEncoder #-}
 
 instance GEncodeVariant f => GEncodeVariant (D1 i f) where

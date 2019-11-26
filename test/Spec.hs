@@ -17,7 +17,7 @@ import Data.Time (UTCTime, NominalDiffTime)
 import Codec.Winery
 import Codec.Winery.Internal
 import Data.Word
-import qualified Data.ByteString.FastBuilder as B
+import qualified Mason.Builder as B
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Vector as V

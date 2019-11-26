@@ -22,6 +22,8 @@
 module Codec.Winery.Internal
   ( unsignedVarInt
   , varInt
+  , varIntFinite
+  , varIntFiniteB
   , Decoder(..)
   , DecoderResult(..)
   , evalDecoder
@@ -48,7 +50,7 @@ import Control.Exception
 import Control.Monad
 import Control.Monad.Fix
 import qualified Data.ByteString as B
-import qualified Data.ByteString.FastBuilder as BB
+import qualified Mason.Builder as BB
 import qualified Data.ByteString.Internal as B
 import qualified Data.ByteString.Builder.Prim.Internal as BPI
 import Data.Bits
@@ -68,7 +70,7 @@ unsignedVarInt n
   | otherwise = BB.word8 (fromIntegral n `setBit` 7) <> uvarInt (unsafeShiftR n 7)
 {-# INLINE unsignedVarInt #-}
 
-varInt :: (Bits a, Integral a) => a -> BB.Builder
+varInt :: (BB.Buildable s, Bits a, Integral a) => a -> BB.BuilderFor s
 varInt n
   | n < 0 = case negate n of
     n'
@@ -77,10 +79,15 @@ varInt n
   | n < 0x40 = BB.word8 (fromIntegral n)
   | otherwise = BB.word8 (fromIntegral n `setBit` 7 `clearBit` 6) <> uvarInt (unsafeShiftR n 6)
 {-# RULES "varInt/Int" varInt = varIntFinite #-}
-{-# INLINEABLE[1] varInt #-}
+{-# INLINE[1] varInt #-}
 
-varIntFinite :: Int -> BB.Builder
-varIntFinite = BB.primBounded (BPI.boudedPrim 10 writeIntFinite)
+varIntFinite :: BB.Buildable s => Int -> BB.BuilderFor s
+varIntFinite = BB.primBounded varIntFiniteB
+{-# INLINE varIntFinite #-}
+
+varIntFiniteB :: BPI.BoundedPrim Int
+varIntFiniteB = BPI.boudedPrim 10 writeIntFinite
+{-# INLINE CONLIKE varIntFiniteB #-}
 
 writeWord8 :: Word8 -> Ptr Word8 -> IO (Ptr Word8)
 writeWord8 w p = do
@@ -88,7 +95,7 @@ writeWord8 w p = do
   return $! plusPtr p 1
 
 writeIntFinite :: Int -> Ptr Word8 -> IO (Ptr Word8)
-writeIntFinite !n
+writeIntFinite n
   | n < 0 = case negate n of
     n'
       | n' < 0x40 -> writeWord8 (fromIntegral n' `setBit` 6)
