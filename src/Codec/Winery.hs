@@ -56,6 +56,7 @@ module Codec.Winery
   , extractFieldBy
   , extractConstructor
   , extractConstructorBy
+  , extractProductItemBy
   , extractVoid
   , ExtractException(..)
   -- * Variable-length quantity
@@ -320,6 +321,21 @@ extractFieldBy (Extractor g) name = Subextractor $ Extractor $ Plan $ \case
   where
     rep = "extractFieldBy ... " <> dquotes (pretty name)
     msg = "Codec.Winery.extractFieldBy ... " <> show name <> ": impossible"
+
+-- | Extract a field using the supplied 'Extractor'.
+extractProductItemBy :: Extractor a -> Int -> Subextractor a
+extractProductItemBy (Extractor g) i = Subextractor $ Extractor $ Plan $ \case
+  SProduct schs -> case schs V.!? i of
+    Just sch -> do
+      m <- unPlan g sch
+      return $ \case
+        TProduct xs -> maybe (error msg) m $ xs V.!? i
+        t -> throw $ InvalidTerm t
+    _ -> throwStrategy $ ProductTooSmall i
+  s -> throwStrategy $ UnexpectedSchema rep "a record" s
+  where
+    rep = "extractProductItemBy ... " <> dquotes (pretty i)
+    msg = "Codec.Winery.extractProductItemBy ... " <> show i <> ": impossible"
 
 -- | Tries to extract a specific constructor of a variant. Useful for
 -- implementing backward-compatible extractors.

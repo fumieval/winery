@@ -16,6 +16,7 @@ module Codec.Winery.Query (Query(..)
   , list
   , range
   , field
+  , productItem
   , con
   , select) where
 
@@ -60,6 +61,9 @@ range :: Typeable a => Int -> Int -> Query a a
 range i j = Query $ fmap (\v -> foldMap id
   $ V.backpermute v (V.enumFromTo (i `mod` V.length v) (j `mod` V.length v)))
   . extractListBy
+
+productItem :: Typeable a => Int -> Query a a
+productItem i = Query $ \d -> buildExtractor $ extractProductItemBy d i
 
 -- | Takes a record and extracts the specified field.
 field :: Typeable a => T.Text -> Query a a

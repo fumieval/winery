@@ -55,6 +55,7 @@ parseTerm = L.lexeme space $ choice
       j <- optional (symbol ":" >> L.decimal)
       _ <- char ']'
       return $ range (maybe 0 id i) (maybe (-1) id j)
+    , productItem <$> L.decimal
     , field <$> name
     , return id
     ]

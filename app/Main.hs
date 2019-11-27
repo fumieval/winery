@@ -66,7 +66,7 @@ app o q h = do
   printer <- case separateSchema o of
     Just mpath -> do
       bs <- maybe (getLengthPrefixed h) B.readFile mpath
-      sch <- getRight $ deserialise bs
+      sch <- getRight $ deserialiseSchema bs
       when (printSchema o) $ putDoc $ pretty sch <> hardline
       dec <- getDec sch
       return $ mapM_ putTerm . evalDecoder dec
