@@ -36,7 +36,7 @@ symbol :: T.Text -> Parser T.Text
 symbol = L.symbol space
 
 name :: Parser T.Text
-name = fmap T.pack (some (alphaNumChar <|> oneOf ("_\'" :: [Char])) <?> "field name")
+name = fmap T.pack (some (alphaNumChar <|> oneOf ("_\'" :: String)) <?> "field name")
 
 parseQuery :: Typeable a => Parser (Query (Doc a) (Doc a))
 parseQuery = foldr (.) id <$> sepBy1 parseTerms (symbol "|")

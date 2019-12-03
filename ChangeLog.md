@@ -4,6 +4,7 @@
 * Added `mkExtractor`
 * `unwrapExtractor` is deprecated
 * Removed `Data.Winery`
+* The query language now supports `.N` to access N-th item of a product
 
 ## 1.1.3
 

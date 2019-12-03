@@ -236,7 +236,7 @@ instance Pretty Term where
   pretty (TUTCTime t) = pretty (show t)
 
 -- | This may be thrown if illegal 'Term' is passed to an extractor.
-data ExtractException = InvalidTerm !Term deriving Show
+newtype ExtractException = InvalidTerm Term deriving Show
 instance Exception ExtractException
 
 -- | 'Extractor' is a 'Plan' that creates a function to extract a value from Term.

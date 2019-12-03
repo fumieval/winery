@@ -5,6 +5,7 @@ import Control.Monad
 import qualified Data.Aeson as JSON
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
+import Data.List (foldl')
 import Data.Text.Prettyprint.Doc
 import Data.Text.Prettyprint.Doc.Render.Terminal
 import Data.Word (Word64)
@@ -83,7 +84,7 @@ app o q h = do
 main :: IO ()
 main = getOpt Permute options <$> getArgs >>= \case
   (fs, qs : paths, []) -> do
-    let o = foldl (flip id) defaultOptions fs
+    let o = foldl' (flip id) defaultOptions fs
     q <- case parse (parseQuery <* eof) "argument" $ T.pack qs of
       Left e -> do
 #if MIN_VERSION_megaparsec(7,0,0)
@@ -93,9 +94,10 @@ main = getOpt Permute options <$> getArgs >>= \case
 #endif
         exitWith (ExitFailure 2)
       Right a -> pure a
-    forM_ paths $ \case
-      "-" -> app o q stdin
-      path -> withFile path ReadMode (app o q)
+    case paths of
+      [] -> app o q stdin
+      ["-"] -> app o q stdin
+      paths -> forM_ paths $ \path -> withFile path ReadMode (app o q)
 
   (_, _, es) -> do
     name <- getProgName
