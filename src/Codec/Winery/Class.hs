@@ -6,7 +6,6 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
@@ -732,7 +731,7 @@ gextractorRecord :: forall a. (GSerialiseRecord (Rep a), Generic a, Typeable a)
   => Maybe a -- ^ default value (optional)
   -> Extractor a
 gextractorRecord def = Extractor $ mkPlan
-  $ fmap (fmap (to .)) $ extractorRecord'
+  $ fmap (to .) <$> extractorRecord'
   ("gextractorRecord :: Extractor " <> viaShow (typeRep (Proxy @ a)))
   (from <$> def)
 

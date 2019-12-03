@@ -25,6 +25,7 @@ import Control.Applicative
 import Control.Category
 import Codec.Winery
 import Codec.Winery.Internal
+import Data.Foldable (fold)
 import Data.Typeable
 import qualified Data.Text as T
 import qualified Data.Vector as V
@@ -58,7 +59,7 @@ list = Query $ fmap concat . extractListBy
 -- | Takes a list and enumerates elements in the specified range.
 -- Like Python's array slicing, negative numbers counts from the last element.
 range :: Typeable a => Int -> Int -> Query a a
-range i j = Query $ fmap (\v -> foldMap id
+range i j = Query $ fmap (\v -> fold
   $ V.backpermute v (V.enumFromTo (i `mod` V.length v) (j `mod` V.length v)))
   . extractListBy
 

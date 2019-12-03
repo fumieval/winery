@@ -1,3 +1,7 @@
+## 1.1.4
+
+* The query language now supports `.N` to access N-th item of a product
+
 ## 1.1.3
 
 * Added `schemaToBuilder`
