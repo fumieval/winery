@@ -1,8 +1,9 @@
 ## 1.2
 
-* Removed `Plan`, `mkPlan`
+* Removed `Plan` and `mkPlan`
 * Added `mkExtractor`
 * `unwrapExtractor` is deprecated
+* Removed `Data.Winery`
 
 ## 1.1.3
 

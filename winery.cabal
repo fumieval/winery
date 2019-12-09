@@ -36,8 +36,6 @@ library
       Codec.Winery.Query
       Codec.Winery.Query.Parser
       Codec.Winery.Test
-      Data.Winery
-      Data.Winery.Test
   hs-source-dirs:
       src
   ghc-options: -Wall -O2 -Wcompat
