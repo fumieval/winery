@@ -30,7 +30,6 @@ module Codec.Winery.Base
   , Strategy'
   , StrategyBind(..)
   , StrategyEnv(..)
-  , Plan(..)
   , unwrapExtractor
   , WineryException(..)
   , prettyWineryException
@@ -246,16 +245,16 @@ instance Exception ExtractException
 -- This is also 'Alternative', meaning that fallback plans may be added.
 --
 -- /"Don't get set into one form, adapt it and build your own, and let it grow, be like water."/
-newtype Extractor a = Extractor { getExtractor :: Plan (Term -> a) }
+newtype Extractor a = Extractor { runExtractor :: Schema -> Strategy' (Term -> a) }
   deriving Functor
 
 instance Applicative Extractor where
-  pure = Extractor . pure . pure
-  Extractor f <*> Extractor x = Extractor $ (<*>) <$> f <*> x
+  pure = Extractor . pure . pure . pure
+  Extractor f <*> Extractor x = Extractor $ \s -> (<*>) <$> f s <*> x s
 
 instance Alternative Extractor where
-  empty = Extractor empty
-  Extractor f <|> Extractor g = Extractor $ f <|> g
+  empty = Extractor $ const empty
+  Extractor f <|> Extractor g = Extractor $ liftA2 (<|>) f g
 
 data StrategyBind = DynDecoder !Dynamic -- ^ A fixpoint of a decoder
     | BoundSchema !Int !Schema
@@ -265,29 +264,11 @@ data StrategyEnv = StrategyEnv !Int ![StrategyBind]
 
 type Strategy' = Strategy WineryException StrategyEnv
 
--- | Plan is a monad for computations which interpret 'Schema'.
-newtype Plan a = Plan { unPlan :: Schema -> Strategy' a }
-  deriving Functor
-
-instance Applicative Plan where
-  pure = Plan . const . pure
-  m <*> k = Plan $ \sch -> Strategy $ \decs -> case unStrategy (unPlan m sch) decs of
-    Right f -> f <$> unStrategy (unPlan k sch) decs
-    Left e -> Left e
-
-instance Monad Plan where
-  m >>= k = Plan $ \sch -> Strategy $ \decs -> case unStrategy (unPlan m sch) decs of
-    Right a -> unStrategy (unPlan (k a) sch) decs
-    Left e -> Left e
-
-instance Alternative Plan where
-  empty = Plan $ const empty
-  Plan a <|> Plan b = Plan $ \s -> a s <|> b s
-
 -- | Run an 'Extractor'.
 unwrapExtractor :: Extractor a -> Schema -> Strategy' (Term -> a)
-unwrapExtractor (Extractor m) = unPlan m
+unwrapExtractor (Extractor m) = m
 {-# INLINE unwrapExtractor #-}
+{-# DEPRECATED unwrapExtractor "Use runExtractor instead" #-}
 
 -- | Exceptions thrown when by an extractor
 data WineryException = UnexpectedSchema !(Doc AnsiStyle) !(Doc AnsiStyle) !Schema

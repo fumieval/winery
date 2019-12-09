@@ -27,7 +27,7 @@ module Codec.Winery.Class (Serialise(..)
   , getSchema
   , schema
   , unexpectedSchema
-  , mkPlan
+  , mkExtractor
   , extractListBy
   , gschemaGenRecord
   , gtoBuilderRecord
@@ -224,20 +224,24 @@ unexpectedSchema :: forall f a. Serialise a => Doc AnsiStyle -> Schema -> Strate
 unexpectedSchema subject actual = throwStrategy
   $ UnexpectedSchema subject (pretty $ schema (Proxy @ a)) actual
 
--- | Construct a plan, expanding fixpoints and let bindings.
-mkPlan :: forall a. Typeable a => (Schema -> Strategy' (Term -> a)) -> Plan (Term -> a)
-mkPlan k = Plan $ \sch -> Strategy $ \(StrategyEnv ofs decs) -> case sch of
+mkExtractor :: Typeable a => (Schema -> Strategy' (Term -> a)) -> Extractor a
+mkExtractor = Extractor . recursiveStrategy
+{-# INLINE mkExtractor #-}
+
+-- | Handle (recursive) schema bindings.
+recursiveStrategy :: forall a. Typeable a => (Schema -> Strategy' (Term -> a)) -> Schema -> Strategy' (Term -> a)
+recursiveStrategy k sch = Strategy $ \(StrategyEnv ofs decs) -> case sch of
   SVar i
     | point : _ <- drop i decs -> case point of
-      BoundSchema ofs' sch' -> unPlan (mkPlan k) sch' `unStrategy` StrategyEnv ofs' (drop (ofs - ofs') decs)
+      BoundSchema ofs' sch' -> recursiveStrategy k sch' `unStrategy` StrategyEnv ofs' (drop (ofs - ofs') decs)
       DynDecoder dyn -> case fromDynamic dyn of
         Nothing -> Left $ TypeMismatch i
           (typeRep (Proxy @ (Term -> a)))
           (dynTypeRep dyn)
         Just a -> Right a
     | otherwise -> Left $ UnboundVariable i
-  SFix s -> mfix $ \a -> unPlan (mkPlan k) s `unStrategy` StrategyEnv (ofs + 1) (DynDecoder (toDyn a) : decs)
-  SLet s t -> unPlan (mkPlan k) t `unStrategy` StrategyEnv (ofs + 1) (BoundSchema ofs s : decs)
+  SFix s -> mfix $ \a -> recursiveStrategy k s `unStrategy` StrategyEnv (ofs + 1) (DynDecoder (toDyn a) : decs)
+  SLet s t -> recursiveStrategy k t `unStrategy` StrategyEnv (ofs + 1) (BoundSchema ofs s : decs)
   s -> k s `unStrategy` StrategyEnv ofs decs
 
 instance Serialise Tag where
@@ -264,7 +268,7 @@ instance Serialise Bool where
   toBuilder False = BB.word8 0
   toBuilder True = BB.word8 1
   {-# INLINE toBuilder #-}
-  extractor = Extractor $ mkPlan $ \case
+  extractor = mkExtractor $ \case
     SBool -> pure $ \case
       TBool b -> b
       t -> throw $ InvalidTerm t
@@ -275,7 +279,7 @@ instance Serialise Word8 where
   schemaGen _ = pure SWord8
   toBuilder = BB.word8
   {-# INLINE toBuilder #-}
-  extractor = Extractor $ mkPlan $ \case
+  extractor = mkExtractor $ \case
     SWord8 -> pure $ \case
       TWord8 i -> i
       t -> throw $ InvalidTerm t
@@ -286,7 +290,7 @@ instance Serialise Word16 where
   schemaGen _ = pure SWord16
   toBuilder = BB.word16LE
   {-# INLINE toBuilder #-}
-  extractor = Extractor $ mkPlan $ \case
+  extractor = mkExtractor $ \case
     SWord16 -> pure $ \case
       TWord16 i -> i
       t -> throw $ InvalidTerm t
@@ -297,7 +301,7 @@ instance Serialise Word32 where
   schemaGen _ = pure SWord32
   toBuilder = BB.word32LE
   {-# INLINE toBuilder #-}
-  extractor = Extractor $ mkPlan $ \case
+  extractor = mkExtractor $ \case
     SWord32 -> pure $ \case
       TWord32 i -> i
       t -> throw $ InvalidTerm t
@@ -308,7 +312,7 @@ instance Serialise Word64 where
   schemaGen _ = pure SWord64
   toBuilder = BB.word64LE
   {-# INLINE toBuilder #-}
-  extractor = Extractor $ mkPlan $ \case
+  extractor = mkExtractor $ \case
     SWord64 -> pure $ \case
       TWord64 i -> i
       t -> throw $ InvalidTerm t
@@ -319,7 +323,7 @@ instance Serialise Word where
   schemaGen _ = pure SWord64
   toBuilder = BB.word64LE . fromIntegral
   {-# INLINE toBuilder #-}
-  extractor = Extractor $ mkPlan $ \case
+  extractor = mkExtractor $ \case
     SWord64 -> pure $ \case
       TWord64 i -> fromIntegral i
       t -> throw $ InvalidTerm t
@@ -330,7 +334,7 @@ instance Serialise Int8 where
   schemaGen _ = pure SInt8
   toBuilder = BB.word8 . fromIntegral
   {-# INLINE toBuilder #-}
-  extractor = Extractor $ mkPlan $ \case
+  extractor = mkExtractor $ \case
     SInt8 -> pure $ \case
       TInt8 i -> i
       t -> throw $ InvalidTerm t
@@ -341,7 +345,7 @@ instance Serialise Int16 where
   schemaGen _ = pure SInt16
   toBuilder = BB.word16LE . fromIntegral
   {-# INLINE toBuilder #-}
-  extractor = Extractor $ mkPlan $ \case
+  extractor = mkExtractor $ \case
     SInt16 -> pure $ \case
       TInt16 i -> i
       t -> throw $ InvalidTerm t
@@ -352,7 +356,7 @@ instance Serialise Int32 where
   schemaGen _ = pure SInt32
   toBuilder = BB.word32LE . fromIntegral
   {-# INLINE toBuilder #-}
-  extractor = Extractor $ mkPlan $ \case
+  extractor = mkExtractor $ \case
     SInt32 -> pure $ \case
       TInt32 i -> i
       t -> throw $ InvalidTerm t
@@ -363,7 +367,7 @@ instance Serialise Int64 where
   schemaGen _ = pure SInt64
   toBuilder = BB.word64LE . fromIntegral
   {-# INLINE toBuilder #-}
-  extractor = Extractor $ mkPlan $ \case
+  extractor = mkExtractor $ \case
     SInt64 -> pure $ \case
       TInt64 i -> i
       t -> throw $ InvalidTerm t
@@ -374,7 +378,7 @@ instance Serialise Int where
   schemaGen _ = pure SInteger
   toBuilder = toBuilder . VarInt
   {-# INLINE toBuilder #-}
-  extractor = Extractor $ mkPlan $ \case
+  extractor = mkExtractor $ \case
     SInteger -> pure $ \case
       TInteger i -> fromIntegral i
       t -> throw $ InvalidTerm t
@@ -385,7 +389,7 @@ instance Serialise Float where
   schemaGen _ = pure SFloat
   toBuilder = BB.floatLE
   {-# INLINE toBuilder #-}
-  extractor = Extractor $ mkPlan $ \case
+  extractor = mkExtractor $ \case
     SFloat -> pure $ \case
       TFloat x -> x
       t -> throw $ InvalidTerm t
@@ -396,7 +400,7 @@ instance Serialise Double where
   schemaGen _ = pure SDouble
   toBuilder = BB.doubleLE
   {-# INLINE toBuilder #-}
-  extractor = Extractor $ mkPlan $ \case
+  extractor = mkExtractor $ \case
     SDouble -> pure $ \case
       TDouble x -> x
       t -> throw $ InvalidTerm t
@@ -407,7 +411,7 @@ instance Serialise T.Text where
   schemaGen _ = pure SText
   toBuilder = toBuilder . T.encodeUtf8
   {-# INLINE toBuilder #-}
-  extractor = Extractor $ mkPlan $ \case
+  extractor = mkExtractor $ \case
     SText -> pure $ \case
       TText t -> t
       t -> throw $ InvalidTerm t
@@ -424,7 +428,7 @@ instance (Typeable a, Bits a, Integral a) => Serialise (VarInt a) where
   schemaGen _ = pure SInteger
   toBuilder = varInt . getVarInt
   {-# INLINE toBuilder #-}
-  extractor = Extractor $ mkPlan $ \case
+  extractor = mkExtractor $ \case
     SInteger -> pure $ \case
       TInteger i -> fromIntegral i
       t -> throw $ InvalidTerm t
@@ -448,7 +452,7 @@ instance Serialise Char where
   schemaGen _ = pure SChar
   toBuilder = toBuilder . fromEnum
   {-# INLINE toBuilder #-}
-  extractor = Extractor $ mkPlan $ \case
+  extractor = mkExtractor $ \case
     SChar -> pure $ \case
       TChar c -> c
       t -> throw $ InvalidTerm t
@@ -465,7 +469,7 @@ instance Serialise B.ByteString where
   schemaGen _ = pure SBytes
   toBuilder bs = varInt (B.length bs) <> BB.byteString bs
   {-# INLINE toBuilder #-}
-  extractor = Extractor $ mkPlan $ \case
+  extractor = mkExtractor $ \case
     SBytes -> pure $ \case
       TBytes bs -> bs
       t -> throw $ InvalidTerm t
@@ -487,7 +491,7 @@ instance Serialise UTCTime where
   schemaGen _ = pure SUTCTime
   toBuilder = toBuilder . utcTimeToPOSIXSeconds
   {-# INLINE toBuilder #-}
-  extractor = Extractor $ Plan $ \case
+  extractor = mkExtractor $ \case
     SUTCTime -> pure $ \case
       TUTCTime bs -> bs
       t -> throw $ InvalidTerm t
@@ -504,9 +508,9 @@ instance Serialise NominalDiffTime where
 
 -- | Extract a list or an array of values.
 extractListBy :: Typeable a => Extractor a -> Extractor (V.Vector a)
-extractListBy (Extractor plan) = Extractor $ mkPlan $ \case
+extractListBy (Extractor plan) = mkExtractor $ \case
   SVector s -> do
-    getItem <- unPlan plan s
+    getItem <- plan s
     return $ \case
       TVector xs -> V.map getItem xs
       t -> throw $ InvalidTerm t
@@ -607,7 +611,7 @@ instance Serialise Scientific where
   schemaGen _ = schemaGen (Proxy @ (Integer, Int))
   toBuilder s = toBuilder (coefficient s, base10Exponent s)
   {-# INLINE toBuilder #-}
-  extractor = Extractor $ Plan $ \s -> case s of
+  extractor = mkExtractor $ \s -> case s of
     SWord8 -> f (fromIntegral :: Word8 -> Scientific) s
     SWord16 -> f (fromIntegral :: Word16 -> Scientific) s
     SWord32 -> f (fromIntegral :: Word32 -> Scientific) s
@@ -621,7 +625,7 @@ instance Serialise Scientific where
     SDouble -> f (realToFrac :: Double -> Scientific) s
     _ -> f (uncurry scientific) s
     where
-      f c = unwrapExtractor (c <$> extractor)
+      f c = runExtractor (c <$> extractor)
   decodeCurrent = scientific <$> decodeCurrent <*> decodeCurrent
 
 instance (Serialise a, Serialise b) => Serialise (a, b) where
@@ -711,7 +715,7 @@ instance Serialise a => Serialise (Complex a) where
 instance Serialise Void where
   schemaGen _ = pure $ SVariant V.empty
   toBuilder = mempty
-  extractor = Extractor $ Plan $ const $ throwStrategy "No extractor for Void"
+  extractor = Extractor $ const $ throwStrategy "No extractor for Void"
   decodeCurrent = error "No decodeCurrent for Void"
 
 --------------------------------------------------------------------------------
@@ -725,13 +729,13 @@ gtoBuilderRecord :: (GEncodeProduct (Rep a), Generic a) => a -> BB.Builder
 gtoBuilderRecord = productEncoder . from
 {-# INLINE gtoBuilderRecord #-}
 
-data FieldDecoder i a = FieldDecoder !i !(Maybe a) !(Plan (Term -> a))
+data FieldDecoder i a = FieldDecoder !i !(Maybe a) !(Schema -> Strategy' (Term -> a))
 
 -- | Generic implementation of 'extractor' for a record.
 gextractorRecord :: forall a. (GSerialiseRecord (Rep a), Generic a, Typeable a)
   => Maybe a -- ^ default value (optional)
   -> Extractor a
-gextractorRecord def = Extractor $ mkPlan
+gextractorRecord def = mkExtractor
   $ fmap (fmap (to .)) $ extractorRecord'
   ("gextractorRecord :: Extractor " <> viaShow (typeRep (Proxy @ a)))
   (from <$> def)
@@ -747,7 +751,7 @@ extractorRecord' rep def (SRecord schs) = Strategy $ \decs -> do
           Nothing -> case def' of
             Just d -> Right (const d)
             Nothing -> Left $ FieldNotFound rep name (map fst $ V.toList schs)
-          Just (i, sch) -> case p `unPlan` sch `unStrategy` decs of
+          Just (i, sch) -> case p sch `unStrategy` decs of
             Right getItem -> Right $ \case
               TRecord xs -> maybe (error (show rep)) (getItem . snd) $ xs V.!? i
               t -> throw $ InvalidTerm t
@@ -821,7 +825,7 @@ instance (Serialise a, Selector c) => GSerialiseRecord (S1 c (K1 i a)) where
   recordExtractor def = TransFusion $ \k -> fmap (fmap (M1 . K1)) $ k $ FieldDecoder
     (T.pack $ selName (M1 undefined :: M1 i c (K1 i a) x))
     (unK1 . unM1 <$> def)
-    (getExtractor extractor)
+    (runExtractor extractor)
   {-# INLINE recordExtractor #-}
 
 instance (GSerialiseRecord f) => GSerialiseRecord (C1 c f) where
@@ -843,7 +847,7 @@ instance GSerialiseProduct U1 where
 instance (Serialise a) => GSerialiseProduct (K1 i a) where
   productSchema _ = pure <$> getSchema (Proxy @ a)
   productExtractor = Compose $ State $ \i ->
-    ( TransFusion $ \k -> fmap (fmap K1) $ k $ FieldDecoder i Nothing (getExtractor extractor)
+    ( TransFusion $ \k -> fmap (fmap K1) $ k $ FieldDecoder i Nothing (runExtractor extractor)
     , i + 1)
 
 instance GSerialiseProduct f => GSerialiseProduct (M1 i c f) where
@@ -865,7 +869,7 @@ gtoBuilderProduct = productEncoder . from
 -- | Generic implementation of 'extractor' for a record.
 gextractorProduct :: forall a. (GSerialiseProduct (Rep a), Generic a, Typeable a)
   => Extractor a
-gextractorProduct = Extractor $ mkPlan $ fmap (to .) . extractorProduct'
+gextractorProduct = mkExtractor $ fmap (to .) . extractorProduct'
 {-# INLINE gextractorProduct #-}
 
 -- | Generic implementation of 'extractor' for a record.
@@ -880,7 +884,7 @@ extractorProduct' sch
     let go :: FieldDecoder Int x -> Either WineryException (Term -> x)
         go (FieldDecoder i _ p) = do
           getItem <- if i < length schs
-            then unPlan p (schs V.! i) `unStrategy` recs
+            then p (schs V.! i) `unStrategy` recs
             else Left $ ProductTooSmall $ length schs
           return $ \case
             TProduct xs -> getItem $ maybe (throw $ InvalidTerm (TProduct xs)) id
@@ -905,7 +909,7 @@ gtoBuilderVariant = variantEncoder (variantCount (Proxy :: Proxy (Rep a))) 0 . f
 -- | Generic implementation of 'extractor' for an ADT.
 gextractorVariant :: forall a. (GSerialiseVariant (Rep a), Generic a, Typeable a)
   => Extractor a
-gextractorVariant = Extractor $ mkPlan $ \case
+gextractorVariant = mkExtractor $ \case
   SVariant schs0 -> Strategy $ \decs -> do
     ds' <- traverse (\(name, sch) -> case lookup name variantExtractor of
       Nothing -> Left $ FieldNotFound rep name (map fst $ V.toList schs0)

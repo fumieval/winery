@@ -61,7 +61,7 @@ app o q h = do
   let p
         | outputJSON o = pretty . T.decodeUtf8 . BL.toStrict . JSON.encode
         | otherwise = pretty
-  let getDec = getRight . getDecoderBy (Q.runQuery q (Extractor (pure (pure . p))))
+  let getDec = getRight . getDecoderBy (Q.runQuery q $ Extractor $ const $ pure (pure . p))
 
   printer <- case separateSchema o of
     Just mpath -> do

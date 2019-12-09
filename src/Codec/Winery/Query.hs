@@ -49,7 +49,7 @@ instance Alternative (Query a) where
 
 -- | Throw an error.
 invalid :: WineryException -> Query a b
-invalid = Query . const . Extractor . Plan . const . throwStrategy
+invalid = Query . const . Extractor . const . throwStrategy
 
 -- | Takes a list and traverses on it.
 list :: Typeable a => Query a a
@@ -75,7 +75,7 @@ con name = Query $ \d -> buildExtractor $ extractConstructorBy (d, name, id) (pu
 
 -- | Propagate values if the supplied 'Query' doesn't return False.
 select :: Query a Bool -> Query a a
-select qp = Query $ \d -> Extractor $ Plan $ \sch -> do
-  p <- unwrapExtractor (runQuery qp d) sch
-  dec <- unwrapExtractor d sch
+select qp = Query $ \d -> Extractor $ \sch -> do
+  p <- runExtractor (runQuery qp d) sch
+  dec <- runExtractor d sch
   return $ \bs -> [x | and $ p bs, x <- dec bs]
