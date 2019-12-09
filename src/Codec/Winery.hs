@@ -67,8 +67,6 @@ module Codec.Winery
   , unexpectedSchema
   , SchemaGen
   , getSchema
-  , Plan(..)
-  , mkPlan
   -- * DerivingVia
   , WineryRecord(..)
   , WineryVariant(..)
@@ -215,7 +213,7 @@ getDecoder sch
 -- | Get a decoder from a `Extractor` and a schema.
 getDecoderBy :: Extractor a -> Schema -> Either WineryException (Decoder a)
 getDecoderBy (Extractor plan) sch = (\f -> f <$> decodeTerm sch)
-  <$> unPlan plan sch `unStrategy` StrategyEnv 0 []
+  <$> plan sch `unStrategy` StrategyEnv 0 []
 {-# INLINE getDecoderBy #-}
 
 -- | Serialise a value along with its schema.
@@ -292,7 +290,7 @@ serialiseOnly = BB.toStrictByteString . toBuilder
 
 -- | Build an extractor from a 'Subextractor'.
 buildExtractor :: Typeable a => Subextractor a -> Extractor a
-buildExtractor (Subextractor e) = Extractor $ mkPlan $ unwrapExtractor e
+buildExtractor (Subextractor e) = mkExtractor $ runExtractor e
 {-# INLINE buildExtractor #-}
 
 -- | An extractor for individual fields. This distinction is required for
@@ -309,10 +307,10 @@ extractField = extractFieldBy extractor
 
 -- | Extract a field using the supplied 'Extractor'.
 extractFieldBy :: Extractor a -> T.Text -> Subextractor a
-extractFieldBy (Extractor g) name = Subextractor $ Extractor $ Plan $ \case
+extractFieldBy (Extractor g) name = Subextractor $ Extractor $ \case
   SRecord schs -> case lookupWithIndexV name schs of
     Just (i, sch) -> do
-      m <- unPlan g sch
+      m <- g sch
       return $ \case
         TRecord xs -> maybe (error msg) (m . snd) $ xs V.!? i
         t -> throw $ InvalidTerm t
@@ -324,10 +322,10 @@ extractFieldBy (Extractor g) name = Subextractor $ Extractor $ Plan $ \case
 
 -- | Extract a field using the supplied 'Extractor'.
 extractProductItemBy :: Extractor a -> Int -> Subextractor a
-extractProductItemBy (Extractor g) i = Subextractor $ Extractor $ Plan $ \case
+extractProductItemBy (Extractor g) i = Subextractor $ Extractor $ \case
   SProduct schs -> case schs V.!? i of
     Just sch -> do
-      m <- unPlan g sch
+      m <- g sch
       return $ \case
         TProduct xs -> maybe (error msg) m $ xs V.!? i
         t -> throw $ InvalidTerm t
@@ -340,10 +338,10 @@ extractProductItemBy (Extractor g) i = Subextractor $ Extractor $ Plan $ \case
 -- | Tries to extract a specific constructor of a variant. Useful for
 -- implementing backward-compatible extractors.
 extractConstructorBy :: Typeable a => (Extractor a, T.Text, a -> r) -> Subextractor r -> Subextractor r
-extractConstructorBy (d, name, f) cont = Subextractor $ Extractor $ Plan $ \case
+extractConstructorBy (d, name, f) cont = Subextractor $ Extractor $ \case
   SVariant schs0 -> Strategy $ \decs -> do
     let run :: Extractor x -> Schema -> Either WineryException (Term -> x)
-        run e s = unwrapExtractor e s `unStrategy` decs
+        run e s = runExtractor e s `unStrategy` decs
     case lookupWithIndexV name schs0 of
       Just (i, s) -> do
         (j, dec) <- fmap ((,) i) $ run d $ case s of
@@ -370,7 +368,7 @@ extractConstructor (name, f) = extractConstructorBy (extractor, name, f)
 
 -- | No constructors remaining.
 extractVoid :: Typeable r => Subextractor r
-extractVoid = Subextractor $ Extractor $ mkPlan $ \case
+extractVoid = Subextractor $ mkExtractor $ \case
   SVariant schs0
     | V.null schs0 -> return $ throw . InvalidTerm
   s -> throwStrategy $ UnexpectedSchema "extractVoid" "no constructors" s

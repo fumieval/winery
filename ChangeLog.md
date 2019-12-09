@@ -1,3 +1,9 @@
+## 1.2
+
+* Removed `Plan`, `mkPlan`
+* Added `mkExtractor`
+* `unwrapExtractor` is deprecated
+
 ## 1.1.3
 
 * Added `schemaToBuilder`
