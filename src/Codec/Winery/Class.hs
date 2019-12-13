@@ -246,12 +246,14 @@ recursiveStrategy k sch = Strategy $ \(StrategyEnv ofs decs) -> case sch of
 instance Serialise Tag where
   schemaGen = gschemaGenVariant
   toBuilder = gtoBuilderVariant
+  {-# INLINE toBuilder #-}
   extractor = gextractorVariant
   decodeCurrent = gdecodeCurrentVariant
 
-instance Serialise Schema where
+instance (a ~ Int) => Serialise (SchemaP a) where
   schemaGen = gschemaGenVariant
   toBuilder = gtoBuilderVariant
+  {-# INLINE toBuilder #-}
   extractor = gextractorVariant
   decodeCurrent = gdecodeCurrentVariant
 
@@ -375,7 +377,7 @@ instance Serialise Int64 where
 
 instance Serialise Int where
   schemaGen _ = pure SInteger
-  toBuilder = toBuilder . VarInt
+  toBuilder = varIntFinite
   {-# INLINE toBuilder #-}
   extractor = mkExtractor $ \case
     SInteger -> pure $ \case
@@ -461,12 +463,13 @@ instance Serialise Char where
 instance Serialise a => Serialise (Maybe a) where
   schemaGen = gschemaGenVariant
   toBuilder = gtoBuilderVariant
+  {-# INLINE toBuilder #-}
   extractor = gextractorVariant
   decodeCurrent = gdecodeCurrentVariant
 
 instance Serialise B.ByteString where
   schemaGen _ = pure SBytes
-  toBuilder bs = varInt (B.length bs) <> BB.byteString bs
+  toBuilder bs = varIntFinite (B.length bs) <> BB.byteString bs
   {-# INLINE toBuilder #-}
   extractor = mkExtractor $ \case
     SBytes -> pure $ \case
@@ -518,7 +521,7 @@ extractListBy (Extractor plan) = mkExtractor $ \case
 
 instance Serialise a => Serialise [a] where
   schemaGen _ = SVector <$> getSchema (Proxy @ a)
-  toBuilder xs = varInt (length xs)
+  toBuilder xs = varIntFinite (length xs)
       <> foldMap toBuilder xs
   {-# INLINE toBuilder #-}
   extractor = V.toList <$> extractListBy extractor
@@ -528,7 +531,7 @@ instance Serialise a => Serialise [a] where
 
 instance Serialise a => Serialise (V.Vector a) where
   schemaGen _ = SVector <$> getSchema (Proxy @ a)
-  toBuilder xs = varInt (V.length xs)
+  toBuilder xs = varIntFinite (V.length xs)
     <> foldMap toBuilder xs
   {-# INLINE toBuilder #-}
   extractor = extractListBy extractor
@@ -630,36 +633,42 @@ instance Serialise Scientific where
 instance (Serialise a, Serialise b) => Serialise (a, b) where
   schemaGen = gschemaGenProduct
   toBuilder = gtoBuilderProduct
+  {-# INLINE toBuilder #-}
   extractor = gextractorProduct
   decodeCurrent = gdecodeCurrentProduct
 
 instance (Serialise a, Serialise b, Serialise c) => Serialise (a, b, c) where
   schemaGen = gschemaGenProduct
   toBuilder = gtoBuilderProduct
+  {-# INLINE toBuilder #-}
   extractor = gextractorProduct
   decodeCurrent = gdecodeCurrentProduct
 
 instance (Serialise a, Serialise b, Serialise c, Serialise d) => Serialise (a, b, c, d) where
   schemaGen = gschemaGenProduct
   toBuilder = gtoBuilderProduct
+  {-# INLINE toBuilder #-}
   extractor = gextractorProduct
   decodeCurrent = gdecodeCurrentProduct
 
 instance (Serialise a, Serialise b, Serialise c, Serialise d, Serialise e) => Serialise (a, b, c, d, e) where
   schemaGen = gschemaGenProduct
   toBuilder = gtoBuilderProduct
+  {-# INLINE toBuilder #-}
   extractor = gextractorProduct
   decodeCurrent = gdecodeCurrentProduct
 
 instance (Serialise a, Serialise b, Serialise c, Serialise d, Serialise e, Serialise f) => Serialise (a, b, c, d, e, f) where
   schemaGen = gschemaGenProduct
   toBuilder = gtoBuilderProduct
+  {-# INLINE toBuilder #-}
   extractor = gextractorProduct
   decodeCurrent = gdecodeCurrentProduct
 
 instance (Serialise a, Serialise b) => Serialise (Either a b) where
   schemaGen = gschemaGenVariant
   toBuilder = gtoBuilderVariant
+  {-# INLINE toBuilder #-}
   extractor = gextractorVariant
   decodeCurrent = gdecodeCurrentVariant
 
@@ -667,6 +676,7 @@ instance (Serialise a, Serialise b) => Serialise (Either a b) where
 instance Serialise Ordering where
   schemaGen = gschemaGenVariant
   toBuilder = gtoBuilderVariant
+  {-# INLINE toBuilder #-}
   extractor = gextractorVariant
   decodeCurrent = gdecodeCurrentVariant
 
@@ -702,12 +712,14 @@ instance (Typeable k, Typeable a, Typeable b, a ~ b) => Serialise ((a :: k) :~: 
 instance (Serialise a, Serialise b) => Serialise (Arg a b) where
   schemaGen = gschemaGenProduct
   toBuilder = gtoBuilderProduct
+  {-# INLINE toBuilder #-}
   extractor = gextractorProduct
   decodeCurrent = gdecodeCurrentProduct
 
 instance Serialise a => Serialise (Complex a) where
   schemaGen = gschemaGenProduct
   toBuilder = gtoBuilderProduct
+  {-# INLINE toBuilder #-}
   extractor = gextractorProduct
   decodeCurrent = gdecodeCurrentProduct
 
@@ -974,7 +986,7 @@ instance (GEncodeVariant f, GEncodeVariant g) => GEncodeVariant (f :+: g) where
   {-# INLINE variantEncoder #-}
 
 instance (GEncodeProduct f) => GEncodeVariant (C1 i f) where
-  variantEncoder _ !i (M1 a) = varInt i <> productEncoder a
+  variantEncoder _ !i (M1 a) = varIntFinite i <> productEncoder a
   {-# INLINE variantEncoder #-}
 
 instance GEncodeVariant f => GEncodeVariant (D1 i f) where

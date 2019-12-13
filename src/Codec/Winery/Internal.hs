@@ -22,6 +22,7 @@
 module Codec.Winery.Internal
   ( unsignedVarInt
   , varInt
+  , varIntFinite
   , Decoder(..)
   , DecoderResult(..)
   , evalDecoder

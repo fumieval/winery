@@ -40,6 +40,7 @@ module Codec.Winery
   , schemaToBuilder
   , deserialiseSchema
   , Extractor(..)
+  , mkExtractor
   , unwrapExtractor
   , Decoder
   , evalDecoder
@@ -251,6 +252,7 @@ serialiseSchema = BB.toStrictByteString . schemaToBuilder
 
 schemaToBuilder :: Schema -> BB.Builder
 schemaToBuilder = mappend (BB.word8 currentSchemaVersion) . toBuilder
+{-# INLINE schemaToBuilder #-}
 
 -- | Deserialise a 'serialise'd 'B.Bytestring'.
 --
@@ -383,9 +385,13 @@ newtype WineryRecord a = WineryRecord { unWineryRecord :: a }
 
 instance (GEncodeProduct (Rep a), GSerialiseRecord (Rep a), GDecodeProduct (Rep a), Generic a, Typeable a) => Serialise (WineryRecord a) where
   schemaGen _ = gschemaGenRecord (Proxy @ a)
+  {-# INLINE schemaGen #-}
   toBuilder = gtoBuilderRecord . unWineryRecord
+  {-# INLINE toBuilder #-}
   extractor = WineryRecord <$> gextractorRecord Nothing
+  {-# INLINE extractor #-}
   decodeCurrent = WineryRecord <$> gdecodeCurrentRecord
+  {-# INLINE decodeCurrent #-}
 
 -- | Serialise a value as a product (omits field names).
 --
@@ -394,9 +400,13 @@ newtype WineryProduct a = WineryProduct { unWineryProduct :: a }
 
 instance (GEncodeProduct (Rep a), GSerialiseProduct (Rep a), GDecodeProduct (Rep a), Generic a, Typeable a) => Serialise (WineryProduct a) where
   schemaGen _ = gschemaGenProduct (Proxy @ a)
+  {-# INLINE schemaGen #-}
   toBuilder = gtoBuilderProduct . unWineryProduct
+  {-# INLINE toBuilder #-}
   extractor = WineryProduct <$> gextractorProduct
+  {-# INLINE extractor #-}
   decodeCurrent = WineryProduct <$> gdecodeCurrentProduct
+  {-# INLINE decodeCurrent #-}
 
 -- | The 'Serialise' instance is generically defined for variants.
 --
@@ -405,6 +415,10 @@ newtype WineryVariant a = WineryVariant { unWineryVariant :: a }
 
 instance (GConstructorCount (Rep a), GSerialiseVariant (Rep a), GEncodeVariant (Rep a), GDecodeVariant (Rep a), Generic a, Typeable a) => Serialise (WineryVariant a) where
   schemaGen _ = gschemaGenVariant (Proxy @ a)
+  {-# INLINE schemaGen #-}
   toBuilder = gtoBuilderVariant . unWineryVariant
+  {-# INLINE toBuilder #-}
   extractor = WineryVariant <$> gextractorVariant
+  {-# INLINE extractor #-}
   decodeCurrent = WineryVariant <$> gdecodeCurrentVariant
+  {-# INLINE decodeCurrent #-}
