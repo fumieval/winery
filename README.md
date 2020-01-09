@@ -3,6 +3,7 @@
 ![logo](https://github.com/fumieval/winery/blob/master/art/logo256px.png?raw=true)
 [![Build Status](https://travis-ci.org/fumieval/winery.svg?branch=master)](https://travis-ci.org/fumieval/winery)
 [![Hackage](https://img.shields.io/hackage/v/winery.svg)](https://hackage.haskell.org/package/winery)
+[![Discord](https://img.shields.io/discord/664807830116892674?color=%237095ec&label=Discord&style=plastic)](https://discord.gg/DG93Tgs)
 
 winery is a serialisation library focusing on __performance__, __compactness__
 and __compatibility__. The primary feature is that metadata (types, field names,
