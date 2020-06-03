@@ -19,7 +19,6 @@ build-type:     Simple
 extra-source-files:
   README.md
   ChangeLog.md
-  .travis.yml
   art/logo.png
   art/logo.svg
 
