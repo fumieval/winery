@@ -137,6 +137,7 @@ At the moment, the following queries are supported:
 * `.[]` enumerate all the elements in a list
 * `.[i]` get the i-th element
 * `.[i:j]` enumerate i-th to j-th items
+* `.N` n-th element of a product
 * `.foo` Get a field named `foo`
 * `F | G` compose queries (left to right)
 
