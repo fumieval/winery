@@ -40,6 +40,7 @@ module Codec.Winery
   , schemaToBuilder
   , deserialiseSchema
   , Extractor(..)
+  , mkExtractor
   , unwrapExtractor
   , Decoder
   , evalDecoder
