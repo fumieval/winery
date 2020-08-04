@@ -138,5 +138,33 @@ instance Serialise Foo where
 
 prop_Foo = testSerialise @ Foo
 
+data Soup = Shoyu | Miso | Tonkotsu deriving (Generic, Eq, Show, Enum)
+
+instance Arbitrary Soup where
+  arbitrary = toEnum <$> Gen.choose (0, 2)
+
+instance Serialise Soup where
+  bundleSerialise = bundleVariant id
+
+data Food = Rice | Ramen Soup | Pasta Text Text deriving (Generic, Eq, Show)
+
+instance Arbitrary Food where
+  arbitrary = Gen.oneof
+    [ pure Rice
+    , Ramen <$> arbitrary
+    , Pasta
+      <$> Gen.elements ["Spaghetti", "Rigatoni", "Linguine"]
+      <*> Gen.elements ["Aglio e olio", "L'amatriciana", "Carbonara"]
+    ]
+
+instance Serialise Food where
+  bundleSerialise = bundleVariant $ const $ buildExtractor
+    $ ("Rice", \() -> Rice)
+    `extractConstructor` ("Ramen", Ramen)
+    `extractConstructor` ("Pasta", uncurry Pasta)
+    `extractConstructor` extractVoid
+
+prop_Food = testSerialise @ Food
+
 return []
 main = void $ $quickCheckAll

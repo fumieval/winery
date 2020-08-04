@@ -345,16 +345,21 @@ extractConstructorBy (d, name, f) cont = Subextractor $ Extractor $ \case
         run e s = runExtractor e s `unStrategy` decs
     case lookupWithIndexV name schs0 of
       Just (i, s) -> do
-        (j, dec) <- fmap ((,) i) $ run d $ case s of
-          SProduct [s'] -> s'
-          s' -> s'
+        dec <- case s of
+          -- Unwrap single-field constructor
+          SProduct [s'] -> do
+            dec <- runExtractor d s' `unStrategy` decs
+            pure $ \case
+              TProduct [v] -> dec v
+              t -> throw $ InvalidTerm t
+          _ -> runExtractor d s `unStrategy` decs
         let rest = SVariant $ V.filter ((/=name) . fst) schs0
         k <- run (unSubextractor cont) rest
         return $ \case
-          TVariant tag name v
-            | tag == j -> f $ dec v
+          TVariant tag name' v
+            | tag == i -> f $ dec v
             -- rest has fewer constructors
-            | tag > j -> k (TVariant (tag - 1) name v)
+            | tag > i -> k (TVariant (tag - 1) name' v)
           t -> k t
       _ -> run (unSubextractor cont) (SVariant schs0)
   s -> throwStrategy $ UnexpectedSchema rep "a variant" s
