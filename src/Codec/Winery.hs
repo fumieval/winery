@@ -111,7 +111,6 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.FastBuilder as BB
 import Data.Function (fix)
 import qualified Data.Text as T
-import Data.Text.Prettyprint.Doc (pretty, dquotes)
 import Data.Typeable
 import qualified Data.Vector as V
 import GHC.Generics (Generic, Rep)
@@ -313,13 +312,10 @@ extractFieldBy (Extractor g) name = Subextractor $ Extractor $ \case
     Just (i, sch) -> do
       m <- g sch
       return $ \case
-        TRecord xs -> maybe (error msg) (m . snd) $ xs V.!? i
+        TRecord xs -> maybe (throw $ InvalidTerm (TRecord xs)) (m . snd) $ xs V.!? i
         t -> throw $ InvalidTerm t
-    _ -> throwStrategy $ FieldNotFound rep name (map fst $ V.toList schs)
-  s -> throwStrategy $ UnexpectedSchema rep "a record" s
-  where
-    rep = "extractFieldBy ... " <> dquotes (pretty name)
-    msg = "Codec.Winery.extractFieldBy ... " <> show name <> ": impossible"
+    _ -> throwStrategy $ FieldNotFound [] name (map fst $ V.toList schs)
+  s -> throwStrategy $ UnexpectedSchema [] "a record" s
 
 -- | Extract a field using the supplied 'Extractor'.
 extractProductItemBy :: Extractor a -> Int -> Subextractor a
@@ -328,13 +324,10 @@ extractProductItemBy (Extractor g) i = Subextractor $ Extractor $ \case
     Just sch -> do
       m <- g sch
       return $ \case
-        TProduct xs -> maybe (error msg) m $ xs V.!? i
+        t@(TProduct xs) -> maybe (throw $ InvalidTerm t) m $ xs V.!? i
         t -> throw $ InvalidTerm t
-    _ -> throwStrategy $ ProductTooSmall i
-  s -> throwStrategy $ UnexpectedSchema rep "a record" s
-  where
-    rep = "extractProductItemBy ... " <> dquotes (pretty i)
-    msg = "Codec.Winery.extractProductItemBy ... " <> show i <> ": impossible"
+    _ -> throwStrategy $ ProductTooSmall [] i
+  s -> throwStrategy $ UnexpectedSchema [] "a record" s
 
 -- | Tries to extract a specific constructor of a variant. Useful for
 -- implementing backward-compatible extractors.
@@ -362,9 +355,7 @@ extractConstructorBy (d, name, f) cont = Subextractor $ Extractor $ \case
             | tag > i -> k (TVariant (tag - 1) name' v)
           t -> k t
       _ -> run (unSubextractor cont) (SVariant schs0)
-  s -> throwStrategy $ UnexpectedSchema rep "a variant" s
-  where
-    rep = "extractConstructorBy ... " <> dquotes (pretty name)
+  s -> throwStrategy $ UnexpectedSchema [] "a variant" s
 
 -- | Tries to match on a constructor. If it doesn't match (or constructor
 -- doesn't exist at all), leave it to the successor.
@@ -379,7 +370,7 @@ extractVoid :: Typeable r => Subextractor r
 extractVoid = Subextractor $ mkExtractor $ \case
   SVariant schs0
     | V.null schs0 -> return $ throw . InvalidTerm
-  s -> throwStrategy $ UnexpectedSchema "extractVoid" "no constructors" s
+  s -> throwStrategy $ UnexpectedSchema [] "no constructors" s
 
 infixr 1 `extractConstructorBy`
 infixr 1 `extractConstructor`

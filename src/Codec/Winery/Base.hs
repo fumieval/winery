@@ -32,6 +32,7 @@ module Codec.Winery.Base
   , StrategyEnv(..)
   , unwrapExtractor
   , WineryException(..)
+  , pushTrace
   , prettyWineryException
   )
   where
@@ -270,12 +271,23 @@ unwrapExtractor (Extractor m) = m
 {-# INLINE unwrapExtractor #-}
 {-# DEPRECATED unwrapExtractor "Use runExtractor instead" #-}
 
--- | Exceptions thrown when by an extractor
-data WineryException = UnexpectedSchema !(Doc AnsiStyle) !(Doc AnsiStyle) !Schema
-  | FieldNotFound !(Doc AnsiStyle) !T.Text ![T.Text]
-  | TypeMismatch !Int !TypeRep !TypeRep
-  | ProductTooSmall !Int
-  | UnboundVariable !Int
+pushTrace :: TypeRep -> WineryException -> WineryException
+pushTrace t (UnexpectedSchema xs d s) = UnexpectedSchema (t : xs) d s
+pushTrace t (FieldNotFound xs f fs) = FieldNotFound (t : xs) f fs
+pushTrace t (TypeMismatch xs i u v) = TypeMismatch (t : xs) i u v
+pushTrace t (ProductTooSmall xs i) = ProductTooSmall (t : xs) i
+pushTrace t (UnboundVariable xs i) = UnboundVariable (t : xs) i
+pushTrace _ x = x
+
+prettyTraces :: [TypeRep] -> Doc AnsiStyle
+prettyTraces = annotate (color Blue <> bold) . concatWith (\x y -> x <+> "/" <+> y) . map viaShow
+
+-- | Exceptions thrown by an extractor
+data WineryException = UnexpectedSchema ![TypeRep] !(Doc AnsiStyle) !Schema
+  | FieldNotFound ![TypeRep] !T.Text ![T.Text]
+  | TypeMismatch ![TypeRep] !Int !TypeRep !TypeRep
+  | ProductTooSmall ![TypeRep] !Int
+  | UnboundVariable ![TypeRep] !Int
   | EmptyInput
   | WineryMessage !(Doc AnsiStyle)
   | UnsupportedSchemaVersion !Word8
@@ -289,16 +301,19 @@ instance IsString WineryException where
 -- | Pretty-print 'WineryException'
 prettyWineryException :: WineryException -> Doc AnsiStyle
 prettyWineryException = \case
-  UnexpectedSchema subject expected actual -> annotate bold subject
+  UnexpectedSchema subject expected actual -> prettyTraces subject
     <+> "expects" <+> annotate (color Green <> bold) expected
     <+> "but got " <+> pretty actual
-  FieldNotFound rep x xs -> rep <> ": field or constructor " <> pretty x <> " not found in " <> pretty xs
-  TypeMismatch i s t -> "A type mismatch in variable"
+  FieldNotFound rep x xs -> prettyTraces rep
+    <> ": field or constructor"
+    <+> annotate bold (pretty x)
+    <+> "not found in " <> pretty xs
+  TypeMismatch trace i s t -> prettyTraces trace <> ": A type mismatch in variable"
     <+> pretty i <> ":"
     <+> "expected" <> viaShow s
     <+> "but got " <> viaShow t
-  ProductTooSmall i -> "The product is too small; expecting " <> pretty i
-  UnboundVariable i -> "Unbound variable: " <> pretty i
+  ProductTooSmall trace i -> prettyTraces trace <> ": The product is too small; expecting " <> pretty i
+  UnboundVariable trace i -> prettyTraces trace <> ": Unbound variable: " <> pretty i
   EmptyInput -> "Unexpected empty string"
   UnsupportedSchemaVersion i -> "Unsupported schema version: " <> pretty i
   WineryMessage a -> a

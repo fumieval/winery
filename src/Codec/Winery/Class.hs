@@ -90,7 +90,6 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
 import qualified Data.Vector.Unboxed as UV
 import Data.Text.Prettyprint.Doc hiding ((<>), SText, SChar)
-import Data.Text.Prettyprint.Doc.Render.Terminal
 import Data.Time.Clock
 import Data.Time.Clock.POSIX
 import Data.Typeable
@@ -220,12 +219,15 @@ schema p = case unSchemaGen (schemaGen (Proxy @ a)) (S.singleton rep) of
   where
     rep = typeRep p
 
-unexpectedSchema :: forall f a. Serialise a => Doc AnsiStyle -> Schema -> Strategy' (f a)
-unexpectedSchema subject actual = throwStrategy
-  $ UnexpectedSchema subject (pretty $ schema (Proxy @ a)) actual
+unexpectedSchema :: forall f a. Serialise a => Schema -> Strategy' (f a)
+unexpectedSchema actual = throwStrategy
+  $ UnexpectedSchema [] (pretty $ schema (Proxy @ a)) actual
 
-mkExtractor :: Typeable a => (Schema -> Strategy' (Term -> a)) -> Extractor a
-mkExtractor = Extractor . recursiveStrategy
+mkExtractor :: forall a. Typeable a => (Schema -> Strategy' (Term -> a)) -> Extractor a
+mkExtractor = Extractor . fmap addTrail . recursiveStrategy where
+  addTrail (Strategy f) = Strategy $ \env -> case f env of
+    Left e -> Left $! pushTrace (typeRep (Proxy @ a)) e
+    Right a -> Right a
 {-# INLINE mkExtractor #-}
 
 -- | Handle (recursive) schema bindings.
@@ -235,11 +237,11 @@ recursiveStrategy k sch = Strategy $ \(StrategyEnv ofs decs) -> case sch of
     | point : _ <- drop i decs -> case point of
       BoundSchema ofs' sch' -> recursiveStrategy k sch' `unStrategy` StrategyEnv ofs' (drop (ofs - ofs') decs)
       DynDecoder dyn -> case fromDynamic dyn of
-        Nothing -> Left $ TypeMismatch i
+        Nothing -> Left $ TypeMismatch [] i
           (typeRep (Proxy @ (Term -> a)))
           (dynTypeRep dyn)
         Just a -> Right a
-    | otherwise -> Left $ UnboundVariable i
+    | otherwise -> Left $ UnboundVariable [] i
   SFix s -> mfix $ \a -> recursiveStrategy k s `unStrategy` StrategyEnv (ofs + 1) (DynDecoder (toDyn a) : decs)
   SLet s t -> recursiveStrategy k t `unStrategy` StrategyEnv (ofs + 1) (BoundSchema ofs s : decs)
   s -> k s `unStrategy` StrategyEnv ofs decs
@@ -272,7 +274,7 @@ instance Serialise Bool where
     SBool -> pure $ \case
       TBool b -> b
       t -> throw $ InvalidTerm t
-    s -> unexpectedSchema "Serialise Bool" s
+    s -> unexpectedSchema s
   decodeCurrent = (/=0) <$> getWord8
 
 instance Serialise Word8 where
@@ -283,7 +285,7 @@ instance Serialise Word8 where
     SWord8 -> pure $ \case
       TWord8 i -> i
       t -> throw $ InvalidTerm t
-    s -> unexpectedSchema "Serialise Word8" s
+    s -> unexpectedSchema s
   decodeCurrent = getWord8
 
 instance Serialise Word16 where
@@ -294,7 +296,7 @@ instance Serialise Word16 where
     SWord16 -> pure $ \case
       TWord16 i -> i
       t -> throw $ InvalidTerm t
-    s -> unexpectedSchema "Serialise Word16" s
+    s -> unexpectedSchema s
   decodeCurrent = getWord16
 
 instance Serialise Word32 where
@@ -305,7 +307,7 @@ instance Serialise Word32 where
     SWord32 -> pure $ \case
       TWord32 i -> i
       t -> throw $ InvalidTerm t
-    s -> unexpectedSchema "Serialise Word32" s
+    s -> unexpectedSchema s
   decodeCurrent = getWord32
 
 instance Serialise Word64 where
@@ -316,7 +318,7 @@ instance Serialise Word64 where
     SWord64 -> pure $ \case
       TWord64 i -> i
       t -> throw $ InvalidTerm t
-    s -> unexpectedSchema "Serialise Word64" s
+    s -> unexpectedSchema s
   decodeCurrent = getWord64
 
 instance Serialise Word where
@@ -327,7 +329,7 @@ instance Serialise Word where
     SWord64 -> pure $ \case
       TWord64 i -> fromIntegral i
       t -> throw $ InvalidTerm t
-    s -> unexpectedSchema "Serialise Word" s
+    s -> unexpectedSchema s
   decodeCurrent = fromIntegral <$> getWord64
 
 instance Serialise Int8 where
@@ -338,7 +340,7 @@ instance Serialise Int8 where
     SInt8 -> pure $ \case
       TInt8 i -> i
       t -> throw $ InvalidTerm t
-    s -> unexpectedSchema "Serialise Int8" s
+    s -> unexpectedSchema s
   decodeCurrent = fromIntegral <$> getWord8
 
 instance Serialise Int16 where
@@ -349,7 +351,7 @@ instance Serialise Int16 where
     SInt16 -> pure $ \case
       TInt16 i -> i
       t -> throw $ InvalidTerm t
-    s -> unexpectedSchema "Serialise Int16" s
+    s -> unexpectedSchema s
   decodeCurrent = fromIntegral <$> getWord16
 
 instance Serialise Int32 where
@@ -360,7 +362,7 @@ instance Serialise Int32 where
     SInt32 -> pure $ \case
       TInt32 i -> i
       t -> throw $ InvalidTerm t
-    s -> unexpectedSchema "Serialise Int32" s
+    s -> unexpectedSchema s
   decodeCurrent = fromIntegral <$> getWord32
 
 instance Serialise Int64 where
@@ -371,7 +373,7 @@ instance Serialise Int64 where
     SInt64 -> pure $ \case
       TInt64 i -> i
       t -> throw $ InvalidTerm t
-    s -> unexpectedSchema "Serialise Int64" s
+    s -> unexpectedSchema s
   decodeCurrent = fromIntegral <$> getWord64
 
 instance Serialise Int where
@@ -382,7 +384,7 @@ instance Serialise Int where
     SInteger -> pure $ \case
       TInteger i -> fromIntegral i
       t -> throw $ InvalidTerm t
-    s -> unexpectedSchema "Serialise Int" s
+    s -> unexpectedSchema s
   decodeCurrent = decodeVarIntFinite
 
 instance Serialise Float where
@@ -393,7 +395,7 @@ instance Serialise Float where
     SFloat -> pure $ \case
       TFloat x -> x
       t -> throw $ InvalidTerm t
-    s -> unexpectedSchema "Serialise Float" s
+    s -> unexpectedSchema s
   decodeCurrent = castWord32ToFloat <$> getWord32
 
 instance Serialise Double where
@@ -404,7 +406,7 @@ instance Serialise Double where
     SDouble -> pure $ \case
       TDouble x -> x
       t -> throw $ InvalidTerm t
-    s -> unexpectedSchema "Serialise Double" s
+    s -> unexpectedSchema s
   decodeCurrent = castWord64ToDouble <$> getWord64
 
 instance Serialise T.Text where
@@ -415,7 +417,7 @@ instance Serialise T.Text where
     SText -> pure $ \case
       TText t -> t
       t -> throw $ InvalidTerm t
-    s -> unexpectedSchema "Serialise Text" s
+    s -> unexpectedSchema s
   decodeCurrent = do
     len <- decodeVarInt
     T.decodeUtf8With T.lenientDecode <$> getBytes len
@@ -432,7 +434,7 @@ instance (Typeable a, Bits a, Integral a) => Serialise (VarInt a) where
     SInteger -> pure $ \case
       TInteger i -> fromIntegral i
       t -> throw $ InvalidTerm t
-    s -> unexpectedSchema "Serialise (VarInt a)" s
+    s -> unexpectedSchema s
   decodeCurrent = VarInt <$> decodeVarInt
 
 instance Serialise Integer where
@@ -456,7 +458,7 @@ instance Serialise Char where
     SChar -> pure $ \case
       TChar c -> c
       t -> throw $ InvalidTerm t
-    s -> unexpectedSchema "Serialise Char" s
+    s -> unexpectedSchema s
   decodeCurrent = toEnum <$> decodeVarInt
 
 instance Serialise a => Serialise (Maybe a) where
@@ -473,7 +475,7 @@ instance Serialise B.ByteString where
     SBytes -> pure $ \case
       TBytes bs -> bs
       t -> throw $ InvalidTerm t
-    s -> unexpectedSchema "Serialise ByteString" s
+    s -> unexpectedSchema s
   decodeCurrent = decodeVarInt >>= getBytes
 
 instance Serialise BL.ByteString where
@@ -495,7 +497,7 @@ instance Serialise UTCTime where
     SUTCTime -> pure $ \case
       TUTCTime bs -> bs
       t -> throw $ InvalidTerm t
-    s -> unexpectedSchema "Serialise UTCTime" s
+    s -> unexpectedSchema s
   decodeCurrent = posixSecondsToUTCTime <$> decodeCurrent
 
 instance Serialise NominalDiffTime where
@@ -514,7 +516,7 @@ extractListBy (Extractor plan) = mkExtractor $ \case
     return $ \case
       TVector xs -> V.map getItem xs
       t -> throw $ InvalidTerm t
-  s -> throwStrategy $ UnexpectedSchema "extractListBy ..." "[a]" s
+  s -> throwStrategy $ UnexpectedSchema [] "SVector" s
 {-# INLINE extractListBy #-}
 
 instance Serialise a => Serialise [a] where
@@ -737,27 +739,25 @@ gextractorRecord :: forall a. (GSerialiseRecord (Rep a), Generic a, Typeable a)
   -> Extractor a
 gextractorRecord def = mkExtractor
   $ fmap (fmap (to .)) $ extractorRecord'
-  ("gextractorRecord :: Extractor " <> viaShow (typeRep (Proxy @ a)))
   (from <$> def)
 
 -- | Generic implementation of 'extractor' for a record.
 extractorRecord' :: (GSerialiseRecord f)
-  => Doc AnsiStyle
-  -> Maybe (f x) -- ^ default value (optional)
+  => Maybe (f x) -- ^ default value (optional)
   -> Schema -> Strategy' (Term -> f x)
-extractorRecord' rep def (SRecord schs) = Strategy $ \decs -> do
+extractorRecord' def (SRecord schs) = Strategy $ \decs -> do
     let go :: FieldDecoder T.Text x -> Either WineryException (Term -> x)
         go (FieldDecoder name def' p) = case lookupWithIndexV name schs of
           Nothing -> case def' of
             Just d -> Right (const d)
-            Nothing -> Left $ FieldNotFound rep name (map fst $ V.toList schs)
+            Nothing -> Left $ FieldNotFound [] name (map fst $ V.toList schs)
           Just (i, sch) -> case p sch `unStrategy` decs of
             Right getItem -> Right $ \case
-              TRecord xs -> maybe (error (show rep)) (getItem . snd) $ xs V.!? i
+              t@(TRecord xs) -> maybe (throw $ InvalidTerm t) (getItem . snd) $ xs V.!? i
               t -> throw $ InvalidTerm t
             Left e -> Left e
     unTransFusion (recordExtractor def) go
-extractorRecord' rep _ s = throwStrategy $ UnexpectedSchema rep "a record" s
+extractorRecord' _ s = throwStrategy $ UnexpectedSchema [] "a record" s
 {-# INLINE gextractorRecord #-}
 
 -- | Synonym for 'gdecodeCurrentProduct'
@@ -885,7 +885,7 @@ extractorProduct' sch
         go (FieldDecoder i _ p) = do
           getItem <- if i < length schs
             then p (schs V.! i) `unStrategy` recs
-            else Left $ ProductTooSmall $ length schs
+            else Left $ ProductTooSmall [] $ length schs
           return $ \case
             TProduct xs -> getItem $ maybe (throw $ InvalidTerm (TProduct xs)) id
               $ xs V.!? i
@@ -895,7 +895,7 @@ extractorProduct' sch
     strip (SProduct xs) = Just xs
     strip (SRecord xs) = Just $ V.map snd xs
     strip _ = Nothing
-extractorProduct' sch = throwStrategy $ UnexpectedSchema "extractorProduct'" "a product" sch
+extractorProduct' sch = throwStrategy $ UnexpectedSchema [] "a product" sch
 
 -- | Generic implementation of 'schemaGen' for an ADT.
 gschemaGenVariant :: forall proxy a. (GSerialiseVariant (Rep a), Typeable a, Generic a) => proxy a -> SchemaGen Schema
@@ -907,20 +907,17 @@ gtoBuilderVariant = variantEncoder (variantCount (Proxy :: Proxy (Rep a))) 0 . f
 {-# INLINE gtoBuilderVariant #-}
 
 -- | Generic implementation of 'extractor' for an ADT.
-gextractorVariant :: forall a. (GSerialiseVariant (Rep a), Generic a, Typeable a)
+gextractorVariant :: (GSerialiseVariant (Rep a), Generic a, Typeable a)
   => Extractor a
 gextractorVariant = mkExtractor $ \case
   SVariant schs0 -> Strategy $ \decs -> do
     ds' <- traverse (\(name, sch) -> case lookup name variantExtractor of
-      Nothing -> Left $ FieldNotFound rep name (map fst $ V.toList schs0)
+      Nothing -> Left $ FieldNotFound [] name (map fst $ V.toList schs0)
       Just f -> f sch `unStrategy` decs) schs0
     return $ \case
       TVariant i _ v -> to $ maybe (throw InvalidTag) ($ v) $ ds' V.!? i
       t -> throw $ InvalidTerm t
-  s -> throwStrategy $ UnexpectedSchema rep "a variant" s
-  where
-    rep = "gextractorVariant :: Extractor "
-      <> viaShow (typeRep (Proxy @ a))
+  s -> throwStrategy $ UnexpectedSchema [] "a variant" s
 
 gdecodeCurrentVariant :: forall a. (GConstructorCount (Rep a), GEncodeVariant (Rep a), GDecodeVariant (Rep a), Generic a) => Decoder a
 gdecodeCurrentVariant = decodeVarInt >>= fmap to . variantDecoder (variantCount (Proxy :: Proxy (Rep a)))
@@ -1001,7 +998,7 @@ instance (GSerialiseRecord f, KnownSymbol name) => GSerialiseVariant (C1 ('MetaC
   variantSchema _ = do
     s <- recordSchema (Proxy @ f)
     return [(T.pack $ symbolVal (Proxy @ name), SRecord $ V.fromList s)]
-  variantExtractor = [(T.pack $ symbolVal (Proxy @ name), fmap (fmap M1) . extractorRecord' "" Nothing) ]
+  variantExtractor = [(T.pack $ symbolVal (Proxy @ name), fmap (fmap M1) . extractorRecord' Nothing) ]
 
 instance (GSerialiseVariant f) => GSerialiseVariant (D1 c f) where
   variantSchema _ = variantSchema (Proxy @ f)

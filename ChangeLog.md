@@ -1,6 +1,7 @@
-## 1.2.1
+## 1.3
 
 * Fixed an incorrect behaviour of `extractConstructor`
+* `WineryException` now contains a hierarchy of `TypeRep`s
 
 ## 1.2
 
