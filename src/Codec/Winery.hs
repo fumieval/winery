@@ -351,8 +351,10 @@ extractConstructorBy (d, name, f) cont = Subextractor $ Extractor $ \case
         let rest = SVariant $ V.filter ((/=name) . fst) schs0
         k <- run (unSubextractor cont) rest
         return $ \case
-          TVariant tag _ v
+          TVariant tag name v
             | tag == j -> f $ dec v
+            -- rest has fewer constructors
+            | tag > j -> k (TVariant (tag - 1) name v)
           t -> k t
       _ -> run (unSubextractor cont) (SVariant schs0)
   s -> throwStrategy $ UnexpectedSchema rep "a variant" s

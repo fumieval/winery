@@ -1,3 +1,7 @@
+## 1.2.1
+
+* Fixed an incorrect behaviour of `extractConstructor`
+
 ## 1.2
 
 * Removed `Plan` and `mkPlan`
