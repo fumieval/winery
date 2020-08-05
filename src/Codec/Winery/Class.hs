@@ -29,6 +29,7 @@ module Codec.Winery.Class (Serialise(..)
   , unexpectedSchema
   , mkExtractor
   , extractListBy
+  , buildVariantExtractor
   , gschemaGenRecord
   , gtoBuilderRecord
   , gextractorRecord
@@ -51,6 +52,7 @@ module Codec.Winery.Class (Serialise(..)
   , gtoBuilderVariant
   , gextractorVariant
   , gdecodeCurrentVariant
+  , gvariantExtractors
   ) where
 
 import Control.Applicative
@@ -909,13 +911,24 @@ gtoBuilderVariant = variantEncoder (variantCount (Proxy :: Proxy (Rep a))) 0 . f
 -- | Generic implementation of 'extractor' for an ADT.
 gextractorVariant :: (GSerialiseVariant (Rep a), Generic a, Typeable a)
   => Extractor a
-gextractorVariant = mkExtractor $ \case
+gextractorVariant = buildVariantExtractor gvariantExtractors
+{-# INLINE gextractorVariant #-}
+
+gvariantExtractors :: (GSerialiseVariant (Rep a), Generic a) => HM.HashMap T.Text (Extractor a)
+gvariantExtractors = fmap to <$> variantExtractor
+{-# INLINE gvariantExtractors #-}
+
+-- | Bundle a 'HM.HashMap' of 'Extractor's into an extractor of a variant.
+buildVariantExtractor :: (Generic a, Typeable a)
+  => HM.HashMap T.Text (Extractor a)
+  -> Extractor a
+buildVariantExtractor extractors = mkExtractor $ \case
   SVariant schs0 -> Strategy $ \decs -> do
-    ds' <- traverse (\(name, sch) -> case lookup name variantExtractor of
+    ds' <- traverse (\(name, sch) -> case HM.lookup name extractors of
       Nothing -> Left $ FieldNotFound [] name (map fst $ V.toList schs0)
-      Just f -> f sch `unStrategy` decs) schs0
+      Just f -> runExtractor f sch `unStrategy` decs) schs0
     return $ \case
-      TVariant i _ v -> to $ maybe (throw InvalidTag) ($ v) $ ds' V.!? i
+      TVariant i _ v -> maybe (throw InvalidTag) ($ v) $ ds' V.!? i
       t -> throw $ InvalidTerm t
   s -> throwStrategy $ UnexpectedSchema [] "a variant" s
 
@@ -981,25 +994,25 @@ instance GEncodeVariant f => GEncodeVariant (D1 i f) where
 
 class GSerialiseVariant f where
   variantSchema :: proxy f -> SchemaGen [(T.Text, Schema)]
-  variantExtractor :: [(T.Text, Schema -> Strategy' (Term -> f x))]
+  variantExtractor :: HM.HashMap T.Text (Extractor (f x))
 
 instance (GSerialiseVariant f, GSerialiseVariant g) => GSerialiseVariant (f :+: g) where
   variantSchema _ = (++) <$> variantSchema (Proxy @ f) <*> variantSchema (Proxy @ g)
-  variantExtractor = fmap (fmap (fmap (fmap (fmap L1)))) variantExtractor
-    ++ fmap (fmap (fmap (fmap (fmap R1)))) variantExtractor
+  variantExtractor = fmap (fmap L1) variantExtractor
+    <> fmap (fmap R1) variantExtractor
 
 instance (GSerialiseProduct f, KnownSymbol name) => GSerialiseVariant (C1 ('MetaCons name fixity 'False) f) where
   variantSchema _ = do
     s <- productSchema (Proxy @ f)
     return [(T.pack $ symbolVal (Proxy @ name), SProduct $ V.fromList s)]
-  variantExtractor = [(T.pack $ symbolVal (Proxy @ name), fmap (fmap M1) . extractorProduct') ]
+  variantExtractor = HM.singleton (T.pack $ symbolVal (Proxy @ name)) (M1 <$> Extractor extractorProduct')
 
 instance (GSerialiseRecord f, KnownSymbol name) => GSerialiseVariant (C1 ('MetaCons name fixity 'True) f) where
   variantSchema _ = do
     s <- recordSchema (Proxy @ f)
     return [(T.pack $ symbolVal (Proxy @ name), SRecord $ V.fromList s)]
-  variantExtractor = [(T.pack $ symbolVal (Proxy @ name), fmap (fmap M1) . extractorRecord' Nothing) ]
+  variantExtractor = HM.singleton (T.pack $ symbolVal (Proxy @ name)) (M1 <$> Extractor (extractorRecord' Nothing))
 
 instance (GSerialiseVariant f) => GSerialiseVariant (D1 c f) where
   variantSchema _ = variantSchema (Proxy @ f)
-  variantExtractor = fmap (fmap (fmap (fmap M1))) <$> variantExtractor
+  variantExtractor = fmap M1 <$> variantExtractor

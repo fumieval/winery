@@ -59,6 +59,7 @@ module Codec.Winery
   , extractConstructorBy
   , extractProductItemBy
   , extractVoid
+  , buildVariantExtractor
   , ExtractException(..)
   -- * Variable-length quantity
   , VarInt(..)
@@ -86,6 +87,7 @@ module Codec.Winery
   , gtoBuilderVariant
   , gextractorVariant
   , gdecodeCurrentVariant
+  , gvariantExtractors
   , GEncodeProduct
   , GDecodeProduct
   , gschemaGenProduct
