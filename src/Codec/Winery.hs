@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
@@ -61,6 +62,7 @@ module Codec.Winery
   , extractVoid
   , buildVariantExtractor
   , ExtractException(..)
+  , SingleField(..)
   -- * Variable-length quantity
   , VarInt(..)
   -- * Internal
@@ -409,3 +411,13 @@ instance (GConstructorCount (Rep a), GSerialiseVariant (Rep a), GEncodeVariant (
   toBuilder = gtoBuilderVariant . unWineryVariant
   extractor = WineryVariant <$> gextractorVariant
   decodeCurrent = WineryVariant <$> gdecodeCurrentVariant
+
+-- | A product with one field. Useful when creating a custom extractor for constructors.
+newtype SingleField a = SingleField { getSingleField :: a }
+  deriving (Show, Eq, Ord, Generic)
+
+instance Serialise a => Serialise (SingleField a) where
+  schemaGen = gschemaGenProduct
+  toBuilder = gtoBuilderProduct
+  extractor = gextractorProduct
+  decodeCurrent = gdecodeCurrentProduct

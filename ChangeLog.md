@@ -3,6 +3,7 @@
 * Fixed an incorrect behaviour of `extractConstructor`
 * `WineryException` now contains a hierarchy of `TypeRep`s
 * Added `gvariantExtractors` and `buildVariantExtractor`
+* Added `SingleField`
 
 ## 1.2
 
