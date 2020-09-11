@@ -925,7 +925,7 @@ buildVariantExtractor :: (Generic a, Typeable a)
 buildVariantExtractor extractors = mkExtractor $ \case
   SVariant schs0 -> Strategy $ \decs -> do
     ds' <- traverse (\(name, sch) -> case HM.lookup name extractors of
-      Nothing -> Left $ FieldNotFound [] name (map fst $ V.toList schs0)
+      Nothing -> Left $ FieldNotFound [] name (HM.keys extractors)
       Just f -> runExtractor f sch `unStrategy` decs) schs0
     return $ \case
       TVariant i _ v -> maybe (throw InvalidTag) ($ v) $ ds' V.!? i
