@@ -256,12 +256,16 @@ instance Serialise Tag where
   toBuilder = gtoBuilderVariant
   extractor = gextractorVariant
   decodeCurrent = gdecodeCurrentVariant
+  {-# INLINE toBuilder #-}
+  {-# INLINE decodeCurrent #-}
 
 instance Serialise Schema where
   schemaGen = gschemaGenVariant
   toBuilder = gtoBuilderVariant
   extractor = gextractorVariant
   decodeCurrent = gdecodeCurrentVariant
+  {-# INLINE toBuilder #-}
+  {-# INLINE decodeCurrent #-}
 
 instance Serialise () where
   schemaGen _ = pure $ SProduct mempty
@@ -281,6 +285,7 @@ instance Serialise Bool where
       t -> throw $ InvalidTerm t
     s -> unexpectedSchema s
   decodeCurrent = (/=0) <$> getWord8
+  {-# INLINE decodeCurrent #-}
 
 instance Serialise Word8 where
   schemaGen _ = pure SWord8
@@ -292,6 +297,7 @@ instance Serialise Word8 where
       t -> throw $ InvalidTerm t
     s -> unexpectedSchema s
   decodeCurrent = getWord8
+  {-# INLINE decodeCurrent #-}
 
 instance Serialise Word16 where
   schemaGen _ = pure SWord16
@@ -303,6 +309,7 @@ instance Serialise Word16 where
       t -> throw $ InvalidTerm t
     s -> unexpectedSchema s
   decodeCurrent = getWord16
+  {-# INLINE decodeCurrent #-}
 
 instance Serialise Word32 where
   schemaGen _ = pure SWord32
@@ -314,6 +321,7 @@ instance Serialise Word32 where
       t -> throw $ InvalidTerm t
     s -> unexpectedSchema s
   decodeCurrent = getWord32
+  {-# INLINE decodeCurrent #-}
 
 instance Serialise Word64 where
   schemaGen _ = pure SWord64
@@ -325,6 +333,7 @@ instance Serialise Word64 where
       t -> throw $ InvalidTerm t
     s -> unexpectedSchema s
   decodeCurrent = getWord64
+  {-# INLINE decodeCurrent #-}
 
 instance Serialise Word where
   schemaGen _ = pure SWord64
@@ -336,6 +345,7 @@ instance Serialise Word where
       t -> throw $ InvalidTerm t
     s -> unexpectedSchema s
   decodeCurrent = fromIntegral <$> getWord64
+  {-# INLINE decodeCurrent #-}
 
 instance Serialise Int8 where
   schemaGen _ = pure SInt8
@@ -347,6 +357,7 @@ instance Serialise Int8 where
       t -> throw $ InvalidTerm t
     s -> unexpectedSchema s
   decodeCurrent = fromIntegral <$> getWord8
+  {-# INLINE decodeCurrent #-}
 
 instance Serialise Int16 where
   schemaGen _ = pure SInt16
@@ -358,6 +369,7 @@ instance Serialise Int16 where
       t -> throw $ InvalidTerm t
     s -> unexpectedSchema s
   decodeCurrent = fromIntegral <$> getWord16
+  {-# INLINE decodeCurrent #-}
 
 instance Serialise Int32 where
   schemaGen _ = pure SInt32
@@ -369,6 +381,7 @@ instance Serialise Int32 where
       t -> throw $ InvalidTerm t
     s -> unexpectedSchema s
   decodeCurrent = fromIntegral <$> getWord32
+  {-# INLINE decodeCurrent #-}
 
 instance Serialise Int64 where
   schemaGen _ = pure SInt64
@@ -380,6 +393,7 @@ instance Serialise Int64 where
       t -> throw $ InvalidTerm t
     s -> unexpectedSchema s
   decodeCurrent = fromIntegral <$> getWord64
+  {-# INLINE decodeCurrent #-}
 
 instance Serialise Int where
   schemaGen _ = pure SInteger
@@ -391,6 +405,7 @@ instance Serialise Int where
       t -> throw $ InvalidTerm t
     s -> unexpectedSchema s
   decodeCurrent = decodeVarIntFinite
+  {-# INLINE decodeCurrent #-}
 
 instance Serialise Float where
   schemaGen _ = pure SFloat
@@ -402,6 +417,7 @@ instance Serialise Float where
       t -> throw $ InvalidTerm t
     s -> unexpectedSchema s
   decodeCurrent = castWord32ToFloat <$> getWord32
+  {-# INLINE decodeCurrent #-}
 
 instance Serialise Double where
   schemaGen _ = pure SDouble
@@ -413,6 +429,7 @@ instance Serialise Double where
       t -> throw $ InvalidTerm t
     s -> unexpectedSchema s
   decodeCurrent = castWord64ToDouble <$> getWord64
+  {-# INLINE decodeCurrent #-}
 
 instance Serialise T.Text where
   schemaGen _ = pure SText
@@ -426,6 +443,7 @@ instance Serialise T.Text where
   decodeCurrent = do
     len <- decodeVarInt
     T.decodeUtf8With T.lenientDecode <$> getBytes len
+  {-# INLINE decodeCurrent #-}
 
 -- | Encoded in variable-length quantity.
 newtype VarInt a = VarInt { getVarInt :: a } deriving (Show, Read, Eq, Ord, Enum
@@ -441,6 +459,7 @@ instance (Typeable a, Bits a, Integral a) => Serialise (VarInt a) where
       t -> throw $ InvalidTerm t
     s -> unexpectedSchema s
   decodeCurrent = VarInt <$> decodeVarInt
+  {-# INLINE decodeCurrent #-}
 
 instance Serialise Integer where
   schemaGen _ = pure SInteger
@@ -448,12 +467,14 @@ instance Serialise Integer where
   {-# INLINE toBuilder #-}
   extractor = getVarInt <$> extractor
   decodeCurrent = getVarInt <$> decodeCurrent
+  {-# INLINE decodeCurrent #-}
 
 instance Serialise Natural where
   schemaGen _ = pure SInteger
   toBuilder = toBuilder . toInteger
   extractor = naturalFromInteger <$> extractor
   decodeCurrent = naturalFromInteger <$> decodeCurrent
+  {-# INLINE decodeCurrent #-}
 
 instance Serialise Char where
   schemaGen _ = pure SChar
@@ -465,12 +486,14 @@ instance Serialise Char where
       t -> throw $ InvalidTerm t
     s -> unexpectedSchema s
   decodeCurrent = toEnum <$> decodeVarInt
+  {-# INLINE decodeCurrent #-}
 
 instance Serialise a => Serialise (Maybe a) where
   schemaGen = gschemaGenVariant
   toBuilder = gtoBuilderVariant
   extractor = gextractorVariant
   decodeCurrent = gdecodeCurrentVariant
+  {-# INLINE decodeCurrent #-}
 
 instance Serialise B.ByteString where
   schemaGen _ = pure SBytes
@@ -482,6 +505,7 @@ instance Serialise B.ByteString where
       t -> throw $ InvalidTerm t
     s -> unexpectedSchema s
   decodeCurrent = decodeVarInt >>= getBytes
+  {-# INLINE decodeCurrent #-}
 
 instance Serialise BL.ByteString where
   schemaGen _ = pure SBytes
@@ -489,6 +513,7 @@ instance Serialise BL.ByteString where
   {-# INLINE toBuilder #-}
   extractor = BL.fromStrict <$> extractor
   decodeCurrent = BL.fromStrict <$> decodeCurrent
+  {-# INLINE decodeCurrent #-}
 
 -- | time-1.9.1
 nanosecondsToNominalDiffTime :: Int64 -> NominalDiffTime
@@ -504,6 +529,7 @@ instance Serialise UTCTime where
       t -> throw $ InvalidTerm t
     s -> unexpectedSchema s
   decodeCurrent = posixSecondsToUTCTime <$> decodeCurrent
+  {-# INLINE decodeCurrent #-}
 
 instance Serialise NominalDiffTime where
   schemaGen _ = pure SInt64
@@ -512,6 +538,7 @@ instance Serialise NominalDiffTime where
   {-# INLINE toBuilder #-}
   extractor = nanosecondsToNominalDiffTime <$> extractor
   decodeCurrent = nanosecondsToNominalDiffTime <$> decodeCurrent
+  {-# INLINE decodeCurrent #-}
 
 -- | Extract a list or an array of values.
 extractListBy :: Typeable a => Extractor a -> Extractor (V.Vector a)
@@ -533,6 +560,7 @@ instance Serialise a => Serialise [a] where
   decodeCurrent = do
     n <- decodeVarInt
     replicateM n decodeCurrent
+  {-# INLINE decodeCurrent #-}
 
 instance Serialise a => Serialise (V.Vector a) where
   schemaGen _ = SVector <$> getSchema (Proxy @ a)
@@ -543,6 +571,7 @@ instance Serialise a => Serialise (V.Vector a) where
   decodeCurrent = do
     n <- decodeVarInt
     V.replicateM n decodeCurrent
+  {-# INLINE decodeCurrent #-}
 
 instance (SV.Storable a, Serialise a) => Serialise (SV.Vector a) where
   schemaGen _ = SVector <$> getSchema (Proxy @ a)
@@ -552,6 +581,7 @@ instance (SV.Storable a, Serialise a) => Serialise (SV.Vector a) where
   decodeCurrent = do
     n <- decodeVarInt
     SV.replicateM n decodeCurrent
+  {-# INLINE decodeCurrent #-}
 
 instance (UV.Unbox a, Serialise a) => Serialise (UV.Vector a) where
   schemaGen _ = SVector <$> getSchema (Proxy @ a)
@@ -561,6 +591,7 @@ instance (UV.Unbox a, Serialise a) => Serialise (UV.Vector a) where
   decodeCurrent = do
     n <- decodeVarInt
     UV.replicateM n decodeCurrent
+  {-# INLINE decodeCurrent #-}
 
 instance (Ord k, Serialise k, Serialise v) => Serialise (M.Map k v) where
   schemaGen _ = schemaGen (Proxy @ [(k, v)])
@@ -569,6 +600,7 @@ instance (Ord k, Serialise k, Serialise v) => Serialise (M.Map k v) where
   {-# INLINE toBuilder #-}
   extractor = M.fromList <$> extractor
   decodeCurrent = M.fromList <$> decodeCurrent
+  {-# INLINE decodeCurrent #-}
 
 instance (Eq k, Hashable k, Serialise k, Serialise v) => Serialise (HM.HashMap k v) where
   schemaGen _ = schemaGen (Proxy @ [(k, v)])
@@ -577,6 +609,7 @@ instance (Eq k, Hashable k, Serialise k, Serialise v) => Serialise (HM.HashMap k
   {-# INLINE toBuilder #-}
   extractor = HM.fromList <$> extractor
   decodeCurrent = HM.fromList <$> decodeCurrent
+  {-# INLINE decodeCurrent #-}
 
 instance (Serialise v) => Serialise (IM.IntMap v) where
   schemaGen _ = schemaGen (Proxy @ [(Int, v)])
@@ -585,6 +618,7 @@ instance (Serialise v) => Serialise (IM.IntMap v) where
   {-# INLINE toBuilder #-}
   extractor = IM.fromList <$> extractor
   decodeCurrent = IM.fromList <$> decodeCurrent
+  {-# INLINE decodeCurrent #-}
 
 instance (Ord a, Serialise a) => Serialise (S.Set a) where
   schemaGen _ = schemaGen (Proxy @ [a])
@@ -592,6 +626,7 @@ instance (Ord a, Serialise a) => Serialise (S.Set a) where
   {-# INLINE toBuilder #-}
   extractor = S.fromList <$> extractor
   decodeCurrent = S.fromList <$> decodeCurrent
+  {-# INLINE decodeCurrent #-}
 
 instance Serialise IS.IntSet where
   schemaGen _ = schemaGen (Proxy @ [Int])
@@ -599,6 +634,7 @@ instance Serialise IS.IntSet where
   {-# INLINE toBuilder #-}
   extractor = IS.fromList <$> extractor
   decodeCurrent = IS.fromList <$> decodeCurrent
+  {-# INLINE decodeCurrent #-}
 
 instance Serialise a => Serialise (Seq.Seq a) where
   schemaGen _ = schemaGen (Proxy @ [a])
@@ -606,6 +642,7 @@ instance Serialise a => Serialise (Seq.Seq a) where
   {-# INLINE toBuilder #-}
   extractor = Seq.fromList <$> extractor
   decodeCurrent = Seq.fromList <$> decodeCurrent
+  {-# INLINE decodeCurrent #-}
 
 instance (Integral a, Serialise a) => Serialise (Ratio a) where
   schemaGen _ = schemaGen (Proxy @ (a, a))
@@ -613,6 +650,7 @@ instance (Integral a, Serialise a) => Serialise (Ratio a) where
   {-# INLINE toBuilder #-}
   extractor = uncurry (%) <$> extractor
   decodeCurrent = uncurry (%) <$> decodeCurrent
+  {-# INLINE decodeCurrent #-}
 
 instance Serialise Scientific where
   schemaGen _ = schemaGen (Proxy @ (Integer, Int))
@@ -640,43 +678,56 @@ instance (Serialise a, Serialise b) => Serialise (a, b) where
   toBuilder = gtoBuilderProduct
   extractor = gextractorProduct
   decodeCurrent = gdecodeCurrentProduct
+  {-# INLINE toBuilder #-}
+  {-# INLINE decodeCurrent #-}
 
 instance (Serialise a, Serialise b, Serialise c) => Serialise (a, b, c) where
   schemaGen = gschemaGenProduct
   toBuilder = gtoBuilderProduct
   extractor = gextractorProduct
   decodeCurrent = gdecodeCurrentProduct
+  {-# INLINE toBuilder #-}
+  {-# INLINE decodeCurrent #-}
 
 instance (Serialise a, Serialise b, Serialise c, Serialise d) => Serialise (a, b, c, d) where
   schemaGen = gschemaGenProduct
   toBuilder = gtoBuilderProduct
   extractor = gextractorProduct
   decodeCurrent = gdecodeCurrentProduct
+  {-# INLINE toBuilder #-}
+  {-# INLINE decodeCurrent #-}
 
 instance (Serialise a, Serialise b, Serialise c, Serialise d, Serialise e) => Serialise (a, b, c, d, e) where
   schemaGen = gschemaGenProduct
   toBuilder = gtoBuilderProduct
   extractor = gextractorProduct
   decodeCurrent = gdecodeCurrentProduct
+  {-# INLINE toBuilder #-}
+  {-# INLINE decodeCurrent #-}
 
 instance (Serialise a, Serialise b, Serialise c, Serialise d, Serialise e, Serialise f) => Serialise (a, b, c, d, e, f) where
   schemaGen = gschemaGenProduct
   toBuilder = gtoBuilderProduct
   extractor = gextractorProduct
   decodeCurrent = gdecodeCurrentProduct
+  {-# INLINE toBuilder #-}
+  {-# INLINE decodeCurrent #-}
 
 instance (Serialise a, Serialise b) => Serialise (Either a b) where
   schemaGen = gschemaGenVariant
   toBuilder = gtoBuilderVariant
   extractor = gextractorVariant
   decodeCurrent = gdecodeCurrentVariant
-
+  {-# INLINE toBuilder #-}
+  {-# INLINE decodeCurrent #-}
 
 instance Serialise Ordering where
   schemaGen = gschemaGenVariant
   toBuilder = gtoBuilderVariant
   extractor = gextractorVariant
   decodeCurrent = gdecodeCurrentVariant
+  {-# INLINE toBuilder #-}
+  {-# INLINE decodeCurrent #-}
 
 deriving instance Serialise a => Serialise (Identity a)
 deriving instance (Serialise a, Typeable b, Typeable k) => Serialise (Const a (b :: k))
@@ -706,18 +757,24 @@ instance (Typeable k, Typeable a, Typeable b, a ~ b) => Serialise ((a :: k) :~: 
   toBuilder = mempty
   extractor = pure Refl
   decodeCurrent = pure Refl
+  {-# INLINE toBuilder #-}
+  {-# INLINE decodeCurrent #-}
 
 instance (Serialise a, Serialise b) => Serialise (Arg a b) where
   schemaGen = gschemaGenProduct
   toBuilder = gtoBuilderProduct
   extractor = gextractorProduct
   decodeCurrent = gdecodeCurrentProduct
+  {-# INLINE toBuilder #-}
+  {-# INLINE decodeCurrent #-}
 
 instance Serialise a => Serialise (Complex a) where
   schemaGen = gschemaGenProduct
   toBuilder = gtoBuilderProduct
   extractor = gextractorProduct
   decodeCurrent = gdecodeCurrentProduct
+  {-# INLINE toBuilder #-}
+  {-# INLINE decodeCurrent #-}
 
 instance Serialise Void where
   schemaGen _ = pure $ SVariant V.empty
