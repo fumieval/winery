@@ -48,7 +48,7 @@ data TestRec = TestRec
   } deriving (Show, Generic)
 
 instance Serialise TestRec where
-  bundleSerialise = bundleRecord id
+  bundleSerialise = bundleVia WineryRecord
 
 instance NFData TestRec where
   rnf TestRec{} = ()

@@ -168,6 +168,7 @@ bundleRecord f = BundleSerialise
   , bundleDecodeCurrent = gdecodeCurrentRecord
   }
 {-# INLINE bundleRecord #-}
+{-# DEPRECATED bundleRecord "Use bundleVia instead" #-}
 
 -- | A bundle of generic implementations for records, with a default value
 bundleRecordDefault :: (GEncodeProduct (Rep a), GSerialiseRecord (Rep a), GDecodeProduct (Rep a), Generic a, Typeable a)
@@ -181,6 +182,7 @@ bundleRecordDefault def f = BundleSerialise
   , bundleDecodeCurrent = gdecodeCurrentRecord
   }
 {-# INLINE bundleRecordDefault #-}
+{-# DEPRECATED bundleRecordDefault "Use bundleVia instead" #-}
 
 -- | A bundle of generic implementations for variants
 bundleVariant :: (GSerialiseVariant (Rep a), GConstructorCount (Rep a), GEncodeVariant (Rep a), GDecodeVariant (Rep a), Generic a, Typeable a)
@@ -193,6 +195,7 @@ bundleVariant f = BundleSerialise
   , bundleDecodeCurrent = gdecodeCurrentVariant
   }
 {-# INLINE bundleVariant #-}
+{-# DEPRECATED bundleVariant "Use bundleVia instead" #-}
 
 -- | Obtain a schema on 'SchemaGen', binding a fixpoint when necessary.
 -- If you are hand-rolling a definition of 'schemaGen', you should call this

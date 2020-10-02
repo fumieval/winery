@@ -81,14 +81,14 @@ instance Arbitrary TRec where
   arbitrary = TRec <$> arbitrary <*> arbitrary
 
 instance Serialise TRec where
-  bundleSerialise = bundleRecord id
+  bundleSerialise = bundleVia WineryRecord
 
 prop_TRec = testSerialise @ TRec
 
 data TList a = TCons a (TList a) | TNil deriving (Show, Eq, Generic)
 
 instance Serialise a => Serialise (TList a) where
-  bundleSerialise = bundleVariant id
+  bundleSerialise = bundleVia WineryVariant
 
 instance Arbitrary a => Arbitrary (TList a) where
   arbitrary = sized $ \n -> if n <= 0
@@ -117,13 +117,15 @@ instance Arbitrary Node where
     Node <$> resize leftSize arbitrary <*> arbitrary <*> resize rightSize arbitrary
 
 instance Serialise Tree where
-  bundleSerialise = bundleVariant id
+  bundleSerialise = bundleVia WineryVariant
 
 instance Serialise Node where
-  bundleSerialise = bundleRecord $ const $ buildExtractor $ Node
-    <$> (extractField "left" <|> extractField "leftChild")
-    <*> extractField "value"
-    <*> (extractField "right" <|> extractField "rightChild")
+  bundleSerialise = (bundleVia WineryRecord)
+    { bundleExtractor = buildExtractor $ Node
+      <$> (extractField "left" <|> extractField "leftChild")
+      <*> extractField "value"
+      <*> (extractField "right" <|> extractField "rightChild")
+    }
 
 prop_tree = testSerialise @ Tree
 prop_node = testSerialise @ Node
@@ -134,7 +136,7 @@ instance Arbitrary Foo where
   arbitrary = toEnum <$> Gen.choose (0, 6)
 
 instance Serialise Foo where
-  bundleSerialise = bundleVariant id
+  bundleSerialise = bundleVia WineryVariant
 
 prop_Foo = testSerialise @ Foo
 
@@ -144,7 +146,7 @@ instance Arbitrary Soup where
   arbitrary = toEnum <$> Gen.choose (0, 2)
 
 instance Serialise Soup where
-  bundleSerialise = bundleVariant id
+  bundleSerialise = bundleVia WineryVariant
 
 data Food = Rice | Ramen Soup | Pasta Text Text deriving (Generic, Eq, Show)
 
@@ -158,7 +160,8 @@ instance Arbitrary Food where
     ]
 
 instance Serialise Food where
-  bundleSerialise = bundleVariant $ const $ buildExtractor
+  bundleSerialise = bundleVia WineryVariant
+  extractor = buildExtractor
     $ ("Rice", \() -> Rice)
     `extractConstructor` ("Ramen", Ramen)
     `extractConstructor` ("Pasta", uncurry Pasta)

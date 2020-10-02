@@ -102,6 +102,7 @@ module Codec.Winery
   , bundleRecord
   , bundleRecordDefault
   , bundleVariant
+  , bundleVia
   -- * Preset schema
   , bootstrapSchema
   ) where
@@ -113,6 +114,7 @@ import Control.Applicative
 import Control.Exception (throw, throwIO)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.FastBuilder as BB
+import Data.Coerce
 import Data.Function (fix)
 import qualified Data.Text as T
 import Data.Typeable
@@ -421,3 +423,12 @@ instance Serialise a => Serialise (SingleField a) where
   toBuilder = gtoBuilderProduct
   extractor = gextractorProduct
   decodeCurrent = gdecodeCurrentProduct
+
+bundleVia :: forall a t. (Coercible a t, Serialise t) => (a -> t) -> BundleSerialise a
+bundleVia _ = BundleSerialise
+  { bundleSchemaGen = coerce (schemaGen @t)
+  , bundleToBuilder = coerce (toBuilder @t)
+  , bundleExtractor = coerce (extractor @t)
+  , bundleDecodeCurrent = coerce (decodeCurrent @t)
+  }
+{-# INLINE bundleVia #-}

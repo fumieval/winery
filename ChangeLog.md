@@ -1,3 +1,7 @@
+## 1.3.1
+
+* Added `bundleVia`, deprecating `bundleRecord` and `bundleVariant`
+
 ## 1.3
 
 * Fixed an incorrect behaviour of `extractConstructor`
