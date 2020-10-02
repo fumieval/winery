@@ -440,6 +440,7 @@ instance Serialise a => Serialise (SingleField a) where
   {-# INLINE extractor #-}
   {-# INLINE decodeCurrent #-}
 
+-- | Create 'BundleSerialise' from a wrapper constructor (e.g. 'WineryRecord')
 bundleVia :: forall a t. (Coercible a t, Serialise t) => (a -> t) -> BundleSerialise a
 bundleVia _ = BundleSerialise
   { bundleSchemaGen = coerce (schemaGen @t)
