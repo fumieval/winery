@@ -950,6 +950,7 @@ gextractorVariant :: (GSerialiseVariant (Rep a), Generic a, Typeable a)
 gextractorVariant = buildVariantExtractor gvariantExtractors
 {-# INLINE gextractorVariant #-}
 
+-- | Collect extractors as a 'HM.HashMap' keyed by constructor names
 gvariantExtractors :: (GSerialiseVariant (Rep a), Generic a) => HM.HashMap T.Text (Extractor a)
 gvariantExtractors = fmap to <$> variantExtractor
 {-# INLINE gvariantExtractors #-}

@@ -74,6 +74,16 @@ for single-constructor records, or just
 for any ADT. The former explicitly describes field names in the schema, and the
 latter does constructor names.
 
+If you want to customise one of the methods, you can use `bundleVia` to supply the rest of definitions.
+
+```haskell
+instance Serialise Foo where
+  bundleSerialise = bundleVia WineryRecord
+  extractor = buildExtractor $ Foo
+    <$> extractField "foo"
+    <*> extractField "bar"
+```
+
 ## Backward compatibility
 
 If the representation is not the same as the current version (i.e. the schema
@@ -98,6 +108,13 @@ buildExtractor
   `extractConstructor` ("Some", Just)
   `extractConstructor` extractVoid
   :: Extractor (Maybe a)
+```
+
+If you want to customise the extractor, the pair of `gvariantExtractors` and `buildVariantExtractors` is handy.
+
+```haskell
+gvariantExtractors :: (GSerialiseVariant (Rep a), Generic a) => HM.HashMap T.Text (Extractor a)
+buildVariantExtractor :: (Generic a, Typeable a) => HM.HashMap T.Text (Extractor a) -> Extractor a
 ```
 
 `Extractor` is Alternative, meaning that multiple extractors (such as a default
