@@ -1093,6 +1093,7 @@ instance (Typeable k, Typeable b, Typeable h, ApplicativeB b, ConstraintsB b, Tr
   {-# INLINE decodeCurrent #-}
   extractor = fmap Barbie $ buildExtractor $ btraverse getCompose bextractors
 
+-- | Collect extractors for record fields
 bextractors :: forall b h. (ConstraintsB b, AllBF Serialise h b, FieldNamesB b) => b (Compose Subextractor h)
 bextractors = bmapC @(ClassF Serialise h) (Compose . extractField . getConst) bfieldNames
 {-# INLINABLE bextractors #-}
