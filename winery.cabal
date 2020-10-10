@@ -49,7 +49,7 @@ library
     , fast-builder
     , hashable
     , HUnit
-    , megaparsec >=6.0.0
+    , megaparsec >=7.0.0
     , mtl
     , prettyprinter ^>= 1.7
     , prettyprinter-ansi-terminal
