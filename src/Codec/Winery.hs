@@ -391,9 +391,7 @@ instance (GEncodeProduct (Rep a), GSerialiseRecord (Rep a), GDecodeProduct (Rep 
   toBuilder = gtoBuilderRecord . unWineryRecord
   extractor = WineryRecord <$> gextractorRecord Nothing
   decodeCurrent = WineryRecord <$> gdecodeCurrentRecord
-  {-# INLINE schemaGen #-}
   {-# INLINE toBuilder #-}
-  {-# INLINE extractor #-}
   {-# INLINE decodeCurrent #-}
 
 -- | Serialise a value as a product (omits field names).
@@ -406,9 +404,7 @@ instance (GEncodeProduct (Rep a), GSerialiseProduct (Rep a), GDecodeProduct (Rep
   toBuilder = gtoBuilderProduct . unWineryProduct
   extractor = WineryProduct <$> gextractorProduct
   decodeCurrent = WineryProduct <$> gdecodeCurrentProduct
-  {-# INLINE schemaGen #-}
   {-# INLINE toBuilder #-}
-  {-# INLINE extractor #-}
   {-# INLINE decodeCurrent #-}
 
 -- | The 'Serialise' instance is generically defined for variants.
@@ -421,9 +417,7 @@ instance (GConstructorCount (Rep a), GSerialiseVariant (Rep a), GEncodeVariant (
   toBuilder = gtoBuilderVariant . unWineryVariant
   extractor = WineryVariant <$> gextractorVariant
   decodeCurrent = WineryVariant <$> gdecodeCurrentVariant
-  {-# INLINE schemaGen #-}
   {-# INLINE toBuilder #-}
-  {-# INLINE extractor #-}
   {-# INLINE decodeCurrent #-}
 
 -- | A product with one field. Useful when creating a custom extractor for constructors.
@@ -435,12 +429,9 @@ instance Serialise a => Serialise (SingleField a) where
   toBuilder = gtoBuilderProduct
   extractor = gextractorProduct
   decodeCurrent = gdecodeCurrentProduct
-  {-# INLINE schemaGen #-}
   {-# INLINE toBuilder #-}
-  {-# INLINE extractor #-}
   {-# INLINE decodeCurrent #-}
 
--- | Create 'BundleSerialise' from a wrapper constructor (e.g. 'WineryRecord')
 bundleVia :: forall a t. (Coercible a t, Serialise t) => (a -> t) -> BundleSerialise a
 bundleVia _ = BundleSerialise
   { bundleSchemaGen = coerce (schemaGen @t)

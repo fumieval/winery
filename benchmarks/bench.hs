@@ -27,7 +27,7 @@ import qualified Codec.Serialise as CBOR
 data Gender = Male | Female deriving (Show, Generic)
 
 instance Serialise Gender where
-  bundleSerialise = bundleVariant id
+  bundleSerialise = bundleVia WineryVariant
 
 instance CBOR.Serialise Gender
 instance B.Binary Gender
