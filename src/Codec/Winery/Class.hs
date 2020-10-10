@@ -15,6 +15,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 #if __GLASGOW_HASKELL__ < 806
 {-# LANGUAGE TypeInType #-}
 #endif
@@ -53,8 +54,16 @@ module Codec.Winery.Class (Serialise(..)
   , gextractorVariant
   , gdecodeCurrentVariant
   , gvariantExtractors
+  , Subextractor(..)
+  , extractField
+  , extractFieldBy
+  , buildExtractor
+  , bextractors
   ) where
 
+import Barbies hiding (Void)
+import Barbies.Constraints
+import Barbies.TH
 import Control.Applicative
 import Control.Exception
 import Control.Monad.Reader
@@ -67,8 +76,10 @@ import Data.Dynamic
 import Data.Fixed
 import Data.Functor.Compose
 import Data.Functor.Identity
+import qualified Data.Functor.Product as F
 import Data.List (elemIndex)
 import Data.Monoid as M
+import Data.Kind (Type)
 import Data.Proxy
 import Data.Ratio (Ratio, (%), numerator, denominator)
 import Data.Scientific (Scientific, scientific, coefficient, base10Exponent)
@@ -1041,3 +1052,47 @@ instance (GSerialiseRecord f, KnownSymbol name) => GSerialiseVariant (C1 ('MetaC
 instance (GSerialiseVariant f) => GSerialiseVariant (D1 c f) where
   variantSchema _ = variantSchema (Proxy @ f)
   variantExtractor = fmap M1 <$> variantExtractor
+
+-- | An extractor for individual fields. This distinction is required for
+-- handling recursions correctly.
+--
+-- Recommended extension: ApplicativeDo
+newtype Subextractor a = Subextractor { unSubextractor :: Extractor a }
+  deriving (Functor, Applicative, Alternative)
+
+-- | Extract a field of a record.
+extractField :: Serialise a => T.Text -> Subextractor a
+extractField = extractFieldBy extractor
+{-# INLINE extractField #-}
+
+-- | Extract a field using the supplied 'Extractor'.
+extractFieldBy :: Extractor a -> T.Text -> Subextractor a
+extractFieldBy (Extractor g) name = Subextractor $ Extractor $ \case
+  SRecord schs -> case lookupWithIndexV name schs of
+    Just (i, sch) -> do
+      m <- g sch
+      return $ \case
+        TRecord xs -> maybe (throw $ InvalidTerm (TRecord xs)) (m . snd) $ xs V.!? i
+        t -> throw $ InvalidTerm t
+    _ -> throwStrategy $ FieldNotFound [] name (map fst $ V.toList schs)
+  s -> throwStrategy $ UnexpectedSchema [] "a record" s
+
+-- | Build an extractor from a 'Subextractor'.
+buildExtractor :: Typeable a => Subextractor a -> Extractor a
+buildExtractor (Subextractor e) = mkExtractor $ runExtractor e
+{-# INLINE buildExtractor #-}
+
+instance (Typeable k, Typeable b, Typeable h, ApplicativeB b, ConstraintsB b, TraversableB b, AllBF Serialise h b, FieldNamesB b) => Serialise (Barbie b (h :: k -> Type)) where
+  schemaGen _ = fmap (SRecord . V.fromList . (`appEndo`[]) . bfoldMap getConst)
+    $ btraverse (\(F.Pair (Dict :: Dict (ClassF Serialise h) a) (Const k))
+        -> Const . Endo . (:) . (,) k <$> schemaGen (Proxy @ (h a)))
+    $ baddDicts (bfieldNames :: b (Const T.Text))
+  toBuilder = bfoldMap (\(F.Pair (Dict :: Dict (ClassF Serialise h) a) x) -> toBuilder x) . baddDicts
+  {-# INLINE toBuilder #-}
+  decodeCurrent = fmap Barbie $ btraverse (\Dict -> decodeCurrent) (bdicts :: b (Dict (ClassF Serialise h)))
+  {-# INLINE decodeCurrent #-}
+  extractor = fmap Barbie $ buildExtractor $ btraverse getCompose bextractors
+
+bextractors :: forall b h. (ConstraintsB b, AllBF Serialise h b, FieldNamesB b) => b (Compose Subextractor h)
+bextractors = bmapC @(ClassF Serialise h) (Compose . extractField . getConst) bfieldNames
+{-# INLINABLE bextractors #-}

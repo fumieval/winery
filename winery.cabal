@@ -41,6 +41,8 @@ library
   build-depends:
       aeson
     , base >=4.7 && <5
+    , barbies ^>= 2.0
+    , barbies-th ^>= 0.1
     , bytestring
     , containers
     , cpu

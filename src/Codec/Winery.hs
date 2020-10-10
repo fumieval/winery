@@ -110,7 +110,6 @@ module Codec.Winery
 import Codec.Winery.Base as W
 import Codec.Winery.Class
 import Codec.Winery.Internal
-import Control.Applicative
 import Control.Exception (throw, throwIO)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.FastBuilder as BB
@@ -293,35 +292,6 @@ deserialiseSchema bs_ = case B.uncons bs_ of
 serialiseOnly :: Serialise a => a -> B.ByteString
 serialiseOnly = BB.toStrictByteString . toBuilder
 {-# INLINE serialiseOnly #-}
-
--- | Build an extractor from a 'Subextractor'.
-buildExtractor :: Typeable a => Subextractor a -> Extractor a
-buildExtractor (Subextractor e) = mkExtractor $ runExtractor e
-{-# INLINE buildExtractor #-}
-
--- | An extractor for individual fields. This distinction is required for
--- handling recursions correctly.
---
--- Recommended extension: ApplicativeDo
-newtype Subextractor a = Subextractor { unSubextractor :: Extractor a }
-  deriving (Functor, Applicative, Alternative)
-
--- | Extract a field of a record.
-extractField :: Serialise a => T.Text -> Subextractor a
-extractField = extractFieldBy extractor
-{-# INLINE extractField #-}
-
--- | Extract a field using the supplied 'Extractor'.
-extractFieldBy :: Extractor a -> T.Text -> Subextractor a
-extractFieldBy (Extractor g) name = Subextractor $ Extractor $ \case
-  SRecord schs -> case lookupWithIndexV name schs of
-    Just (i, sch) -> do
-      m <- g sch
-      return $ \case
-        TRecord xs -> maybe (throw $ InvalidTerm (TRecord xs)) (m . snd) $ xs V.!? i
-        t -> throw $ InvalidTerm t
-    _ -> throwStrategy $ FieldNotFound [] name (map fst $ V.toList schs)
-  s -> throwStrategy $ UnexpectedSchema [] "a record" s
 
 -- | Extract a field using the supplied 'Extractor'.
 extractProductItemBy :: Extractor a -> Int -> Subextractor a
