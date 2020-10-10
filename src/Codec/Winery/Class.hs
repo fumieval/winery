@@ -102,7 +102,7 @@ import qualified Data.Text.Encoding.Error as T
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
 import qualified Data.Vector.Unboxed as UV
-import Data.Text.Prettyprint.Doc hiding ((<>), SText, SChar)
+import Prettyprinter hiding ((<>), SText, SChar)
 import Data.Time.Clock
 import Data.Time.Clock.POSIX
 import Data.Typeable

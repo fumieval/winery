@@ -51,7 +51,7 @@ library
     , HUnit
     , megaparsec >=6.0.0
     , mtl
-    , prettyprinter
+    , prettyprinter ^>= 1.7
     , prettyprinter-ansi-terminal
     , scientific
     , semigroups

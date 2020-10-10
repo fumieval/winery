@@ -5,8 +5,8 @@ import Control.Monad
 import qualified Data.Aeson as JSON
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
-import Data.Text.Prettyprint.Doc
-import Data.Text.Prettyprint.Doc.Render.Terminal
+import Prettyprinter
+import Prettyprinter.Render.Terminal
 import Data.Word (Word64)
 import qualified Codec.Winery.Query as Q
 import Codec.Winery.Query.Parser

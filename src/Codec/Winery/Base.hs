@@ -46,8 +46,8 @@ import qualified Data.HashMap.Strict as HM
 import Data.Int
 import Data.String
 import qualified Data.Text as T
-import Data.Text.Prettyprint.Doc hiding ((<>), SText, SChar)
-import Data.Text.Prettyprint.Doc.Render.Terminal
+import Prettyprinter hiding ((<>), SText, SChar)
+import Prettyprinter.Render.Terminal
 import Data.Time
 import qualified Data.Set as S
 import Data.Typeable
