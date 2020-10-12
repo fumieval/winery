@@ -61,6 +61,10 @@ module Codec.Winery
   , extractProductItemBy
   , extractVoid
   , buildVariantExtractor
+  , buildRecordExtractor
+  , bextractors
+  , buildRecordExtractorF
+  , bextractorsF
   , ExtractException(..)
   , SingleField(..)
   -- * Variable-length quantity

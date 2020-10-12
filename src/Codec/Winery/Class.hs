@@ -58,7 +58,10 @@ module Codec.Winery.Class (Serialise(..)
   , extractField
   , extractFieldBy
   , buildExtractor
+  , buildRecordExtractor
   , bextractors
+  , buildRecordExtractorF
+  , bextractorsF
   ) where
 
 import Barbies hiding (Void)
@@ -1092,9 +1095,22 @@ instance (Typeable k, Typeable b, Typeable h, ApplicativeB b, ConstraintsB b, Tr
   {-# INLINE toBuilder #-}
   decodeCurrent = fmap Barbie $ btraverse (\Dict -> decodeCurrent) (bdicts :: b (Dict (ClassF Serialise h)))
   {-# INLINE decodeCurrent #-}
-  extractor = fmap Barbie $ buildExtractor $ btraverse getCompose bextractors
+  extractor = fmap Barbie $ buildRecordExtractorF bextractorsF
+
+buildRecordExtractorF :: (Typeable b, Typeable h, TraversableB b) => b (Compose Subextractor h) -> Extractor (b h)
+buildRecordExtractorF = buildExtractor . btraverse getCompose
+{-# INLINE buildRecordExtractorF #-}
 
 -- | Collect extractors for record fields
-bextractors :: forall b h. (ConstraintsB b, AllBF Serialise h b, FieldNamesB b) => b (Compose Subextractor h)
-bextractors = bmapC @(ClassF Serialise h) (Compose . extractField . getConst) bfieldNames
+bextractorsF :: forall b h. (ConstraintsB b, AllBF Serialise h b, FieldNamesB b) => b (Compose Subextractor h)
+bextractorsF = bmapC @(ClassF Serialise h) (Compose . extractField . getConst) bfieldNames
+{-# INLINABLE bextractorsF #-}
+
+buildRecordExtractor :: (Typeable b, TraversableB b) => b Subextractor -> Extractor (b Identity)
+buildRecordExtractor = buildExtractor . btraverse (fmap Identity)
+{-# INLINE buildRecordExtractor #-}
+
+-- | Collect extractors for record fields
+bextractors :: forall b. (ConstraintsB b, AllB Serialise b, FieldNamesB b) => b Subextractor
+bextractors = bmapC @Serialise (extractField . getConst) bfieldNames
 {-# INLINABLE bextractors #-}

@@ -2,9 +2,15 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -Wno-missing-signatures#-}
 import Control.Monad
+import Barbies.Bare
+import Barbies.TH
 import Data.ByteString (ByteString)
+import Data.Functor.Identity
 import Data.Int
 import Data.IntMap (IntMap)
 import Data.IntSet (IntSet)
@@ -23,7 +29,7 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
 import qualified Data.Vector.Unboxed as UV
-import GHC.Generics (Generic)
+import GHC.Generics
 import Test.QuickCheck
 import qualified Test.QuickCheck.Gen as Gen
 import Test.QuickCheck.Instances ()
@@ -169,5 +175,24 @@ instance Serialise Food where
 
 prop_Food = testSerialise @ Food
 
+declareBareB [d|
+  data HRecB = HRec
+    { baz :: !Int
+    , qux :: !Text
+    }
+    |]
+type HRec = HRecB Bare Identity
+
+instance Serialise HRec where
+  bundleSerialise = bundleVia WineryRecord
+  extractor = fmap bstrip $ buildRecordExtractor bextractors
+    { qux = extractField "qux" <|> extractField "oldQux" }
+
+deriving instance Show HRec
+deriving instance Eq HRec
+
+instance Arbitrary HRec where
+  arbitrary = HRec <$> arbitrary <*> arbitrary
+prop_HRec = testSerialise @ HRec
 return []
 main = void $ $quickCheckAll

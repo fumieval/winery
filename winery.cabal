@@ -98,6 +98,8 @@ test-suite spec
     , containers
     , scientific
     , bytestring
+    , barbies
+    , barbies-th >= 0.1.5
   default-language: Haskell2010
 
 benchmark bench-winery

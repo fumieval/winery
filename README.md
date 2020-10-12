@@ -93,14 +93,7 @@ come in.
 `Extractor` parses a schema and returns a function which gives a value back from
 a `Term`.
 
-If having default values for missing fields is sufficient, you can pass a
-default value to `gextractorRecord`:
-
-```haskell
-  extractor = gextractorRecord $ Just $ Foo "" 42 0
-```
-
-You can also build an extractor using combinators such as `extractField`, `extractConstructor`, etc.
+You can build an extractor using combinators such as `extractField`, `extractConstructor`, etc.
 
 ```haskell
 buildExtractor
@@ -119,6 +112,42 @@ buildVariantExtractor :: (Generic a, Typeable a) => HM.HashMap T.Text (Extractor
 
 `Extractor` is Alternative, meaning that multiple extractors (such as a default
 generic implementation and fallback plans) can be combined into one.
+
+Altering an instance for a record type is a little bit tricky.
+HKD can represent a record where each field is `Subextractor` instead of the orignal type.
+The [barbies-th](http://hackage.haskell.org/package/barbies-th) allows us to derive it from a plain declaration.
+
+```haskell
+import Barbies.Bare
+import Barbies.TH
+
+declareBareB [d|
+  data HRecB = HRec
+    { baz :: !Int
+    , qux :: !Text
+    }
+    |]
+type HRec = HRecB Bare Identity
+```
+
+Obtain a record of extractors using `bextractors :: forall b. (AllB Serialise b, ...) => b Subextractor`, update it as necessary,
+then build an extractor for an entire record by `buildRecordExtractor`.
+
+```haskell
+instance Serialise HRec where
+  bundleSerialise = bundleVia WineryRecord
+  extractor = fmap bstrip $ buildRecordExtractor bextractors
+    { qux = extractField "qux" <|> extractField "oldQux" }
+```
+
+More generic instance (for covered types) can be defined as below:
+
+```haskell
+instance (Typeable h, AllBF Serialise h (HRecB Covered)) => Serialise (HRecB Covered h) where
+  bundleSerialise = bundleVia Barbie
+  extractor = buildRecordExtractorF bextractorsF
+    { qux = Compose $ extractField "qux" <|> extractField "oldQux" }
+```
 
 ## Pretty-printing
 
