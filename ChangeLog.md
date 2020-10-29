@@ -1,3 +1,9 @@
+## 1.3.2
+
+* Inlined methods of various `Serialise` instances
+* Added `buildRecordExtractor` and `bextractors`
+* Added a `Serialise` instance for `Barbie`
+
 ## 1.3.1
 
 * Added `bundleVia`, deprecating `bundleRecord` and `bundleVariant`
