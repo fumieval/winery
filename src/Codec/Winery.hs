@@ -196,7 +196,7 @@ deserialiseTerm bs_ = do
 --
 -- /"No tears in the writer, no tears in the reader. No surprise in the writer, no surprise in the reader."/
 testSerialise :: forall a. (Eq a, Show a, Serialise a) => a -> QC.Property
-testSerialise x = case getDecoderBy extractor (schema (Proxy @ a)) of
+testSerialise x = case getDecoderBy extractor (schema (Proxy @a)) of
   Left e -> QC.counterexample (show e) False
   Right f -> QC.counterexample "extractor" (evalDecoder f b QC.=== x)
     QC..&&. QC.counterexample "decodeCurrent" (evalDecoder decodeCurrent b QC.=== x)
@@ -205,7 +205,7 @@ testSerialise x = case getDecoderBy extractor (schema (Proxy @ a)) of
 
 -- | 'decodeCurrent' in terms of 'extractor'; note that it's very slow.
 decodeCurrentDefault :: forall a. Serialise a => Decoder a
-decodeCurrentDefault = case getDecoderBy extractor (schema (Proxy @ a)) of
+decodeCurrentDefault = case getDecoderBy extractor (schema (Proxy @a)) of
   Left err -> error $ "decodeCurrentDefault: failed to get a decoder from the current schema"
     ++ show err
   Right a -> a
@@ -215,7 +215,7 @@ decodeCurrentDefault = case getDecoderBy extractor (schema (Proxy @ a)) of
 -- /"A reader lives a thousand lives before he dies... The man who never reads lives only one."/
 getDecoder :: forall a. Serialise a => Schema -> Either WineryException (Decoder a)
 getDecoder sch
-  | sch == schema (Proxy @ a) = Right decodeCurrent
+  | sch == schema (Proxy @a) = Right decodeCurrent
   | otherwise = getDecoderBy extractor sch
 {-# INLINE getDecoder #-}
 
@@ -241,7 +241,7 @@ writeFileSerialise path a = withBinaryFile path WriteMode
 -- | Serialise a value with the schema.
 toBuilderWithSchema :: forall a. Serialise a => a -> BB.Builder
 toBuilderWithSchema a = mappend (BB.word8 currentSchemaVersion)
-  $ toBuilder (schema (Proxy @ a), a)
+  $ toBuilder (schema (Proxy @a), a)
 {-# INLINE toBuilderWithSchema #-}
 
 -- | Split a 'Schema' from a 'B.ByteString'.
@@ -361,7 +361,7 @@ infixr 1 `extractConstructor`
 newtype WineryRecord a = WineryRecord { unWineryRecord :: a }
 
 instance (GEncodeProduct (Rep a), GSerialiseRecord (Rep a), GDecodeProduct (Rep a), Generic a, Typeable a) => Serialise (WineryRecord a) where
-  schemaGen _ = gschemaGenRecord (Proxy @ a)
+  schemaGen _ = gschemaGenRecord (Proxy @a)
   toBuilder = gtoBuilderRecord . unWineryRecord
   extractor = WineryRecord <$> gextractorRecord Nothing
   decodeCurrent = WineryRecord <$> gdecodeCurrentRecord
@@ -374,7 +374,7 @@ instance (GEncodeProduct (Rep a), GSerialiseRecord (Rep a), GDecodeProduct (Rep 
 newtype WineryProduct a = WineryProduct { unWineryProduct :: a }
 
 instance (GEncodeProduct (Rep a), GSerialiseProduct (Rep a), GDecodeProduct (Rep a), Generic a, Typeable a) => Serialise (WineryProduct a) where
-  schemaGen _ = gschemaGenProduct (Proxy @ a)
+  schemaGen _ = gschemaGenProduct (Proxy @a)
   toBuilder = gtoBuilderProduct . unWineryProduct
   extractor = WineryProduct <$> gextractorProduct
   decodeCurrent = WineryProduct <$> gdecodeCurrentProduct
@@ -387,7 +387,7 @@ instance (GEncodeProduct (Rep a), GSerialiseProduct (Rep a), GDecodeProduct (Rep
 newtype WineryVariant a = WineryVariant { unWineryVariant :: a }
 
 instance (GConstructorCount (Rep a), GSerialiseVariant (Rep a), GEncodeVariant (Rep a), GDecodeVariant (Rep a), Generic a, Typeable a) => Serialise (WineryVariant a) where
-  schemaGen _ = gschemaGenVariant (Proxy @ a)
+  schemaGen _ = gschemaGenVariant (Proxy @a)
   toBuilder = gtoBuilderVariant . unWineryVariant
   extractor = WineryVariant <$> gextractorVariant
   decodeCurrent = WineryVariant <$> gdecodeCurrentVariant

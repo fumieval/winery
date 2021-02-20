@@ -69,7 +69,7 @@ mergeTests = TestList . concatMap (\(k, v) -> map (show k ~:) v) . M.toList
 
 -- | Gather all test cases involved in the specified type.
 allTests :: forall a. (TestGen a, Tested a) => M.Map TypeRep [Test]
-allTests = M.insertWith (++) (typeRep (Proxy @ a)) (testCases @ a) (inheritedTests (Proxy @ a))
+allTests = M.insertWith (++) (typeRep (Proxy @a)) (testCases @a) (inheritedTests (Proxy @a))
 
 -- | Types with concrete test cases.
 --
@@ -80,7 +80,7 @@ class TestGen a => Tested a where
   testCases :: [Test]
 
   default testCases :: (Serialise a, Eq a, Show a) => [Test]
-  testCases = [testCase sch b a | (sch, xs) <- testGroups @ a, (b, a) <- xs]
+  testCases = [testCase sch b a | (sch, xs) <- testGroups @a, (b, a) <- xs]
 
   testGroups :: [(Schema, [(B.ByteString, a)])]
   testGroups = []
@@ -101,7 +101,7 @@ instance Tested Char where testCases = []
 instance Tested T.Text where testCases = []
 instance Tested B.ByteString where testCases = []
 instance Tested a => Tested (Identity a) where
-  testCases = testCases @ a
+  testCases = testCases @a
 instance Tested a => Tested (S.Seq a) where testCases = []
 instance (Ord a, Tested a) => Tested (Set.Set a) where testCases = []
 instance Tested a => Tested [a] where testCases = []
@@ -121,7 +121,7 @@ printTests :: forall a. (TestGen a, Serialise a, Show a) => IO ()
 printTests = putStrLn $ showTests (genTestCases :: [a])
 
 buildTestGroups :: forall a. (TestGen a, Serialise a) => [(Schema, [(B.ByteString, a)])]
-buildTestGroups = [(schema (Proxy @ a), [(serialiseOnly a, a) | a <- genTestCases :: [a]])]
+buildTestGroups = [(schema (Proxy @a), [(serialiseOnly a, a) | a <- genTestCases :: [a]])]
 
 showTests :: (Serialise a, Show a) => [a] -> String
 showTests xs = showListWith ppTest xs ""
@@ -149,7 +149,7 @@ class Typeable a => TestGen a where
   genTestCases = fmap to ggenTestCases
 
   default inheritedTests :: (GTestGen (Rep a)) => Proxy a -> M.Map TypeRep [Test]
-  inheritedTests _ = ginheritedTests (Proxy @ (Rep a))
+  inheritedTests _ = ginheritedTests (Proxy @(Rep a))
 
 class GTestGen f where
   ggenTestCases :: [f x]
@@ -165,28 +165,28 @@ instance GTestGen U1 where
 
 instance GTestGen f => GTestGen (Rec1 f) where
   ggenTestCases = fmap Rec1 ggenTestCases
-  ginheritedTests _ = ginheritedTests (Proxy @ f)
+  ginheritedTests _ = ginheritedTests (Proxy @f)
 
 instance (Tested c, TestGen c) => GTestGen (K1 i c) where
   ggenTestCases = fmap K1 genTestCases
-  ginheritedTests _ = allTests @ c
+  ginheritedTests _ = allTests @c
 
 instance GTestGen f => GTestGen (M1 i c f) where
   ggenTestCases = fmap M1 ggenTestCases
-  ginheritedTests _ = ginheritedTests (Proxy @ f)
+  ginheritedTests _ = ginheritedTests (Proxy @f)
 
 instance (GTestGen f, GTestGen g) => GTestGen (f :+: g) where
   ggenTestCases = fmap L1 ggenTestCases ++ fmap R1 ggenTestCases
-  ginheritedTests _ = ginheritedTests (Proxy @ f)
-    `mappend` ginheritedTests (Proxy @ g)
+  ginheritedTests _ = ginheritedTests (Proxy @f)
+    `mappend` ginheritedTests (Proxy @g)
 
 instance (GTestGen f, GTestGen g) => GTestGen (f :*: g) where
   ggenTestCases = ((:*:) <$> ggenTestCases <*> xs)
     ++ ((:*:) <$> take 1 ggenTestCases <*> ys)
     where
       (xs, ys) = splitAt 1 ggenTestCases
-  ginheritedTests _ = ginheritedTests (Proxy @ f)
-    `mappend` ginheritedTests (Proxy @ g)
+  ginheritedTests _ = ginheritedTests (Proxy @f)
+    `mappend` ginheritedTests (Proxy @g)
 
 deriving instance TestGen a => TestGen (Identity a)
 instance TestGen ()
@@ -198,31 +198,31 @@ instance (Tested a, Tested b) => TestGen (Either a b)
 
 instance Tested a => TestGen [a] where
   genTestCases = [[]]
-  inheritedTests _ = allTests @ a
+  inheritedTests _ = allTests @a
 
 instance (Ord a, Tested a) => TestGen (Set.Set a) where
   genTestCases = [mempty]
-  inheritedTests _ = allTests @ a
+  inheritedTests _ = allTests @a
 
 instance Tested a => TestGen (S.Seq a) where
   genTestCases = [mempty]
-  inheritedTests _ = allTests @ a
+  inheritedTests _ = allTests @a
 
 instance Tested a => TestGen (V.Vector a) where
   genTestCases = [V.empty]
-  inheritedTests _ = allTests @ a
+  inheritedTests _ = allTests @a
 
 instance (UV.Unbox a, Tested a) => TestGen (UV.Vector a) where
   genTestCases = [UV.empty]
-  inheritedTests _ = allTests @ a
+  inheritedTests _ = allTests @a
 
 instance (Hashable k, Tested k, Tested a) => TestGen (HM.HashMap k a) where
   genTestCases = HM.singleton <$> genTestCases <*> genTestCases
-  inheritedTests _ = allTests @ k `mappend` allTests @ a
+  inheritedTests _ = allTests @k `mappend` allTests @a
 
 instance (Ord k, Tested k, Tested a) => TestGen (M.Map k a) where
   genTestCases = [M.empty]
-  inheritedTests _ = allTests @ k `mappend` allTests @ a
+  inheritedTests _ = allTests @k `mappend` allTests @a
 
 instance TestGen Void where
   genTestCases = []

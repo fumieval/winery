@@ -46,44 +46,44 @@ newtype Nano = Nano NominalDiffTime deriving (Show, Eq, Serialise)
 instance Arbitrary Nano where
   arbitrary = Nano . realToFrac . (1000*) <$> (arbitrary :: Gen Pico)
 
-prop_Unit = testSerialise @ ()
-prop_Bool = testSerialise @ Bool
-prop_Word8 = testSerialise @ Word8
-prop_Word16 = testSerialise @ Word16
-prop_Word32 = testSerialise @ Word32
-prop_Word64 = testSerialise @ Word64
-prop_Word = testSerialise @ Word
-prop_Int8 = testSerialise @ Int8
-prop_Int16 = testSerialise @ Int16
-prop_Int32 = testSerialise @ Int32
-prop_Int64 = testSerialise @ Int64
-prop_Int = testSerialise @ Int
-prop_Float = testSerialise @ Float
-prop_Double = testSerialise @ Double
-prop_Text = testSerialise @ Text
-prop_Integer = testSerialise @ Integer
-prop_Char = testSerialise @ Char
-prop_Maybe_Int = testSerialise @ (Maybe Int)
-prop_ByteString = testSerialise @ ByteString
-prop_ByteString_Lazy = testSerialise @ BL.ByteString
+prop_Unit = testSerialise @()
+prop_Bool = testSerialise @Bool
+prop_Word8 = testSerialise @Word8
+prop_Word16 = testSerialise @Word16
+prop_Word32 = testSerialise @Word32
+prop_Word64 = testSerialise @Word64
+prop_Word = testSerialise @Word
+prop_Int8 = testSerialise @Int8
+prop_Int16 = testSerialise @Int16
+prop_Int32 = testSerialise @Int32
+prop_Int64 = testSerialise @Int64
+prop_Int = testSerialise @Int
+prop_Float = testSerialise @Float
+prop_Double = testSerialise @Double
+prop_Text = testSerialise @Text
+prop_Integer = testSerialise @Integer
+prop_Char = testSerialise @Char
+prop_Maybe_Int = testSerialise @(Maybe Int)
+prop_ByteString = testSerialise @ByteString
+prop_ByteString_Lazy = testSerialise @BL.ByteString
 -- prop_UTCTime = testSerialise @ UTCTime
-prop_NominalDiffTime = testSerialise @ Nano
-prop_List_Int = testSerialise @ [Int]
-prop_Vector_Int = testSerialise @ (V.Vector Int) . V.fromList
-prop_Vector_Storable_Int = testSerialise @ (SV.Vector Int) . SV.fromList
-prop_Vector_Unboxed_Int = testSerialise @ (UV.Vector Int) . UV.fromList
-prop_Map_Int_Int = testSerialise @ (Map Int Int)
-prop_HashMap_String_Int = testSerialise @ (HM.HashMap String Int) . HM.fromList
-prop_IntMap_Int = testSerialise @ (IntMap Int)
-prop_Set_Int = testSerialise @ (Set Int)
-prop_IntSet = testSerialise @ IntSet
-prop_Seq_Int = testSerialise @ (Seq Int)
-prop_Scientific = testSerialise @ Scientific
-prop_Tuple2 = testSerialise @ (Bool, Int)
-prop_Tuple3 = testSerialise @ (Bool, Int, Text)
-prop_Tuple4 = testSerialise @ (Bool, Int, Text, Double)
-prop_Either_String_Int = testSerialise @ (Either String Int)
-prop_Ordering = testSerialise @ Ordering
+prop_NominalDiffTime = testSerialise @Nano
+prop_List_Int = testSerialise @[Int]
+prop_Vector_Int = testSerialise @(V.Vector Int) . V.fromList
+prop_Vector_Storable_Int = testSerialise @(SV.Vector Int) . SV.fromList
+prop_Vector_Unboxed_Int = testSerialise @(UV.Vector Int) . UV.fromList
+prop_Map_Int_Int = testSerialise @(Map Int Int)
+prop_HashMap_String_Int = testSerialise @(HM.HashMap String Int) . HM.fromList
+prop_IntMap_Int = testSerialise @(IntMap Int)
+prop_Set_Int = testSerialise @(Set Int)
+prop_IntSet = testSerialise @IntSet
+prop_Seq_Int = testSerialise @(Seq Int)
+prop_Scientific = testSerialise @Scientific
+prop_Tuple2 = testSerialise @(Bool, Int)
+prop_Tuple3 = testSerialise @(Bool, Int, Text)
+prop_Tuple4 = testSerialise @(Bool, Int, Text, Double)
+prop_Either_String_Int = testSerialise @(Either String Int)
+prop_Ordering = testSerialise @Ordering
 
 data TRec = TRec
   { foo :: !Int
@@ -96,7 +96,7 @@ instance Arbitrary TRec where
 instance Serialise TRec where
   bundleSerialise = bundleVia WineryRecord
 
-prop_TRec = testSerialise @ TRec
+prop_TRec = testSerialise @TRec
 
 data TList a = TCons a (TList a) | TNil deriving (Show, Eq, Generic)
 
@@ -108,7 +108,7 @@ instance Arbitrary a => Arbitrary (TList a) where
     then pure TNil
     else TCons <$> arbitrary <*> scale pred arbitrary
 
-prop_TList_Int = testSerialise @ (TList Int)
+prop_TList_Int = testSerialise @(TList Int)
 
 data Tree
   = Leaf
@@ -140,8 +140,8 @@ instance Serialise Node where
       <*> (extractField "right" <|> extractField "rightChild")
     }
 
-prop_tree = testSerialise @ Tree
-prop_node = testSerialise @ Node
+prop_tree = testSerialise @Tree
+prop_node = testSerialise @Node
 
 data Foo = Foo | Bar | Baz | Qux | FooBar | FooBaz | FooQux deriving (Generic, Eq, Show, Enum)
 
@@ -151,7 +151,7 @@ instance Arbitrary Foo where
 instance Serialise Foo where
   bundleSerialise = bundleVia WineryVariant
 
-prop_Foo = testSerialise @ Foo
+prop_Foo = testSerialise @Foo
 
 data Soup = Shoyu | Miso | Tonkotsu deriving (Generic, Eq, Show, Enum)
 
@@ -180,7 +180,7 @@ instance Serialise Food where
     `extractConstructor` ("Pasta", uncurry Pasta)
     `extractConstructor` extractVoid
 
-prop_Food = testSerialise @ Food
+prop_Food = testSerialise @Food
 
 declareBareB [d|
   data HRecB = HRec
@@ -200,6 +200,6 @@ deriving instance Eq HRec
 
 instance Arbitrary HRec where
   arbitrary = HRec <$> arbitrary <*> arbitrary
-prop_HRec = testSerialise @ HRec
+prop_HRec = testSerialise @HRec
 return []
 main = $quickCheckAll >>= flip unless (error "Failed")
