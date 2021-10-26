@@ -1,3 +1,6 @@
+* Added an instance for `NonEmpty`
+* Removed the instance for `Option`
+
 ## 1.3.2
 
 * Inlined methods of various `Serialise` instances
