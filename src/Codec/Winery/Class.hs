@@ -81,6 +81,7 @@ import Data.Functor.Compose
 import Data.Functor.Identity
 import qualified Data.Functor.Product as F
 import Data.List (elemIndex)
+import qualified Data.List.NonEmpty as NE
 import Data.Monoid as M
 import Data.Kind (Type)
 import Data.Proxy
@@ -547,6 +548,13 @@ instance Serialise a => Serialise [a] where
   decodeCurrent = do
     n <- decodeVarInt
     replicateM n decodeCurrent
+
+instance Serialise a => Serialise (NE.NonEmpty a) where
+  schemaGen _ = SVector <$> getSchema (Proxy @a)
+  toBuilder = toBuilder . NE.toList
+  {-# INLINE toBuilder #-}
+  extractor = NE.fromList . V.toList <$> extractListBy extractor
+  decodeCurrent = NE.fromList <$> decodeCurrent
 
 instance Serialise a => Serialise (V.Vector a) where
   schemaGen _ = SVector <$> getSchema (Proxy @a)
