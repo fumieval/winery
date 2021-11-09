@@ -102,6 +102,19 @@ test-suite spec
     , barbies-th >= 0.1.5
   default-language: Haskell2010
 
+test-suite schema
+  type: exitcode-stdio-1.0
+  main-is: Schema.hs
+  ghc-options: -Wall -Wcompat
+  hs-source-dirs:
+      test
+  build-depends:
+    base >=4.7 && <5
+    , winery
+    , prettyprinter
+    , QuickCheck
+  default-language: Haskell2010
+
 benchmark bench-winery
   type: exitcode-stdio-1.0
   main-is: bench.hs

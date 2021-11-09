@@ -75,6 +75,7 @@ module Codec.Winery
   , unexpectedSchema
   , SchemaGen
   , getSchema
+  , withSchema
   -- * DerivingVia
   , WineryRecord(..)
   , WineryVariant(..)
@@ -107,6 +108,8 @@ module Codec.Winery
   , bundleRecordDefault
   , bundleVariant
   , bundleVia
+  , alterExtractor
+  , alterSchemaGen
   -- * Preset schema
   , bootstrapSchema
   ) where

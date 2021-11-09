@@ -1,4 +1,5 @@
 {-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
@@ -25,8 +26,11 @@ module Codec.Winery.Class (Serialise(..)
   , bundleRecord
   , bundleRecordDefault
   , bundleVariant
+  , alterSchemaGen
+  , alterExtractor
   , getSchema
   , schema
+  , withSchema
   , unexpectedSchema
   , mkExtractor
   , extractListBy
@@ -172,6 +176,16 @@ data BundleSerialise a = BundleSerialise
   , bundleDecodeCurrent :: Decoder a
   }
 
+-- | Modify 'bundleSchemaGen'
+alterSchemaGen :: (SchemaGen Schema -> SchemaGen Schema)
+  -> BundleSerialise a -> BundleSerialise a
+alterSchemaGen f bundle = bundle { bundleSchemaGen = f . bundleSchemaGen bundle }
+
+-- | Modify 'bundleExtractor'
+alterExtractor :: (Extractor a -> Extractor a)
+  -> BundleSerialise a -> BundleSerialise a
+alterExtractor f bundle = bundle { bundleExtractor = f (bundleExtractor bundle) }
+
 -- | A bundle of generic implementations for records
 bundleRecord :: (GEncodeProduct (Rep a), GSerialiseRecord (Rep a), GDecodeProduct (Rep a), Generic a, Typeable a)
   => (Extractor a -> Extractor a) -- extractor modifier
@@ -211,6 +225,19 @@ bundleVariant f = BundleSerialise
   }
 {-# INLINE bundleVariant #-}
 {-# DEPRECATED bundleVariant "Use bundleVia instead" #-}
+
+-- | Bind a schema. While this does not change the semantics, it helps reducing the schema size
+-- when it has multiple children with the specified type (use TypeApplications to specify a type).
+withSchema :: forall a. Serialise a => SchemaGen Schema -> SchemaGen Schema
+withSchema gen = SchemaGen $ \seen -> if S.member rep seen
+  then unSchemaGen gen seen
+  else do
+    let seen' = S.insert rep seen
+    let (reps', g) = unSchemaGen (getSchema (Proxy @a)) seen
+    let (reps, f) = unSchemaGen gen seen'
+    (reps <> reps', \xs -> SLet (g xs) $ f $ rep : xs)
+  where
+    rep = typeRep (Proxy @a)
 
 -- | Obtain a schema on 'SchemaGen', binding a fixpoint when necessary.
 -- If you are hand-rolling a definition of 'schemaGen', you should call this

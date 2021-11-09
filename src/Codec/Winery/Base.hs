@@ -144,7 +144,7 @@ instance Pretty a => Pretty (SchemaP a) where
     SFix sch -> group $ nest 2 $ sep ["μ", enclose "{ " " }" $ pretty sch]
     SVar i -> "$" <> pretty i
     STag t s -> nest 2 $ sep [pretty t <> ":", pretty s]
-    SLet s t -> sep ["let" <+> pretty s, pretty t]
+    SLet s t -> group $ nest 2 $ sep ["let" <+> pretty s, pretty t]
 
 -- | Schema generator
 newtype SchemaGen a = SchemaGen { unSchemaGen :: S.Set TypeRep -> (S.Set TypeRep, [TypeRep] -> a) }

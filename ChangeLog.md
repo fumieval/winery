@@ -1,5 +1,7 @@
 * Added an instance for `NonEmpty`
 * Removed the instance for `Option`
+* Added `withSchema`
+* Added `alterSchemaGen` and `alterExtractor`
 
 ## 1.3.2
 
