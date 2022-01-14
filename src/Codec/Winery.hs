@@ -51,6 +51,7 @@ module Codec.Winery
   -- * Decoding combinators
   , Term(..)
   , encodeTerm
+  , decodeTerm
   , Subextractor(..)
   , buildExtractor
   , extractListBy
