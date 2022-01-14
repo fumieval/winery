@@ -23,9 +23,6 @@
 module Codec.Winery.Class (Serialise(..)
   , VarInt(..)
   , BundleSerialise(..)
-  , bundleRecord
-  , bundleRecordDefault
-  , bundleVariant
   , alterSchemaGen
   , alterExtractor
   , getSchema
@@ -185,46 +182,6 @@ alterSchemaGen f bundle = bundle { bundleSchemaGen = f . bundleSchemaGen bundle 
 alterExtractor :: (Extractor a -> Extractor a)
   -> BundleSerialise a -> BundleSerialise a
 alterExtractor f bundle = bundle { bundleExtractor = f (bundleExtractor bundle) }
-
--- | A bundle of generic implementations for records
-bundleRecord :: (GEncodeProduct (Rep a), GSerialiseRecord (Rep a), GDecodeProduct (Rep a), Generic a, Typeable a)
-  => (Extractor a -> Extractor a) -- extractor modifier
-  -> BundleSerialise a
-bundleRecord f = BundleSerialise
-  { bundleSchemaGen = gschemaGenRecord
-  , bundleToBuilder = gtoBuilderRecord
-  , bundleExtractor = f $ gextractorRecord Nothing
-  , bundleDecodeCurrent = gdecodeCurrentRecord
-  }
-{-# INLINE bundleRecord #-}
-{-# DEPRECATED bundleRecord "Use bundleVia instead" #-}
-
--- | A bundle of generic implementations for records, with a default value
-bundleRecordDefault :: (GEncodeProduct (Rep a), GSerialiseRecord (Rep a), GDecodeProduct (Rep a), Generic a, Typeable a)
-  => a -- default value
-  -> (Extractor a -> Extractor a) -- extractor modifier
-  -> BundleSerialise a
-bundleRecordDefault def f = BundleSerialise
-  { bundleSchemaGen = gschemaGenRecord
-  , bundleToBuilder = gtoBuilderRecord
-  , bundleExtractor = f $ gextractorRecord $ Just def
-  , bundleDecodeCurrent = gdecodeCurrentRecord
-  }
-{-# INLINE bundleRecordDefault #-}
-{-# DEPRECATED bundleRecordDefault "Use bundleVia instead" #-}
-
--- | A bundle of generic implementations for variants
-bundleVariant :: (GSerialiseVariant (Rep a), GConstructorCount (Rep a), GEncodeVariant (Rep a), GDecodeVariant (Rep a), Generic a, Typeable a)
-  => (Extractor a -> Extractor a) -- extractor modifier
-  -> BundleSerialise a
-bundleVariant f = BundleSerialise
-  { bundleSchemaGen = gschemaGenVariant
-  , bundleToBuilder = gtoBuilderVariant
-  , bundleExtractor = f $ gextractorVariant
-  , bundleDecodeCurrent = gdecodeCurrentVariant
-  }
-{-# INLINE bundleVariant #-}
-{-# DEPRECATED bundleVariant "Use bundleVia instead" #-}
 
 -- | Bind a schema. While this does not change the semantics, it helps reducing the schema size
 -- when it has multiple children with the specified type (use TypeApplications to specify a type).

@@ -30,7 +30,6 @@ module Codec.Winery.Base
   , Strategy'
   , StrategyBind(..)
   , StrategyEnv(..)
-  , unwrapExtractor
   , WineryException(..)
   , pushTrace
   , prettyWineryException
@@ -264,12 +263,6 @@ data StrategyBind = DynDecoder !Dynamic -- ^ A fixpoint of a decoder
 data StrategyEnv = StrategyEnv !Int ![StrategyBind]
 
 type Strategy' = Strategy WineryException StrategyEnv
-
--- | Run an 'Extractor'.
-unwrapExtractor :: Extractor a -> Schema -> Strategy' (Term -> a)
-unwrapExtractor (Extractor m) = m
-{-# INLINE unwrapExtractor #-}
-{-# DEPRECATED unwrapExtractor "Use runExtractor instead" #-}
 
 pushTrace :: TypeRep -> WineryException -> WineryException
 pushTrace t (UnexpectedSchema xs d s) = UnexpectedSchema (t : xs) d s

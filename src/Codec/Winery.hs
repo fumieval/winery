@@ -42,7 +42,6 @@ module Codec.Winery
   , deserialiseSchema
   , Extractor(..)
   , mkExtractor
-  , unwrapExtractor
   , Decoder
   , evalDecoder
   , serialiseOnly
@@ -105,9 +104,6 @@ module Codec.Winery
   , decodeCurrentDefault
   -- * Bundles
   , BundleSerialise(..)
-  , bundleRecord
-  , bundleRecordDefault
-  , bundleVariant
   , bundleVia
   , alterExtractor
   , alterSchemaGen

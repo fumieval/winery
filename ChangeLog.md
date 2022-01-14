@@ -1,7 +1,10 @@
+## 1.4
+
 * Added an instance for `NonEmpty`
 * Removed the instance for `Option`
 * Added `withSchema`
 * Added `alterSchemaGen` and `alterExtractor`
+* Removed long-deprecated `unwrapExtractor`, `bundleRecord`, `bundleRecordDefault`, `bundleVariant`
 
 ## 1.3.2
 
