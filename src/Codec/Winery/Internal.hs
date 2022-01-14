@@ -257,11 +257,10 @@ newtype Strategy e r a = Strategy { unStrategy :: r -> Either e a }
   deriving Functor
 
 instance Applicative (Strategy e r) where
-  pure = return
+  pure = Strategy . const . Right
   (<*>) = ap
 
 instance Monad (Strategy e r) where
-  return = Strategy . const . Right
   m >>= k = Strategy $ \decs -> case unStrategy m decs of
     Right a -> unStrategy (k a) decs
     Left e -> Left e
