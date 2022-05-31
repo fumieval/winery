@@ -1,6 +1,6 @@
 cabal-version:  2.0
 name:           winery
-version:        1.3.2
+version:        1.4
 synopsis:       A compact, well-typed seralisation format for Haskell values
 description:
   <<https://i.imgur.com/lTosHnE.png>>
