@@ -45,6 +45,7 @@ module Codec.Winery
   , Decoder
   , evalDecoder
   , serialiseOnly
+  , deserialiseOnly
   , getDecoder
   , getDecoderBy
   -- * Decoding combinators
