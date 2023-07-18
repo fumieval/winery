@@ -9,6 +9,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# OPTIONS -Wno-deprecations #-}
 ----------------------------------------------------------------------------
 -- |
 -- Module      :  Codec.Winery
@@ -342,6 +343,7 @@ extractConstructorBy (d, name, f) cont = Subextractor $ Extractor $ \case
           t -> k t
       _ -> run (unSubextractor cont) (SVariant schs0)
   s -> throwStrategy $ UnexpectedSchema [] "a variant" s
+{-# DEPRECATED extractConstructorBy "Use buildVariantExtractor instead" #-}
 
 -- | Tries to match on a constructor. If it doesn't match (or constructor
 -- doesn't exist at all), leave it to the successor.
@@ -350,6 +352,7 @@ extractConstructorBy (d, name, f) cont = Subextractor $ Extractor $ \case
 extractConstructor :: (Serialise a) => (T.Text, a -> r) -> Subextractor r -> Subextractor r
 extractConstructor (name, f) = extractConstructorBy (extractor, name, f)
 {-# INLINE extractConstructor #-}
+{-# DEPRECATED extractConstructor "Use buildVariantExtractor instead" #-}
 
 -- | No constructors remaining.
 extractVoid :: Typeable r => Subextractor r

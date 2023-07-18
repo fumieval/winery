@@ -93,17 +93,9 @@ come in.
 `Extractor` parses a schema and returns a function which gives a value back from
 a `Term`.
 
-You can build an extractor using combinators such as `extractField`, `extractConstructor`, etc.
+You can build an extractor using combinators such as `extractField`.
 
-```haskell
-buildExtractor
-  $ ("None", \() -> Nothing)
-  `extractConstructor` ("Some", Just)
-  `extractConstructor` extractVoid
-  :: Extractor (Maybe a)
-```
-
-If you want to customise the extractor, the pair of `gvariantExtractors` and `buildVariantExtractors` is handy.
+If you want to customise an extractor for a variant, the pair of `gvariantExtractors` and `buildVariantExtractors` is handy.
 
 ```haskell
 gvariantExtractors :: (GSerialiseVariant (Rep a), Generic a) => HM.HashMap T.Text (Extractor a)

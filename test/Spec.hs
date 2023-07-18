@@ -174,11 +174,11 @@ instance Arbitrary Food where
 
 instance Serialise Food where
   bundleSerialise = bundleVia WineryVariant
-  extractor = buildExtractor
-    $ ("Rice", \() -> Rice)
-    `extractConstructor` ("Ramen", Ramen)
-    `extractConstructor` ("Pasta", uncurry Pasta)
-    `extractConstructor` extractVoid
+  extractor = buildVariantExtractor $ HM.fromList
+    [ ("Rice", pure Rice)
+    , ("Ramen", Ramen . getSingleField <$> extractor)
+    , ("Pasta", uncurry Pasta <$> extractor)
+    ]
 
 prop_Food = testSerialise @Food
 
