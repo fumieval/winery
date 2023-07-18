@@ -360,6 +360,7 @@ extractVoid = Subextractor $ mkExtractor $ \case
   SVariant schs0
     | V.null schs0 -> return $ throw . InvalidTerm
   s -> throwStrategy $ UnexpectedSchema [] "no constructors" s
+{-# DEPRECATED extractVoid "Use buildVariantExtractor mempty instead" #-}
 
 infixr 1 `extractConstructorBy`
 infixr 1 `extractConstructor`
