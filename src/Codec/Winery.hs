@@ -278,6 +278,11 @@ deserialiseBy e bs_ = do
   dec <- getDecoderBy e sch
   return $ evalDecoder dec bs
 
+-- | Deserialise a 'serialise'd 'B.Bytestring' using the current schema.
+deserialiseOnly :: Serialise a => B.ByteString -> a
+deserialiseOnly bs = evalDecoder decodeCurrent bs
+{-# INLINE deserialiseOnly #-}
+
 -- | Deserialise a file. Throws 'WineryException'
 readFileDeserialise :: Serialise a => FilePath -> IO a
 readFileDeserialise path = B.readFile path >>= either throwIO pure . deserialise
