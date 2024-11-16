@@ -1,5 +1,11 @@
 ## 1.4
 
+* Support GHC >= 9.6
+* Use `buildVariantExtractor` in `Codec.Winery.Query.con`
+* Require mtl >= 2.3
+
+## 1.4
+
 * Added an instance for `NonEmpty`
 * Removed the instance for `Option`
 * Added `withSchema`

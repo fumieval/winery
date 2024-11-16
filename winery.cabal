@@ -1,6 +1,6 @@
 cabal-version:  2.0
 name:           winery
-version:        1.4
+version:        1.5
 synopsis:       A compact, well-typed seralisation format for Haskell values
 description:
   <<https://i.imgur.com/lTosHnE.png>>
@@ -50,7 +50,7 @@ library
     , hashable
     , HUnit
     , megaparsec >=7.0.0
-    , mtl
+    , mtl >= 2.3
     , prettyprinter ^>= 1.7
     , prettyprinter-ansi-terminal
     , scientific
