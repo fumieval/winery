@@ -28,6 +28,7 @@ import Codec.Winery.Internal
 import Data.Typeable
 import qualified Data.Text as T
 import qualified Data.Vector as V
+import qualified Data.HashMap.Strict as HM
 
 -- | Query is a transformation between 'Extractor's.
 -- Like jq, this returns a list of values.
@@ -71,7 +72,7 @@ field name = Query $ \d -> buildExtractor $ extractFieldBy d name
 
 -- | Takes a variant and returns a value when the constructor matches.
 con :: Typeable a => T.Text -> Query a a
-con name = Query $ \d -> buildExtractor $ extractConstructorBy (d, name, id) (pure [])
+con name = Query $ \d -> buildVariantExtractor $ HM.singleton name d
 
 -- | Propagate values if the supplied 'Query' doesn't return False.
 select :: Query a Bool -> Query a a
