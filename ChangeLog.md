@@ -1,4 +1,4 @@
-## 1.4
+## 1.5
 
 * Support GHC >= 9.6
 * Use `buildVariantExtractor` in `Codec.Winery.Query.con`
