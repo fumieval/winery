@@ -111,6 +111,7 @@ import qualified Data.Vector.Unboxed as UV
 import Prettyprinter hiding ((<>), SText, SChar)
 import Data.Time.Clock
 import Data.Time.Clock.POSIX
+import Data.Tuple
 import Data.Typeable
 import Data.Void (Void)
 import Unsafe.Coerce
@@ -1109,3 +1110,13 @@ buildRecordExtractor = buildExtractor . btraverse (fmap Identity)
 bextractors :: forall b. (ConstraintsB b, AllB Serialise b, FieldNamesB b) => b Subextractor
 bextractors = bmapC @Serialise (extractField . getConst) bfieldNames
 {-# INLINABLE bextractors #-}
+
+#if MIN_VERSION_base(4,15,0)
+instance Serialise a => Serialise (Solo a) where
+  schemaGen = gschemaGenProduct
+  toBuilder = gtoBuilderProduct
+  extractor = gextractorProduct
+  decodeCurrent = gdecodeCurrentProduct
+  {-# INLINE toBuilder #-}
+  {-# INLINE decodeCurrent #-}
+#endif

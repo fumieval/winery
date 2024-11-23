@@ -53,6 +53,7 @@ import qualified Data.ByteString.Internal as B
 import qualified Data.ByteString.Builder.Prim.Internal as BPI
 import Data.Bits
 import Data.String
+import Data.Tuple
 import qualified Data.Vector.Unboxed as U
 import qualified Data.Vector as V
 import Data.Word
