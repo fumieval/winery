@@ -3,6 +3,8 @@
 * Support GHC >= 9.6
 * Use `buildVariantExtractor` in `Codec.Winery.Query.con`
 * Require mtl >= 2.3
+* Added `deserialiseOnly`
+* `extractConstructor`, `extractConstructorBy`, and `extractVoid` are now deprecated
 
 ## 1.4
 
